@@ -93,7 +93,7 @@ class DuckDBConnector(BaseConnector):
 
         if suffix == ".csv":
             t_name = _sanitize_table_name(stem)
-            safe_p = str(path).replace("\\", "/")
+            safe_p = str(path).replace("\\", "/").replace("'", "''")
             with self._lock:
                 try:
                     self._conn.execute(
@@ -107,7 +107,7 @@ class DuckDBConnector(BaseConnector):
 
         elif suffix in (".parquet", ".pq"):
             t_name = _sanitize_table_name(stem)
-            safe_p = str(path).replace("\\", "/")
+            safe_p = str(path).replace("\\", "/").replace("'", "''")
             with self._lock:
                 self._conn.execute(
                     f'CREATE OR REPLACE TABLE "{t_name}" AS SELECT * FROM read_parquet(\'{safe_p}\')'

@@ -223,7 +223,19 @@ async function apiRequest(url, options = {}) {
   if (options.body && !(options.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
   }
-  const resp = await fetch(url, { ...options, headers });
+  const opts = {
+    credentials: 'same-origin',
+    ...options,
+    headers,
+  };
+  const resp = await fetch(url, opts);
+  if (resp.status === 401) {
+    showToast('Session expired or unauthorized. Please reload or sign in.', 'error');
+    setTimeout(() => {
+      window.location.reload();
+    }, 1500);
+    throw new Error('Unauthorized');
+  }
   if (!resp.ok) {
     let errText = `HTTP ${resp.status}`;
     try {

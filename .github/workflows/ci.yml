@@ -1,0 +1,54 @@
+name: Data_Talk CI
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run Ruff Linting
+        run: |
+          ruff check .
+
+      - name: Run Pytest Test Suite
+        run: |
+          pytest --cov=src --cov-report=term-missing
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker Image
+        run: |
+          docker build -t datatalk-test:latest .
+
+      - name: Verify Secret Exclusion
+        run: |
+          docker run --rm datatalk-test:latest /bin/bash -c "
+            test ! -f /app/.env &&
+            test ! -d /app/.secrets/master.key &&
+            echo 'Verified: .env and master.key excluded from container image'
+          "

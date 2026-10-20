@@ -1,0 +1,29 @@
+# Secrets and local credentials
+.env
+.env.*
+!.env.example
+.secrets/
+*.pem
+*.key
+
+# Workspaces & databases
+workspaces/*
+!workspaces/.gitkeep
+*.duckdb*
+*.sqlite*
+*.wal
+
+# Python and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+tests/
+.venv/
+venv/
+*.log
+scratch*
+
+# Version control
+.git/
+.github/
+.gitignore

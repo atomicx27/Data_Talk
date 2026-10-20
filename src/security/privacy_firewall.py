@@ -11,6 +11,7 @@ Responsibilities:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from datetime import datetime, timezone
@@ -20,8 +21,10 @@ from typing import Any
 
 import pandas as pd
 import sqlglot
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 from sqlglot import exp
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class PrivacyMode(str, Enum):
@@ -83,6 +86,7 @@ FORBIDDEN_SQL_FUNCTIONS = {
     "read_parquet",
     "read_json",
     "write_parquet",
+    "glob",
 }
 
 FORBIDDEN_SYSTEM_SCHEMAS = {
@@ -356,23 +360,75 @@ class PrivacyFirewall:
 
 
 class CredentialVault:
-    """Stores database connection strings & tokens in a Fernet-encrypted local file (.secrets/vault.enc)."""
+    """Stores database connection strings & tokens in a Fernet-encrypted local file (.secrets/vault.enc).
 
-    def __init__(self, base_dir: str | Path = ".secrets") -> None:
+    Master-key resolution order (most to least secure):
+    1. ``DATA_TALK_MASTER_KEY`` environment variable.
+    2. OS keyring (Windows Credential Manager / macOS Keychain / Secret Service) if the optional
+       ``keyring`` package is installed.
+    3. Legacy ``master.key`` file next to the vault (kept for backwards compatibility, logs a warning).
+    """
+
+    KEYRING_SERVICE = "data_talk"
+    KEYRING_USERNAME = "vault_master_key"
+
+    def __init__(self, base_dir: str | Path = ".secrets", use_keyring: bool | None = None) -> None:
         self.base_dir = Path(base_dir)
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.key_file = self.base_dir / "master.key"
         self.vault_file = self.base_dir / "vault.enc"
+        if use_keyring is None:
+            use_keyring = os.environ.get("DATA_TALK_USE_KEYRING", "1").lower() not in {"0", "false", "no"}
+        self._use_keyring = use_keyring
+        self.key_source = "unknown"
         self._fernet = Fernet(self._load_or_create_key())
+
+    @staticmethod
+    def _keyring_module() -> Any | None:
+        try:
+            import keyring  # type: ignore[import-not-found]
+
+            return keyring
+        except Exception:
+            return None
 
     def _load_or_create_key(self) -> bytes:
         env_key = os.environ.get("DATA_TALK_MASTER_KEY")
         if env_key:
-            return env_key.encode("utf-8")
+            self.key_source = "env"
+            return env_key.strip().encode("utf-8")
+
+        # Legacy key file takes precedence over creating a new keyring key so existing vaults keep decrypting.
         if self.key_file.exists():
+            self.key_source = "file"
+            _LOGGER.warning(
+                "CredentialVault is using a plaintext master key file (%s). Set DATA_TALK_MASTER_KEY "
+                "or install 'keyring' and move the key to the OS credential store for better protection.",
+                self.key_file,
+            )
             return self.key_file.read_bytes().strip()
+
+        kr = self._keyring_module() if self._use_keyring else None
+        if kr is not None:
+            try:
+                stored = kr.get_password(self.KEYRING_SERVICE, self.KEYRING_USERNAME)
+                if stored:
+                    self.key_source = "keyring"
+                    return stored.encode("utf-8")
+                new_key = Fernet.generate_key()
+                kr.set_password(self.KEYRING_SERVICE, self.KEYRING_USERNAME, new_key.decode("utf-8"))
+                self.key_source = "keyring"
+                return new_key
+            except Exception as exc:  # keyring backend unavailable (e.g. headless Linux)
+                _LOGGER.warning("OS keyring unavailable (%s); falling back to master.key file.", exc)
+
         key = Fernet.generate_key()
         self.key_file.write_bytes(key)
+        try:
+            os.chmod(self.key_file, 0o600)
+        except OSError:
+            pass
+        self.key_source = "file"
         return key
 
     def _read_all(self) -> dict[str, str]:
@@ -380,20 +436,36 @@ class CredentialVault:
             return {}
         try:
             decrypted = self._fernet.decrypt(self.vault_file.read_bytes())
-            return json.loads(decrypted.decode("utf-8"))
-        except Exception:
-            return {}
+        except InvalidToken as exc:
+            raise VaultDecryptionError(
+                f"Cannot decrypt {self.vault_file}: the master key (source: {self.key_source}) does not match. "
+                "Restore the original DATA_TALK_MASTER_KEY / master.key, or delete vault.enc to start fresh."
+            ) from exc
+        return json.loads(decrypted.decode("utf-8"))
 
     def set_secret(self, credential_ref: str, secret_value: str) -> None:
-        """Encrypt and store a secret by symbolic reference name."""
+        """Encrypt and store a secret by symbolic reference name.
+
+        Refuses to overwrite a vault that cannot be decrypted (prevents silent loss of all stored secrets).
+        """
         store = self._read_all()
         store[credential_ref] = secret_value
         payload = json.dumps(store).encode("utf-8")
-        self.vault_file.write_bytes(self._fernet.encrypt(payload))
+        tmp = self.vault_file.with_suffix(".enc.tmp")
+        tmp.write_bytes(self._fernet.encrypt(payload))
+        os.replace(tmp, self.vault_file)
 
     def get_secret(self, credential_ref: str) -> str | None:
         """Retrieve a secret from OS env vars first, then fallback to encrypted vault."""
         env_val = os.environ.get(credential_ref)
         if env_val:
             return env_val
-        return self._read_all().get(credential_ref)
+        try:
+            return self._read_all().get(credential_ref)
+        except VaultDecryptionError as exc:
+            _LOGGER.error("%s", exc)
+            return None
+
+
+class VaultDecryptionError(RuntimeError):
+    """Raised when the encrypted credential vault cannot be decrypted with the active master key."""

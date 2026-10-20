@@ -26,6 +26,7 @@ from src.knowledge.okf_models import (
     TableRole,
     TableSchema,
 )
+from src.security.validators import ensure_within, normalize_workspace_id
 
 
 class JoinPlan(dict):
@@ -71,7 +72,10 @@ class OKFStore:
         self._lock = threading.RLock()
 
     def workspace_dir(self, workspace_id: str) -> Path:
-        path = self.base_dir / workspace_id
+        # Defence in depth: never allow a workspace id to escape the workspaces root.
+        ws_id = normalize_workspace_id(workspace_id)
+        path = self.base_dir / ws_id
+        ensure_within(self.base_dir, path)
         path.mkdir(parents=True, exist_ok=True)
         return path
 

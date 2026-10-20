@@ -1,4 +1,4 @@
-# Data_Talk Enterprise BI (`v2.4`)
+# Data_Talk Enterprise BI (`v2.4.0`)
 
 **Governed Conversational Business Intelligence, Semantic Layer Studio & Bidirectional DAX $\leftrightarrow$ SQL Compiler**
 
@@ -6,7 +6,7 @@ Data_Talk is a production-ready, zero-login enterprise conversational BI platfor
 
 Unlike generic "Text-to-SQL" wrappers that hallucinate on massive or cryptic schemas, Data_Talk builds a **Two-Tier Governed Semantic Brain** before answering executive queries:
 1. **Tier 1 — Organizational Knowledge Framework (`okf.yaml` + `NetworkX` Join Graph)**: Deterministic schema metadata, Fact vs. Dimension classification, verified join paths, and governed DAX/SQL measures.
-2. **Tier 2 — Hybrid Vector + BM25 RAG (`rag_memory.sqlite`)**: Local SQLite-backed TF-IDF + BM25 + Cosine Hybrid Retriever that indexes table/column definitions, business interview rules, and verified DAX/SQL few-shot examples with **Reciprocal Rank Fusion (RRF)**.
+2. **Tier 2 — Hybrid Vector + BM25 RAG (`rag_memory.sqlite`)**: Local SQLite-backed BM25 lexical retriever combined with stable BLAKE2b feature hashing and cosine vector similarity, fused using **Reciprocal Rank Fusion (RRF, $k=60$)**.
 
 ---
 
@@ -27,13 +27,12 @@ Unlike generic "Text-to-SQL" wrappers that hallucinate on massive or cryptic sch
   - Includes a **"Why Did It Change?" Root-Cause Analyzer** with Period-over-Period Waterfall charts, **"Explain This Number"** SQL/DAX lineage inspector, **1-Click "Teach AI" feedback loop**, and **CSV Export**.
 - **06. Executive Pinboard, What-If Scenario Simulator & Boardroom Report Export**
   - Live interactive Revenue & COGS shock sliders (`-30%` to `+50%`), pinned dashboard widgets, **Command Palette (`Ctrl+K`)**, **Live Read-Only SQL Scratchpad**, and 1-click **Executive BI Report (`.html` / Print-to-PDF)**.
-- **6-Layer Enterprise Security & Zero-Leak Privacy Firewall**
-  - **Layer 1**: Automatic PII column detection & `<REDACTED_PII_COLUMN>` masking.
-  - **Layer 2**: Prompt-injection isolation via `<untrusted_data_sample>` tags.
-  - **Layer 3**: `sqlglot` AST Read-Only Firewall (blocks `DROP`, `DELETE`, `UPDATE`, `INSERT`, `COPY`, `ATTACH`, and file-read functions).
-  - **Layer 4**: DAX `EVALUATE` Read-Only Sandbox Guard.
-  - **Layer 5**: Fernet-encrypted local credential vault (`.secrets/vault.enc`).
-  - **Layer 6**: Outbound LLM Prompt Scrubber & Live Audit Log with 3 Privacy Modes (`Strict Zero-Data-Leak`, `Sanitized Samples`, `100% Local Air-Gapped`).
+- **07. Hardened Multi-Session Enterprise Security Architecture**
+  - **Per-Session State Isolation**: Independent active workspaces, chat histories, what-if overrides, and LLM router configurations across concurrent browser tabs and users.
+  - **Session Cookie Authentication & Origin Defense**: Signed, random `dt_session` cookies (`HttpOnly`, `SameSite=Strict`), strict CORS origin verification, and optional Bearer token mode via `DATA_TALK_API_TOKEN`.
+  - **Strict Path Containment**: Path traversal rejection on workspace identifiers and uploaded filenames.
+  - **3-Tier Credential Vault**: Master-key resolution order (`DATA_TALK_MASTER_KEY` env var $\rightarrow$ OS Keyring $\rightarrow$ atomic Fernet encrypted file) with decrypt verification.
+  - **AST Read-Only Firewall**: AST query parser blocking `DROP`, `DELETE`, `UPDATE`, `INSERT`, `COPY`, `ATTACH`, file reading functions (`read_csv`, `read_parquet`, `glob`), and blocked column leakage.
 
 ---
 
@@ -42,14 +41,17 @@ Unlike generic "Text-to-SQL" wrappers that hallucinate on massive or cryptic sch
 ### 1. Local Python Execution
 
 ```bash
-# Install dependencies
+# Install production dependencies
 pip install -r requirements.txt
 
-# Copy environment template and configure your Groq / NVIDIA NIM API keys
+# (Optional) Install development and testing dependencies
+pip install -r requirements-dev.txt
+
+# Copy environment template and configure your provider API keys
 cp .env.example .env
 
-# Start the production FastAPI + Web Studio server on http://127.0.0.1:8504
-python -m uvicorn server:app --host 127.0.0.1 --port 8504
+# Start the production FastAPI server on http://127.0.0.1:8504
+python server.py
 ```
 
 Open **`http://127.0.0.1:8504`** in your browser.
@@ -62,29 +64,62 @@ docker compose up --build -d
 
 ---
 
+## 🔒 Security & Deployment Configuration
+
+All security settings can be customized via `.env` or container environment variables:
+
+| Variable | Default | Purpose |
+| :--- | :--- | :--- |
+| `DATA_TALK_API_TOKEN` | _None (Open Mode)_ | Require Bearer token authentication or browser token sign-in |
+| `DATA_TALK_MASTER_KEY` | _Auto-generated_ | Master encryption key for the local credential vault |
+| `DATA_TALK_ALLOWED_ORIGINS` | `http://127.0.0.1:8504,http://localhost:8504` | Allow-list for cross-origin API requests |
+| `MAX_UPLOAD_MB` | `200` | Maximum file size for file uploads in megabytes |
+| `PORT` | `8504` | Server listening port |
+| `HOST` | `127.0.0.1` | Server listening interface (`0.0.0.0` in Docker) |
+
+---
+
 ## 🔌 REST API Endpoints
 
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
-| `GET` | `/api/health` | Production health check, DuckDB version, and active LLM provider readiness |
-| `GET` | `/api/state` | Full workspace state, Semantic Readiness Score (`0-100%`), OKF, and RAG telemetry |
-| `POST` | `/api/connect/demo` | Loads & profiles the 4-table enterprise demo warehouse (`orders`, `customers`, `products`, `returns`) |
+| `GET` | `/api/health` | Production health check, DuckDB version, and provider readiness |
+| `GET` | `/api/state` | Full session workspace state, Readiness Score (`0-100%`), and telemetry |
+| `POST` | `/api/settings` | Updates session active workspace, LLM provider, privacy mode, and API keys |
+| `POST` | `/api/connect/demo` | Loads & profiles the 4-table enterprise demo warehouse |
 | `POST` | `/api/connect/upload` | Ingests & profiles uploaded `.csv`, `.xlsx`, `.parquet`, or `.pbix` files |
 | `POST` | `/api/connect/sql` | Connects to SQL databases (`duckdb`, `postgres`, `mysql`, `sqlite`, `tsql`) |
-| `POST` | `/api/connect/powerbi` | Connects to Power BI Desktop localhost XMLA or Power BI Cloud XMLA |
-| `POST` | `/api/joins/update` | Updates relationship governance (`approved`, `pending`, `rejected`, cardinality, join type) |
-| `POST` | `/api/interview/answer` | Saves business interview answers into `okf.yaml` and Hybrid Vector + BM25 RAG |
+| `POST` | `/api/connect/powerbi` | Connects to Power BI Desktop XMLA or Power BI Cloud XMLA |
+| `POST` | `/api/joins/approve-all` | Approves all candidate inferred relationships |
+| `POST` | `/api/joins/update` | Updates relationship governance (cardinality, status, join type) |
+| `POST` | `/api/joins/add` | Adds a custom user-defined relationship |
+| `POST` | `/api/interview/answer` | Saves business interview answers into `okf.yaml` and RAG memory |
+| `POST` | `/api/interview/add-rule` | Adds custom business definitions and SQL filter hints |
 | `POST` | `/api/measures/create` | Compiles, verifies, and persists bidirectional DAX $\leftrightarrow$ SQL measures |
+| `POST` | `/api/measures/calculated-column` | Compiles and validates calculated column expressions |
 | `POST` | `/api/chat/query` | Executes governed conversational BI query with self-healing retry loop |
-| `POST` | `/api/sql/execute` | Executes a read-only SQL query from the Live SQL Scratchpad |
+| `POST` | `/api/chat/chart` | Generates Plotly visualization for arbitrary tabular rows |
+| `POST` | `/api/chat/teach` | Learns human corrective feedback into the business rule RAG store |
+| `POST` | `/api/chat/clear` | Clears chat history for the current session workspace |
+| `POST` | `/api/root-cause` | Period-over-period variance decomposition and waterfall generation |
+| `POST` | `/api/dashboard/pin` | Pins an analytics widget to the executive dashboard |
+| `DELETE` | `/api/dashboard/pin/{id}` | Removes a pinned widget |
+| `POST` | `/api/dashboard/simulate` | Interactive what-if revenue & cost shock simulation |
+| `POST` | `/api/sql/execute` | Executes read-only SQL/DAX query via the PrivacyFirewall AST sandbox |
 | `GET` | `/api/export/report` | Generates a printable Executive BI Report (`.html` / Print-to-PDF) |
 | `GET` | `/api/export/okf` | Downloads the governed `okf.yaml` semantic layer |
 | `GET` | `/api/export/dax` | Downloads the Power BI `.dax` measures script |
 
 ---
 
-## 🧪 Running the Automated Test Suite
+## 🧪 Automated Testing & CI
+
+Run the complete 43-test automated test suite:
 
 ```bash
+# Run all tests
 python -m pytest -v
+
+# Run with coverage report
+python -m pytest --cov=src --cov-report=term-missing
 ```

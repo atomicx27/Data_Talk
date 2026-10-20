@@ -6,10 +6,21 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PORT=8504
 
+# Create non-root application user
+RUN groupadd -g 10001 appuser && \
+    useradd -u 10001 -g appuser -s /bin/bash -m appuser
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy source code (secrets & test caches excluded via .dockerignore)
 COPY . .
+
+# Ensure storage directories exist with non-root ownership
+RUN mkdir -p /app/workspaces /app/.secrets && \
+    chown -R appuser:appuser /app
+
+USER appuser
 
 EXPOSE 8504
 

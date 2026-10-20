@@ -35,7 +35,7 @@ def _is_port_open(host: str, port: int) -> bool:
 
 
 @st.cache_resource
-def ensure_production_api_server(port: int = 8000) -> str:
+def ensure_production_api_server(port: int = 8504) -> str:
     """Start the FastAPI production server on a background daemon thread if not already running."""
     host = "127.0.0.1"
     if not _is_port_open(host, port):
@@ -53,7 +53,7 @@ def ensure_production_api_server(port: int = 8000) -> str:
 
 
 def main() -> None:
-    api_url = ensure_production_api_server(8000)
+    api_url = ensure_production_api_server(8504)
 
     # Remove default Streamlit padding, header, and chrome so the Production Web UI fills 100% of the viewport
     st.markdown(
