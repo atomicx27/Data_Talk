@@ -1,0 +1,104 @@
+{
+  "active_workspace_id": "ws_blackbox_excel",
+  "workspaces": [
+    "enterprise_demo",
+    "students",
+    "ws_blackbox_excel"
+  ],
+  "workspace": {
+    "okf_version": "1.0",
+    "workspace_id": "ws_blackbox_excel",
+    "workspace_name": "Ws Blackbox Excel",
+    "source_type": "duckdb",
+    "dialect": "duckdb",
+    "credential_ref": "",
+    "connection_metadata": {},
+    "tables": [],
+    "relationships": [],
+    "calculated_columns": [],
+    "measures": [],
+    "business_rules": [],
+    "interview_questions": [],
+    "what_if_parameters": [],
+    "pinned_widgets": [],
+    "updated_at": "2026-10-20T17:56:43.060058+00:00"
+  },
+  "readiness": {
+    "score": 0,
+    "schema_pts": 0,
+    "join_pts": 0,
+    "interview_pts": 0,
+    "measure_pts": 0
+  },
+  "rag_counts": {
+    "schema_glossary": 0,
+    "business_rules": 0,
+    "few_shot_queries": 0
+  },
+  "privacy_mode": "strict_schema_only",
+  "llm_model": "groq/openai/gpt-oss-120b",
+  "has_api_key": true,
+  "supported_models": [
+    "groq/openai/gpt-oss-120b",
+    "groq/qwen/qwen3.8-27b",
+    "groq/openai/gpt-oss-20b",
+    "nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b",
+    "nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+    "nvidia_nim/nv-mistralai/mistral-nemo-12b-instruct",
+    "gpt-4o",
+    "gpt-4o-mini",
+    "gemini/gemini-2.5-flash",
+    "gemini/gemini-2.5-pro",
+    "claude-3-7-sonnet-latest",
+    "ollama/qwen2.5-coder:14b",
+    "ollama/llama3.2"
+  ],
+  "supported_chart_types": [
+    "bar",
+    "horizontal_bar",
+    "combo",
+    "line",
+    "area",
+    "waterfall",
+    "treemap",
+    "scatter",
+    "pie"
+  ],
+  "starter_templates": [
+    {
+      "name": "Recognized Net Revenue",
+      "table_name": "orders",
+      "description": "Total Net Revenue in USD excluding Cancelled ('X') orders.",
+      "dax_expression": "CALCULATE(SUM(orders[rev_net_usd]), orders[ord_stat] <> \"X\")",
+      "sql_expression": "SUM(CASE WHEN orders.ord_stat <> 'X' THEN orders.rev_net_usd ELSE 0 END)"
+    },
+    {
+      "name": "Gross Margin %",
+      "table_name": "orders",
+      "description": "Profit divided by Net Revenue across active orders.",
+      "dax_expression": "DIVIDE(SUM(orders[profit_usd]), SUM(orders[rev_net_usd]), 0)",
+      "sql_expression": "COALESCE(SUM(orders.profit_usd) / NULLIF(SUM(orders.rev_net_usd), 0), 0)"
+    },
+    {
+      "name": "Average Order Value (AOV)",
+      "table_name": "orders",
+      "description": "Recognized Net Revenue divided by distinct completed/pending orders.",
+      "dax_expression": "DIVIDE(CALCULATE(SUM(orders[rev_net_usd]), orders[ord_stat] <> \"X\"), DISTINCTCOUNT(orders[order_id]), 0)",
+      "sql_expression": "COALESCE(SUM(CASE WHEN orders.ord_stat <> 'X' THEN orders.rev_net_usd ELSE 0 END) / NULLIF(COUNT(DISTINCT orders.order_id), 0), 0)"
+    },
+    {
+      "name": "Return Rate % (Revenue)",
+      "table_name": "returns",
+      "description": "Total Refunded USD divided by Total Net Order Revenue.",
+      "dax_expression": "DIVIDE(SUM(returns[refund_amt_usd]), SUM(orders[rev_net_usd]), 0)",
+      "sql_expression": "COALESCE(SUM(returns.refund_amt_usd) / NULLIF(SUM(orders.rev_net_usd), 0), 0)"
+    }
+  ],
+  "desktop_pbi_instances": [],
+  "chat_history": [],
+  "what_if_overrides": {
+    "Revenue Multiplier %": 0.0,
+    "Cost Multiplier %": 0.0
+  },
+  "audit_log": []
+}

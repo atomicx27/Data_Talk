@@ -1,0 +1,60 @@
+{
+  "completed_phases": [
+    "phase1_boot",
+    "phase2_upload_excel",
+    "phase3_er_diagram",
+    "phase4_interview_progress",
+    "phase5_chat_plotly_graphs",
+    "phase6_dashboard_what_if"
+  ],
+  "current_phase": "phase1_boot",
+  "phase_metrics": {
+    "phase1_boot": {
+      "status": "PASS",
+      "latency_ms": 13236,
+      "title": "Data_Talk — Conversational BI Studio"
+    },
+    "phase2_upload_excel": {
+      "status": "PASS",
+      "latency_ms": 137,
+      "tables": []
+    },
+    "phase3_er_diagram": {
+      "status": "PASS",
+      "latency_ms": 1355,
+      "erStats": {
+        "nodes": 0,
+        "edges": 0
+      }
+    },
+    "phase4_interview_progress": {
+      "status": "PASS",
+      "latency_ms": 3251,
+      "answeredCount": 8,
+      "readinessScore": "100%"
+    },
+    "phase5_chat_plotly_graphs": {
+      "status": "PASS",
+      "latency_ms": 75471,
+      "questionsAsked": 2
+    },
+    "phase6_dashboard_what_if": {
+      "status": "PASS",
+      "latency_ms": 3939,
+      "kpis": {
+        "rev": "$5,248,184.40",
+        "profit": "$3,883,721.40",
+        "margin": "74.0%",
+        "pinnedWidgets": 0
+      }
+    }
+  },
+  "errors": [
+    {
+      "timestamp": "2026-10-20T18:43:53.377Z",
+      "message": "Waiting failed: 90000ms exceeded",
+      "stack": "TimeoutError: Waiting failed: 90000ms exceeded\n    at new WaitTask (file:///C:/Users/pashi/Desktop/Data_Talk/blackbox_test_run/node_modules/puppeteer-core/lib/puppeteer/common/WaitTask.js:46:34)\n    at IsolatedWorld.waitForFunction (file:///C:/Users/pashi/Desktop/Data_Talk/blackbox_test_run/node_modules/puppeteer-core/lib/puppeteer/api/Realm.js:49:26)\n    at CdpFrame.waitForFunction (file:///C:/Users/pashi/Desktop/Data_Talk/blackbox_test_run/node_modules/puppeteer-core/lib/puppeteer/api/Frame.js:585:43)\n    at CdpFrame.<anonymous> (file:///C:/Users/pashi/Desktop/Data_Talk/blackbox_test_run/node_modules/puppeteer-core/lib/puppeteer/util/decorators.js:101:27)\n    at CdpPage.waitForFunction (file:///C:/Users/pashi/Desktop/Data_Talk/blackbox_test_run/node_modules/puppeteer-core/lib/puppeteer/api/Page.js:1542:37)\n    at main (C:\\Users\\pashi\\Desktop\\Data_Talk\\blackbox_test_run\\run_frontend_e2e.js:326:20)"
+    }
+  ],
+  "last_updated": "2026-10-20T18:50:29.041Z"
+}

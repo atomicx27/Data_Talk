@@ -1,0 +1,30 @@
+[
+  {
+    "name": "Total Gross Revenue",
+    "dax": "SUM(fact_orders[gross_revenue_usd])",
+    "sql": "SUM(fact_orders.gross_revenue_usd)",
+    "verified": true,
+    "sample_value": 4891040.0
+  },
+  {
+    "name": "Total Net Revenue",
+    "dax": "SUM(fact_orders[net_revenue_usd])",
+    "sql": "SUM(fact_orders.net_revenue_usd)",
+    "verified": true,
+    "sample_value": 4657409.5
+  },
+  {
+    "name": "Total COGS",
+    "dax": "SUM(fact_orders[cogs_usd])",
+    "sql": "SUM(fact_orders.cogs_usd)",
+    "verified": true,
+    "sample_value": 1615090.0
+  },
+  {
+    "name": "Total Return Refunds",
+    "dax": "SUM(fact_returns[refund_amount_usd])",
+    "sql": "SUM(fact_returns.refund_amount_usd)",
+    "verified": true,
+    "sample_value": 431335.8
+  }
+]

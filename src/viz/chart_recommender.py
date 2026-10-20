@@ -151,10 +151,12 @@ class ChartRecommender:
             )
 
         elif chosen_type == "line":
+            color_col = dim_cols[1] if (len(dim_cols) >= 2 and len(ys) == 1) else None
             fig = px.line(
                 df,
                 x=x,
-                y=ys,
+                y=ys if not color_col else ys[0],
+                color=color_col,
                 markers=True,
                 color_discrete_sequence=OKABE_ITO_PALETTE,
             )

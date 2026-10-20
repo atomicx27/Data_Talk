@@ -1,0 +1,10 @@
+{
+  "kpis": {
+    "base_revenue": 4373487.0,
+    "base_profit": 2857417.0,
+    "sim_revenue": 5248184.4,
+    "sim_profit": 3883721.4,
+    "sim_margin_pct": 74.0
+  },
+  "widgets": []
+}

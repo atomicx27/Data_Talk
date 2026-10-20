@@ -1,0 +1,13 @@
+{
+  "status": "healthy",
+  "product": "Data_Talk Enterprise Semantic BI",
+  "version": "2.4.0",
+  "duckdb_version": "1.5.6",
+  "active_workspace": "enterprise_demo",
+  "active_llm_model": "groq/openai/gpt-oss-120b",
+  "privacy_mode": "strict_schema_only",
+  "providers_ready": {
+    "groq": true,
+    "nvidia_nim": true
+  }
+}

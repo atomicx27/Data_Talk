@@ -1,0 +1,139 @@
+[
+  {
+    "label": "Aggregation & Dimension Join (Region)",
+    "question": "What is the total gross revenue by region name?",
+    "latency_ms": 7222.22,
+    "success": true,
+    "row_count": 4,
+    "attempts_used": 1,
+    "recommended_chart": "bar",
+    "fan_trap_mitigated": true,
+    "sample_rows": [
+      {
+        "region_name": "Asia Pacific",
+        "total_gross_revenue": 826630.0
+      },
+      {
+        "region_name": "EMEA",
+        "total_gross_revenue": 2038900.0
+      },
+      {
+        "region_name": "Latin America",
+        "total_gross_revenue": 308380.0
+      }
+    ],
+    "executed_query": "SELECT dr.region_name,\n       SUM(fo.gross_revenue_usd) AS total_gross_revenue\nFROM fact_orders fo\nLEFT JOIN dim_customers dc ON fo.customer_id = dc.customer_id\nLEFT JOIN dim_regions dr ON dc.region_id = dr.region_id\nGROUP BY dr.region_name\nORDER BY dr.region_name;"
+  },
+  {
+    "label": "Top-N Ranking & Sorting (Sales Reps)",
+    "question": "Who are the top 5 sales reps by total net revenue?",
+    "latency_ms": 3247.86,
+    "success": true,
+    "row_count": 5,
+    "attempts_used": 1,
+    "recommended_chart": "bar",
+    "fan_trap_mitigated": false,
+    "sample_rows": [
+      {
+        "rep_id": 109,
+        "total_net_revenue": 736445.5
+      },
+      {
+        "rep_id": 103,
+        "total_net_revenue": 571962.0
+      },
+      {
+        "rep_id": 101,
+        "total_net_revenue": 529178.0
+      }
+    ],
+    "executed_query": "SELECT\n  fo.rep_id,\n  SUM(fo.net_revenue_usd) AS total_net_revenue\nFROM fact_orders fo\nLEFT JOIN dim_customers dc ON fo.customer_id = dc.customer_id\nLEFT JOIN dim_regions dr ON dc.region_id = dr.region_id\nWHERE fo.ord_stat <> 'Cancelled'\nGROUP BY fo.rep_id\nORDER BY total_net_revenue DESC\nLIMIT 5;"
+  },
+  {
+    "label": "Category Breakdown (Products)",
+    "question": "What is the total net revenue and COGS for each product category?",
+    "latency_ms": 2975.75,
+    "success": true,
+    "row_count": 5,
+    "attempts_used": 1,
+    "recommended_chart": "bar",
+    "fan_trap_mitigated": true,
+    "sample_rows": [
+      {
+        "category": "AI Solutions",
+        "total_net_revenue": 1069341.0,
+        "total_cogs": 364710.0
+      },
+      {
+        "category": "Cloud Analytics",
+        "total_net_revenue": 1180485.0,
+        "total_cogs": 416150.0
+      },
+      {
+        "category": "Cybersecurity",
+        "total_net_revenue": 760927.5,
+        "total_cogs": 262360.0
+      }
+    ],
+    "executed_query": "SELECT dp.category,\n       SUM(fo.net_revenue_usd) AS total_net_revenue,\n       SUM(fo.cogs_usd)        AS total_cogs\nFROM fact_orders AS fo\nLEFT JOIN dim_products AS dp ON fo.product_id = dp.product_id\nWHERE fo.ord_stat <> 'Cancelled'\nGROUP BY dp.category\nORDER BY dp.category;"
+  },
+  {
+    "label": "Multi-Fact Fan-Trap Query (Orders + Returns)",
+    "question": "Compare total gross revenue and return refund amount by customer tier.",
+    "latency_ms": 71965.83,
+    "success": true,
+    "row_count": 3,
+    "attempts_used": 2,
+    "recommended_chart": "combo",
+    "fan_trap_mitigated": true,
+    "sample_rows": [
+      {
+        "cust_tier": "Mid-Market",
+        "total_gross_revenue_usd": 1931790.0,
+        "total_refund_usd": 197193.4,
+        "net_retained_revenue_usd": 1734596.6,
+        "return_rate_pct": 10.21
+      },
+      {
+        "cust_tier": "SMB",
+        "total_gross_revenue_usd": 1395220.0,
+        "total_refund_usd": 145990.0,
+        "net_retained_revenue_usd": 1249230.0,
+        "return_rate_pct": 10.46
+      },
+      {
+        "cust_tier": "Enterprise",
+        "total_gross_revenue_usd": 1264040.0,
+        "total_refund_usd": 88152.4,
+        "net_retained_revenue_usd": 1175887.6,
+        "return_rate_pct": 6.97
+      }
+    ],
+    "executed_query": "WITH orders_cte AS (\n    SELECT o.customer_id,\n           SUM(o.gross_revenue_usd) AS gross_revenue_usd,\n           COUNT(DISTINCT o.order_id) AS total_orders\n    FROM fact_orders o\n    WHERE o.ord_stat <> 'Cancelled'\n    GROUP BY o.customer_id\n),\nreturns_cte AS (\n    SELECT r.customer_id,\n           SUM(r.refund_amount_usd) AS refund_usd,\n           COUNT(DISTINCT r.return_id) AS total_returns\n    FROM fact_returns r\n    GROUP BY r.customer_id\n)\nSELECT c.cust_tier,\n       ROUND(SUM(COALESCE(o.gross_revenue_usd, 0)), 2) AS total_gross_revenue_usd,\n       ROUND(SUM(COALESCE(r.refund_usd, 0)), 2) AS total_refund_usd,\n       ROUND(SUM(COALESCE(o.gross_revenue_usd, 0)) - SUM(COALESCE(r.refund_usd, 0)), 2) AS net_retained_revenue_usd,\n       ROUND(100.0 * SUM(COALESCE(r.refund_usd, 0)) / NULLIF(SUM(COALESCE(o.gross_revenue_usd, 0)), 0), 2) AS return_rate_pct\nFROM dim_customers c\nLEFT JOIN orders_cte o ON c.customer_id = o.customer_id\nLEFT JOIN returns_cte r ON c.customer_id = r.customer_id\nGROUP BY c.cust_tier\nORDER BY total_gross_revenue_usd DESC;"
+  },
+  {
+    "label": "Filtered Aggregation (Completed Orders)",
+    "question": "What is the total net revenue for completed orders by industry?",
+    "latency_ms": 3675.7,
+    "success": true,
+    "row_count": 6,
+    "attempts_used": 1,
+    "recommended_chart": "bar",
+    "fan_trap_mitigated": true,
+    "sample_rows": [
+      {
+        "industry": "Fintech",
+        "total_net_revenue": 798716.5
+      },
+      {
+        "industry": "Retail",
+        "total_net_revenue": 667002.0
+      },
+      {
+        "industry": "Logistics",
+        "total_net_revenue": 596781.5
+      }
+    ],
+    "executed_query": "SELECT dc.industry,\n       SUM(fo.net_revenue_usd) AS total_net_revenue\nFROM fact_orders fo\nLEFT JOIN dim_customers dc ON fo.customer_id = dc.customer_id\nWHERE fo.ord_stat = 'Completed'\nGROUP BY dc.industry\nORDER BY total_net_revenue DESC;"
+  }
+]

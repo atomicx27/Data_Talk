@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Data_Talk Executive BI Report — Ws Blackbox Excel</title>
+  <style>
+    body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; color: #0f172a; max-width: 1040px; margin: 36px auto; padding: 0 24px; line-height: 1.55; }
+    .header { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 2px solid #0f172a; padding-bottom: 16px; margin-bottom: 28px; }
+    .badge { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 4px 10px; border-radius: 6px; font-weight: 600; font-size: 12px; }
+    table { width: 100%; border-collapse: collapse; margin: 14px 0 28px; font-size: 13px; }
+    th, td { border: 1px solid #cbd5e1; padding: 9px 12px; text-align: left; }
+    th { background: #f8fafc; font-weight: 600; }
+    code, pre { font-family: 'JetBrains Mono', Consolas, monospace; font-size: 12px; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; }
+    pre { padding: 12px; overflow-x: auto; }
+    .card { border: 1px solid #cbd5e1; border-radius: 8px; padding: 16px; margin-bottom: 14px; background: #ffffff; }
+    @media print { .no-print { display: none; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1 style="margin:0;">Data_Talk — Executive Semantic BI Brief</h1>
+      <p style="margin:4px 0 0; color:#475569;">Workspace: <strong>Ws Blackbox Excel</strong> • Engine: DUCKDB (DUCKDB)</p>
+    </div>
+    <div>
+      <span class="badge">AI Readiness Score: 100%</span>
+      <button class="no-print" onclick="window.print()" style="margin-left:10px; padding:6px 12px; cursor:pointer;">Print / Save as PDF</button>
+    </div>
+  </div>
+
+  <h2>1. Profiled Data Assets &amp; PII Shield Summary</h2>
+  <table>
+    <thead><tr><th>Table</th><th>Semantic Role</th><th>Row Count</th><th>Columns</th><th>Privacy Status</th></tr></thead>
+    <tbody><tr><td><strong>dim_customers</strong></td><td>DIMENSION</td><td>60</td><td>7</td><td>1 PII shielded</td></tr><tr><td><strong>dim_products</strong></td><td>DIMENSION</td><td>15</td><td>6</td><td>0 PII shielded</td></tr><tr><td><strong>dim_regions</strong></td><td>DIMENSION</td><td>4</td><td>4</td><td>0 PII shielded</td></tr><tr><td><strong>dim_sales_reps</strong></td><td>DIMENSION</td><td>10</td><td>5</td><td>0 PII shielded</td></tr><tr><td><strong>fact_orders</strong></td><td>FACT</td><td>600</td><td>12</td><td>0 PII shielded</td></tr><tr><td><strong>fact_returns</strong></td><td>FACT</td><td>65</td><td>7</td><td>0 PII shielded</td></tr></tbody>
+  </table>
+
+  <h2>2. Governed Semantic Measures (Power BI DAX &harr; SQL)</h2>
+  <table>
+    <thead><tr><th>Measure</th><th>Power BI DAX</th><th>Compiled SQL</th><th>Live Sample</th></tr></thead>
+    <tbody><tr><td><strong>fact_orders[Total Gross Revenue]</strong></td><td><code>SUM(fact_orders[gross_revenue_usd])</code></td><td><code>SUM(fact_orders.gross_revenue_usd)</code></td><td>4,891,040.00</td></tr><tr><td><strong>fact_orders[Total Net Revenue]</strong></td><td><code>SUM(fact_orders[net_revenue_usd])</code></td><td><code>SUM(fact_orders.net_revenue_usd)</code></td><td>4,657,409.50</td></tr><tr><td><strong>fact_orders[Total COGS]</strong></td><td><code>SUM(fact_orders[cogs_usd])</code></td><td><code>SUM(fact_orders.cogs_usd)</code></td><td>1,615,090.00</td></tr><tr><td><strong>fact_returns[Total Return Refunds]</strong></td><td><code>SUM(fact_returns[refund_amount_usd])</code></td><td><code>SUM(fact_returns.refund_amount_usd)</code></td><td>431,335.80</td></tr></tbody>
+  </table>
+
+  <h2>3. Conversational BI Insights &amp; Verified Query Lineage</h2>
+  <p>No conversational queries recorded in this session yet.</p>
+</body>
+</html>

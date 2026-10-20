@@ -1,0 +1,17 @@
+[
+  {
+    "chart_type": "bar",
+    "traces_count": 1,
+    "latency_ms": 761.38
+  },
+  {
+    "chart_type": "pie",
+    "traces_count": 1,
+    "latency_ms": 159.18
+  },
+  {
+    "chart_type": "horizontal_bar",
+    "traces_count": 1,
+    "latency_ms": 171.83
+  }
+]
