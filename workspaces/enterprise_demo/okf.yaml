@@ -1,0 +1,1904 @@
+okf_version: '1.0'
+workspace_id: enterprise_demo
+workspace_name: Enterprise Demo
+source_type: duckdb
+dialect: duckdb
+credential_ref: ''
+connection_metadata: {}
+tables:
+- name: customers
+  business_name: ''
+  description: ''
+  table_role: DIMENSION
+  row_count: 250
+  is_blocked: false
+  columns:
+  - name: customer_id
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: true
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 250
+    min_value: '1001'
+    max_value: '1250'
+    sample_values: []
+    value_meanings: {}
+  - name: company_name
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 250
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: cust_tier
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 3
+    min_value: null
+    max_value: null
+    sample_values:
+    - SMB
+    - MM
+    - ENT
+    value_meanings: {}
+  - name: region_code
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 4
+    min_value: null
+    max_value: null
+    sample_values:
+    - NA
+    - EMEA
+    - APAC
+    - LATAM
+    value_meanings: {}
+  - name: contact_email
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: true
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 250
+    min_value: null
+    max_value: null
+    sample_values:
+    - <REDACTED_PII_COLUMN>
+    value_meanings: {}
+  - name: signup_date
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 219
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  quality_alerts: []
+- name: lookup_lists
+  business_name: ''
+  description: ''
+  table_role: DIMENSION
+  row_count: 5
+  is_blocked: false
+  columns:
+  - name: Gender
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.4
+    distinct_count: 3
+    min_value: null
+    max_value: null
+    sample_values:
+    - Female
+    - Male
+    - Other
+    value_meanings: {}
+  - name: Class
+    data_type: DOUBLE
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.2
+    distinct_count: 4
+    min_value: '9.0'
+    max_value: '12.0'
+    sample_values:
+    - '9.0'
+    - '11.0'
+    - '12.0'
+    - '10.0'
+    value_meanings: {}
+  - name: Section
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 5
+    min_value: null
+    max_value: null
+    sample_values:
+    - A
+    - B
+    - C
+    - D
+    - E
+    value_meanings: {}
+  - name: Stream
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.2
+    distinct_count: 4
+    min_value: null
+    max_value: null
+    sample_values:
+    - Science
+    - Arts
+    - Commerce
+    - General
+    value_meanings: {}
+  - name: Academic_Year
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 5
+    min_value: null
+    max_value: null
+    sample_values:
+    - 2022-23
+    - 2023-24
+    - 2024-25
+    - 2025-26
+    - 2026-27
+    value_meanings: {}
+  - name: Campus
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.4
+    distinct_count: 3
+    min_value: null
+    max_value: null
+    sample_values:
+    - North Campus
+    - South Campus
+    - Central Campus
+    value_meanings: {}
+  - name: House
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.2
+    distinct_count: 4
+    min_value: null
+    max_value: null
+    sample_values:
+    - Falcon
+    - Horizon
+    - Aster
+    - Orion
+    value_meanings: {}
+  - name: Transport
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.2
+    distinct_count: 4
+    min_value: null
+    max_value: null
+    sample_values:
+    - School Bus
+    - Walk/Cycle
+    - Private
+    - Public Transit
+    value_meanings: {}
+  - name: Fee_Status
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.4
+    distinct_count: 3
+    min_value: null
+    max_value: null
+    sample_values:
+    - Unpaid
+    - Paid
+    - Partially Paid
+    value_meanings: {}
+  quality_alerts:
+  - Column 'Gender' has a high NULL rate (40.0%).
+  - Column 'Campus' has a high NULL rate (40.0%).
+  - Column 'Fee_Status' has a high NULL rate (40.0%).
+- name: orders
+  business_name: ''
+  description: ''
+  table_role: FACT
+  row_count: 1500
+  is_blocked: false
+  columns:
+  - name: order_id
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: true
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: true
+    null_ratio: 0.0
+    distinct_count: 0
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: customer_id
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: true
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 249
+    min_value: '1001'
+    max_value: '1250'
+    sample_values: []
+    value_meanings: {}
+  - name: product_id
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: true
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 40
+    min_value: '101'
+    max_value: '140'
+    sample_values: []
+    value_meanings: {}
+  - name: order_date
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 636
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: ord_stat
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 4
+    min_value: null
+    max_value: null
+    sample_values:
+    - C
+    - P
+    - X
+    - H
+    value_meanings: {}
+  - name: sales_channel
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 3
+    min_value: null
+    max_value: null
+    sample_values:
+    - Direct Enterprise
+    - Partner Reseller
+    - Self-Serve Web
+    value_meanings: {}
+  - name: qty
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 24
+    min_value: '1'
+    max_value: '24'
+    sample_values:
+    - '16'
+    - '15'
+    - '8'
+    - '4'
+    - '19'
+    - '24'
+    - '20'
+    - '22'
+    - '18'
+    - '9'
+    value_meanings: {}
+  - name: rev_gross_lcy
+    data_type: DOUBLE
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 761
+    min_value: '367.99'
+    max_value: '39615.12'
+    sample_values: []
+    value_meanings: {}
+  - name: disc_amt
+    data_type: DOUBLE
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 690
+    min_value: '0.0'
+    max_value: '7592.9'
+    sample_values: []
+    value_meanings: {}
+  - name: rev_net_usd
+    data_type: DOUBLE
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 1179
+    min_value: '367.99'
+    max_value: '37995.12'
+    sample_values: []
+    value_meanings: {}
+  - name: cogs_usd
+    data_type: DOUBLE
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 761
+    min_value: '153.23'
+    max_value: '20422.08'
+    sample_values: []
+    value_meanings: {}
+  - name: profit_usd
+    data_type: DOUBLE
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 1214
+    min_value: '187.08'
+    max_value: '24974.88'
+    sample_values: []
+    value_meanings: {}
+  quality_alerts: []
+- name: products
+  business_name: ''
+  description: ''
+  table_role: DIMENSION
+  row_count: 40
+  is_blocked: false
+  columns:
+  - name: product_id
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: true
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 40
+    min_value: '101'
+    max_value: '140'
+    sample_values: []
+    value_meanings: {}
+  - name: sku_name
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 40
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: category
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 4
+    min_value: null
+    max_value: null
+    sample_values:
+    - Cloud Suite
+    - Data Security
+    - AI Analytics
+    - Edge Hardware
+    value_meanings: {}
+  - name: unit_cost_usd
+    data_type: DOUBLE
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 40
+    min_value: '134.55'
+    max_value: '850.92'
+    sample_values: []
+    value_meanings: {}
+  - name: list_price_usd
+    data_type: DOUBLE
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 40
+    min_value: '367.99'
+    max_value: '1650.63'
+    sample_values: []
+    value_meanings: {}
+  quality_alerts: []
+- name: read_me
+  business_name: ''
+  description: ''
+  table_role: DIMENSION
+  row_count: 10
+  is_blocked: false
+  columns:
+  - name: Student_Dataset_Notes
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 10
+    min_value: null
+    max_value: null
+    sample_values:
+    - Result
+    - Fees
+    - Records
+    - Formula fields
+    - Marks
+    - Purpose
+    - Main sheet
+    - Grade bands
+    - Scholarship
+    - Use case
+    value_meanings: {}
+  - name: Unnamed_1
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 10
+    min_value: null
+    max_value: null
+    sample_values:
+    - 'Annual fee varies by class; Fee_Status is derived '
+    - Student_Data contains student profile, contact-sty
+    - Age, Total_Marks, Average_Marks, Percentage, Grade
+    - Synthetic dataset designed for Excel practice, das
+    - 'A+ >=90, A >=80, B+ >=70, B >=60, C >=50, D >=35, '
+    - Eligible when Percentage >=85 and Attendance >=90%
+    - 1,000 fictional students; no real personal data is
+    - Good starting point for pivot tables, slicers, Pow
+    - Eight subjects, each on a 0–100 scale.
+    - A student is marked Fail if any subject mark is be
+    value_meanings: {}
+  quality_alerts: []
+- name: returns
+  business_name: ''
+  description: ''
+  table_role: FACT
+  row_count: 180
+  is_blocked: false
+  columns:
+  - name: return_id
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: true
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 180
+    min_value: '9001'
+    max_value: '9180'
+    sample_values: []
+    value_meanings: {}
+  - name: order_id
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: true
+    null_ratio: 0.0
+    distinct_count: 0
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: customer_id
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: true
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 129
+    min_value: '1001'
+    max_value: '1250'
+    sample_values: []
+    value_meanings: {}
+  - name: product_id
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: true
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 40
+    min_value: '101'
+    max_value: '140'
+    sample_values: []
+    value_meanings: {}
+  - name: return_date
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 158
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: ret_reason_cd
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 4
+    min_value: null
+    max_value: null
+    sample_values:
+    - DEF
+    - LATE
+    - CHG
+    - DUP
+    value_meanings: {}
+  - name: refund_amt_usd
+    data_type: DOUBLE
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 180
+    min_value: '621.02'
+    max_value: '32970.47'
+    sample_values: []
+    value_meanings: {}
+  quality_alerts: []
+- name: student_data
+  business_name: ''
+  description: ''
+  table_role: DIMENSION
+  row_count: 1000
+  is_blocked: false
+  columns:
+  - name: Student_ID
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 1000
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: Admission_No
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 1000
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: First_Name
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 40
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: Last_Name
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 30
+    min_value: null
+    max_value: null
+    sample_values:
+    - Verma
+    - Choudhary
+    - Kumar
+    - Saxena
+    - Sinha
+    - Patel
+    - Shah
+    - Rao
+    - Ghosh
+    - Gupta
+    value_meanings: {}
+  - name: Full_Name
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 682
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: Gender
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 3
+    min_value: null
+    max_value: null
+    sample_values:
+    - Male
+    - Female
+    - Other
+    value_meanings: {}
+  - name: Date_of_Birth
+    data_type: TIMESTAMP
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: true
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 687
+    min_value: null
+    max_value: null
+    sample_values:
+    - <REDACTED_PII_COLUMN>
+    value_meanings: {}
+  - name: Age
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 5
+    min_value: '13'
+    max_value: '17'
+    sample_values:
+    - '15'
+    - '16'
+    - '17'
+    - '14'
+    - '13'
+    value_meanings: {}
+  - name: Class
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 4
+    min_value: '9'
+    max_value: '12'
+    sample_values:
+    - '12'
+    - '11'
+    - '10'
+    - '9'
+    value_meanings: {}
+  - name: Section
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 5
+    min_value: null
+    max_value: null
+    sample_values:
+    - C
+    - E
+    - D
+    - B
+    - A
+    value_meanings: {}
+  - name: Academic_Year
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 5
+    min_value: null
+    max_value: null
+    sample_values:
+    - 2025-26
+    - 2023-24
+    - 2026-27
+    - 2024-25
+    - 2022-23
+    value_meanings: {}
+  - name: Admission_Date
+    data_type: TIMESTAMP
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 469
+    min_value: '2022-04-01 00:00:00'
+    max_value: '2026-07-28 00:00:00'
+    sample_values: []
+    value_meanings: {}
+  - name: Stream
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 4
+    min_value: null
+    max_value: null
+    sample_values:
+    - General
+    - Commerce
+    - Science
+    - Arts
+    value_meanings: {}
+  - name: House
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 4
+    min_value: null
+    max_value: null
+    sample_values:
+    - Falcon
+    - Orion
+    - Aster
+    - Horizon
+    value_meanings: {}
+  - name: Campus
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 3
+    min_value: null
+    max_value: null
+    sample_values:
+    - Central Campus
+    - North Campus
+    - South Campus
+    value_meanings: {}
+  - name: City
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 20
+    min_value: null
+    max_value: null
+    sample_values:
+    - Jaipur
+    - Surat
+    - Pune
+    - Coimbatore
+    - Chennai
+    - Hyderabad
+    - Bhopal
+    - Bengaluru
+    - Lucknow
+    - Indore
+    value_meanings: {}
+  - name: State
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 11
+    min_value: null
+    max_value: null
+    sample_values:
+    - Maharashtra
+    - Tamil Nadu
+    - Madhya Pradesh
+    - Karnataka
+    - Gujarat
+    - Uttar Pradesh
+    - Haryana
+    - Rajasthan
+    - Telangana
+    - Delhi
+    value_meanings: {}
+  - name: Student_Email
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: true
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 1000
+    min_value: null
+    max_value: null
+    sample_values:
+    - <REDACTED_PII_COLUMN>
+    value_meanings: {}
+  - name: Student_Phone
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: true
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 1000
+    min_value: null
+    max_value: null
+    sample_values:
+    - <REDACTED_PII_COLUMN>
+    value_meanings: {}
+  - name: Guardian_Name
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 665
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: Guardian_Phone
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: true
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 1000
+    min_value: null
+    max_value: null
+    sample_values:
+    - <REDACTED_PII_COLUMN>
+    value_meanings: {}
+  - name: Guardian_Occupation
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 14
+    min_value: null
+    max_value: null
+    sample_values:
+    - Accountant
+    - Analyst
+    - Doctor
+    - Banker
+    - Consultant
+    - Teacher
+    - Designer
+    - Sales Professional
+    - Entrepreneur
+    - Business Owner
+    value_meanings: {}
+  - name: Attendance
+    data_type: DOUBLE
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 267
+    min_value: '66.2'
+    max_value: '99.0'
+    sample_values: []
+    value_meanings: {}
+  - name: English
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 57
+    min_value: '35'
+    max_value: '99'
+    sample_values: []
+    value_meanings: {}
+  - name: Mathematics
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 57
+    min_value: '37'
+    max_value: '99'
+    sample_values: []
+    value_meanings: {}
+  - name: Physics
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 54
+    min_value: '38'
+    max_value: '93'
+    sample_values: []
+    value_meanings: {}
+  - name: Chemistry
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 59
+    min_value: '32'
+    max_value: '96'
+    sample_values: []
+    value_meanings: {}
+  - name: Biology
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 57
+    min_value: '40'
+    max_value: '99'
+    sample_values: []
+    value_meanings: {}
+  - name: Computer_Science
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 56
+    min_value: '39'
+    max_value: '99'
+    sample_values: []
+    value_meanings: {}
+  - name: History
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 56
+    min_value: '40'
+    max_value: '99'
+    sample_values: []
+    value_meanings: {}
+  - name: Geography
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 58
+    min_value: '35'
+    max_value: '95'
+    sample_values: []
+    value_meanings: {}
+  - name: Total_Marks
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 295
+    min_value: '371'
+    max_value: '716'
+    sample_values: []
+    value_meanings: {}
+  - name: Average_Marks
+    data_type: DOUBLE
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 295
+    min_value: '46.375'
+    max_value: '89.5'
+    sample_values: []
+    value_meanings: {}
+  - name: Percentage
+    data_type: DOUBLE
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 295
+    min_value: '46.375'
+    max_value: '89.5'
+    sample_values: []
+    value_meanings: {}
+  - name: Grade
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 5
+    min_value: null
+    max_value: null
+    sample_values:
+    - B
+    - B+
+    - C
+    - A
+    - D
+    value_meanings: {}
+  - name: Result
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 2
+    min_value: null
+    max_value: null
+    sample_values:
+    - Pass
+    - Fail
+    value_meanings: {}
+  - name: Scholarship_Eligible
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 2
+    min_value: null
+    max_value: null
+    sample_values:
+    - Not Eligible
+    - Eligible
+    value_meanings: {}
+  - name: Annual_Fee
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 11
+    min_value: '50000'
+    max_value: '75000'
+    sample_values:
+    - '62000'
+    - '65000'
+    - '57000'
+    - '67000'
+    - '55000'
+    - '60000'
+    - '75000'
+    - '70000'
+    - '52000'
+    - '72000'
+    value_meanings: {}
+  - name: Fee_Paid
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 19
+    min_value: '30000'
+    max_value: '75000'
+    sample_values:
+    - '57000'
+    - '62000'
+    - '52000'
+    - '55000'
+    - '65000'
+    - '60000'
+    - '50000'
+    - '67000'
+    - '47000'
+    - '45000'
+    value_meanings: {}
+  - name: Outstanding
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 5
+    min_value: '0'
+    max_value: '20000'
+    sample_values:
+    - '0'
+    - '5000'
+    - '10000'
+    - '15000'
+    - '20000'
+    value_meanings: {}
+  - name: Fee_Status
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 2
+    min_value: null
+    max_value: null
+    sample_values:
+    - Partially Paid
+    - Paid
+    value_meanings: {}
+  - name: Extracurricular
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.064
+    distinct_count: 14
+    min_value: null
+    max_value: null
+    sample_values:
+    - Cricket
+    - Debate
+    - Coding Club
+    - Football
+    - Art
+    - Robotics
+    - Dance
+    - Drama
+    - Chess
+    - Music
+    value_meanings: {}
+  - name: Transport
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 4
+    min_value: null
+    max_value: null
+    sample_values:
+    - Public Transit
+    - Walk/Cycle
+    - School Bus
+    - Private
+    value_meanings: {}
+  quality_alerts: []
+- name: summary
+  business_name: ''
+  description: ''
+  table_role: DIMENSION
+  row_count: 21
+  is_blocked: false
+  columns:
+  - name: Student_Dataset_Summary
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.1429
+    distinct_count: 18
+    min_value: null
+    max_value: null
+    sample_values:
+    - Chemistry
+    - Biology
+    - Subject
+    - English
+    - Geography
+    - Total Students
+    - Average Attendance
+    - Pass Rate
+    - Partially Paid Fees
+    - Mathematics
+    value_meanings: {}
+  - name: Unnamed_1
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.1429
+    distinct_count: 18
+    min_value: null
+    max_value: null
+    sample_values:
+    - '1000'
+    - '0'
+    - '67.353'
+    - '70.14'
+    - '67.746875'
+    - '85.807'
+    - '488'
+    - '0.998'
+    - '68.306'
+    - '69.25'
+    value_meanings: {}
+  - name: Unnamed_2
+    data_type: DOUBLE
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 1.0
+    distinct_count: 0
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: Unnamed_3
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.5238
+    distinct_count: 10
+    min_value: null
+    max_value: null
+    sample_values:
+    - Class
+    - '9'
+    - '11'
+    - Stream
+    - Commerce
+    - '12'
+    - General
+    - '10'
+    - Science
+    - Arts
+    value_meanings: {}
+  - name: Unnamed_4
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.5238
+    distinct_count: 9
+    min_value: null
+    max_value: null
+    sample_values:
+    - Students
+    - '478'
+    - '175'
+    - '231'
+    - '265'
+    - '157'
+    - '247'
+    - '188'
+    - '254'
+    value_meanings: {}
+  - name: Unnamed_5
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: true
+    is_blocked: false
+    null_ratio: 0.5238
+    distinct_count: 9
+    min_value: null
+    max_value: null
+    sample_values:
+    - Avg %
+    - 67.<REDACTED_CREDIT_CARD_PII>
+    - 66.<REDACTED_CREDIT_CARD_PII>
+    - 65.<REDACTED_CREDIT_CARD_PII>
+    - 68.<REDACTED_CREDIT_CARD_PII>
+    - 67.<REDACTED_CREDIT_CARD_PII>
+    - 68.<REDACTED_CREDIT_CARD_PII>
+    - 68.<REDACTED_CREDIT_CARD_PII>
+    - 67.<REDACTED_CREDIT_CARD_PII>
+    value_meanings: {}
+  - name: Unnamed_6
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: true
+    is_blocked: false
+    null_ratio: 0.5238
+    distinct_count: 10
+    min_value: null
+    max_value: null
+    sample_values:
+    - '85.516'
+    - Pass Count
+    - 86.<REDACTED_CREDIT_CARD_PII>
+    - '231'
+    - '247'
+    - Avg Attendance
+    - 85.<REDACTED_CREDIT_CARD_PII>
+    - 86.<REDACTED_CREDIT_CARD_PII>
+    - '253'
+    - '264'
+    value_meanings: {}
+  quality_alerts:
+  - Column 'Unnamed_2' has a high NULL rate (100.0%).
+  - Column 'Unnamed_3' has a high NULL rate (52.4%).
+  - Column 'Unnamed_4' has a high NULL rate (52.4%).
+  - Column 'Unnamed_5' has a high NULL rate (52.4%).
+  - Column 'Unnamed_6' has a high NULL rate (52.4%).
+relationships:
+- id: rel_orders_customer_id_to_customers_customer_id
+  source_table: orders
+  source_column: customer_id
+  target_table: customers
+  target_column: customer_id
+  cardinality: N:1
+  join_type: LEFT
+  confidence: 0.98
+  discovery_method: lexical_overlap
+  status: approved
+  overlap_ratio: 1.0
+- id: rel_orders_product_id_to_products_product_id
+  source_table: orders
+  source_column: product_id
+  target_table: products
+  target_column: product_id
+  cardinality: N:1
+  join_type: LEFT
+  confidence: 0.98
+  discovery_method: lexical_overlap
+  status: approved
+  overlap_ratio: 1.0
+- id: rel_returns_customer_id_to_customers_customer_id
+  source_table: returns
+  source_column: customer_id
+  target_table: customers
+  target_column: customer_id
+  cardinality: N:1
+  join_type: LEFT
+  confidence: 0.98
+  discovery_method: lexical_overlap
+  status: approved
+  overlap_ratio: 1.0
+- id: rel_returns_product_id_to_products_product_id
+  source_table: returns
+  source_column: product_id
+  target_table: products
+  target_column: product_id
+  cardinality: N:1
+  join_type: LEFT
+  confidence: 0.98
+  discovery_method: lexical_overlap
+  status: approved
+  overlap_ratio: 1.0
+calculated_columns: []
+measures:
+- id: meas_gross_margin
+  name: Gross Margin %
+  table_name: orders
+  description: Profit divided by Net Revenue across active orders.
+  format_string: '#,##0.00'
+  user_input_type: dax
+  dax_expression: DIVIDE(SUM(orders[profit_usd]), SUM(orders[rev_net_usd]), 0)
+  sql_expression: COALESCE((SUM(orders.profit_usd)) / NULLIF((SUM(orders.rev_net_usd)),
+    0), 0)
+  involved_tables:
+  - orders
+  verified: true
+  sample_value: 0.5234
+  synonyms: []
+- id: meas_recognized_net_revenue
+  name: Recognized Net Revenue
+  table_name: orders
+  description: Total Net Revenue in USD excluding Cancelled ('X') orders.
+  format_string: '#,##0.00'
+  user_input_type: dax
+  dax_expression: CALCULATE(SUM(orders[rev_net_usd]), orders[ord_stat] <> "X")
+  sql_expression: SUM(CASE WHEN orders.ord_stat <> 'X' THEN orders.rev_net_usd ELSE
+    0 END)
+  involved_tables:
+  - orders
+  verified: true
+  sample_value: 13713585.88
+  synonyms: []
+business_rules: []
+interview_questions:
+- id: q_codes_customers_cust_tier
+  priority: 1
+  category: status_codes
+  table_name: customers
+  column_name: cust_tier
+  question_text: In table `customers`, column `cust_tier` contains values ['SMB',
+    'MM', 'ENT']. What do these codes mean, and should any be excluded when calculating
+    standard metrics?
+  context_hint: 'Distinct values: 3 | Null rate: 0.0%'
+  suggested_options:
+  - ENT = Enterprise (>1000 employees), MM = Mid-Market, SMB = Small/Medium Business.
+  answer: ''
+  answered: false
+- id: q_codes_customers_region_code
+  priority: 1
+  category: status_codes
+  table_name: customers
+  column_name: region_code
+  question_text: In table `customers`, column `region_code` contains values ['NA',
+    'EMEA', 'APAC', 'LATAM']. What do these codes mean, and should any be excluded
+    when calculating standard metrics?
+  context_hint: 'Distinct values: 4 | Null rate: 0.0%'
+  suggested_options:
+  - Standard categorical values for `region_code` (NA, EMEA, APAC, LATAM).
+  answer: ''
+  answered: false
+- id: q_codes_lookup_lists_Gender
+  priority: 1
+  category: status_codes
+  table_name: lookup_lists
+  column_name: Gender
+  question_text: In table `lookup_lists`, column `Gender` contains values ['Female',
+    'Male', 'Other']. What do these codes mean, and should any be excluded when calculating
+    standard metrics?
+  context_hint: 'Distinct values: 3 | Null rate: 40.0%'
+  suggested_options:
+  - Standard categorical values for `Gender` (Female, Male, Other).
+  answer: ''
+  answered: false
+- id: q_codes_lookup_lists_Class
+  priority: 1
+  category: status_codes
+  table_name: lookup_lists
+  column_name: Class
+  question_text: In table `lookup_lists`, column `Class` contains values ['9.0', '11.0',
+    '12.0', '10.0']. What do these codes mean, and should any be excluded when calculating
+    standard metrics?
+  context_hint: 'Distinct values: 4 | Null rate: 20.0%'
+  suggested_options:
+  - Standard categorical values for `Class` (9.0, 11.0, 12.0, 10.0).
+  answer: ''
+  answered: false
+- id: q_codes_lookup_lists_Section
+  priority: 1
+  category: status_codes
+  table_name: lookup_lists
+  column_name: Section
+  question_text: In table `lookup_lists`, column `Section` contains values ['A', 'B',
+    'C', 'D', 'E']. What do these codes mean, and should any be excluded when calculating
+    standard metrics?
+  context_hint: 'Distinct values: 5 | Null rate: 0.0%'
+  suggested_options:
+  - Standard categorical values for `Section` (A, B, C, D, E).
+  answer: ''
+  answered: false
+- id: q_codes_lookup_lists_Stream
+  priority: 1
+  category: status_codes
+  table_name: lookup_lists
+  column_name: Stream
+  question_text: In table `lookup_lists`, column `Stream` contains values ['Science',
+    'Arts', 'Commerce', 'General']. What do these codes mean, and should any be excluded
+    when calculating standard metrics?
+  context_hint: 'Distinct values: 4 | Null rate: 20.0%'
+  suggested_options:
+  - Standard categorical values for `Stream` (Science, Arts, Commerce, General).
+  answer: ''
+  answered: false
+- id: q_codes_lookup_lists_Fee_Status
+  priority: 1
+  category: status_codes
+  table_name: lookup_lists
+  column_name: Fee_Status
+  question_text: In table `lookup_lists`, column `Fee_Status` contains values ['Unpaid',
+    'Paid', 'Partially Paid']. What do these codes mean, and should any be excluded
+    when calculating standard metrics?
+  context_hint: 'Distinct values: 3 | Null rate: 40.0%'
+  suggested_options:
+  - Standard categorical values for `Fee_Status` (Unpaid, Paid, Partially Paid).
+  answer: ''
+  answered: false
+- id: q_codes_orders_ord_stat
+  priority: 1
+  category: status_codes
+  table_name: orders
+  column_name: ord_stat
+  question_text: In table `orders`, column `ord_stat` contains values ['C', 'P', 'X',
+    'H']. What do these codes mean, and should any be excluded when calculating standard
+    metrics?
+  context_hint: 'Distinct values: 4 | Null rate: 0.0%'
+  suggested_options:
+  - C = Completed, P = Pending, X = Cancelled, H = On Hold. Exclude 'X' (Cancelled)
+    from Recognized Revenue.
+  - C = Closed/Won, P = Processing, X = Cancelled, H = Hold. Include only 'C' in Revenue.
+  answer: ''
+  answered: false
+what_if_parameters: []
+pinned_widgets: []
+updated_at: '2026-10-19T16:40:24.745025+00:00'

@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Data_Talk — Conversational BI Studio</title>
+  <script>
+    // Apply saved theme before first paint to avoid a flash
+    (function () {
+      try {
+        var t = localStorage.getItem('dt-theme');
+        if (!t) t = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', t);
+      } catch (_) {}
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" defer></script>
+  <link rel="stylesheet" href="/static/styles.css?v=2.0.3" />
+</head>
+<body>
+  <!-- ==================== ICON SPRITE (Lucide-style, 24px stroke icons) ==================== -->
+  <svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></symbol>
+    <symbol id="i-dashboard" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></symbol>
+    <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></symbol>
+    <symbol id="i-network" viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></symbol>
+    <symbol id="i-sigma" viewBox="0 0 24 24"><path d="M18 7V4H6l6 8-6 8h12v-3"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 3v4M17 5h4M5 17v4M3 19h4"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 17v5"/><path d="M9 10.8a2 2 0 0 1-1.1 1.8l-1.8.9A2 2 0 0 0 5 15.2V17h14v-1.8a2 2 0 0 0-1.1-1.8l-1.8-.9A2 2 0 0 1 15 10.8V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+    <symbol id="i-trend-down" viewBox="0 0 24 24"><path d="m22 17-8.5-8.5-5 5L2 7"/><path d="M16 17h6v-6"/></symbol>
+    <symbol id="i-trend-up" viewBox="0 0 24 24"><path d="m22 7-8.5 8.5-5-5L2 17"/><path d="M16 7h6v6"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="m5 12 7-7 7 7M12 19V5"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/></symbol>
+    <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9z"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-bar" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-3"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></symbol>
+    <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="m21.7 18-8-14a2 2 0 0 0-3.5 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3z"/><path d="M12 9v4M12 17h.01"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+    <symbol id="i-table" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/></symbol>
+    <symbol id="i-code" viewBox="0 0 24 24"><path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m6 3 14 9-14 9z"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+    <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2M9 2v2M15 20v2M9 20v2M2 15h2M2 9h2M20 15h2M20 9h2"/></symbol>
+    <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></symbol>
+  </svg>
+
+  <div class="app-shell">
+    <div class="sidebar-scrim" id="sidebarScrim"></div>
+
+    <!-- ==================== SIDEBAR ==================== -->
+    <aside class="sidebar" id="appSidebar">
+      <div class="brand-header">
+        <div class="brand-mark">
+          <svg class="icon" width="18" height="18"><use href="#i-chat"/></svg>
+        </div>
+        <div class="brand-text">
+          <div class="brand-title">Data_Talk</div>
+          <div class="brand-subtitle">Conversational BI</div>
+        </div>
+      </div>
+
+      <div class="workspace-bar">
+        <label for="workspaceSelect" class="sr-label">Active workspace</label>
+        <div class="select-wrap">
+          <select id="workspaceSelect" class="input-select input-sm"></select>
+        </div>
+        <button id="newWorkspaceBtn" class="btn btn-ghost btn-icon-only" title="New workspace" aria-label="New workspace">
+          <svg class="icon"><use href="#i-plus"/></svg>
+        </button>
+      </div>
+
+      <nav class="sidebar-nav" aria-label="Main navigation">
+        <div class="section-label">Analyze</div>
+        <button class="nav-item active" data-view="chat">
+          <svg class="icon nav-icon"><use href="#i-chat"/></svg>
+          <span class="nav-text">Ask Data</span>
+        </button>
+        <button class="nav-item" data-view="dashboard">
+          <svg class="icon nav-icon"><use href="#i-dashboard"/></svg>
+          <span class="nav-text">Pinboard</span>
+          <span id="badgePins" class="nav-pill">0</span>
+        </button>
+
+        <div class="section-label section-label-spaced">
+          Semantic model
+          <span class="section-hint">Setup</span>
+        </div>
+        <div class="setup-steps">
+          <button class="nav-item step-item" data-view="connect" data-step="connect">
+            <span class="step-marker"><span class="step-num">1</span><svg class="icon step-check"><use href="#i-check"/></svg></span>
+            <span class="nav-text">Data sources</span>
+            <span id="badgeTables" class="nav-pill">0</span>
+          </button>
+          <button class="nav-item step-item" data-view="joins" data-step="joins">
+            <span class="step-marker"><span class="step-num">2</span><svg class="icon step-check"><use href="#i-check"/></svg></span>
+            <span class="nav-text">Relationships</span>
+            <span id="badgeJoins" class="nav-pill">0/0</span>
+          </button>
+          <button class="nav-item step-item" data-view="interview" data-step="interview">
+            <span class="step-marker"><span class="step-num">3</span><svg class="icon step-check"><use href="#i-check"/></svg></span>
+            <span class="nav-text">Business rules</span>
+            <span id="badgeInterview" class="nav-pill">0/0</span>
+          </button>
+          <button class="nav-item step-item" data-view="measures" data-step="measures">
+            <span class="step-marker"><span class="step-num">4</span><svg class="icon step-check"><use href="#i-check"/></svg></span>
+            <span class="nav-text">Measures</span>
+            <span id="badgeMeasures" class="nav-pill">0</span>
+          </button>
+        </div>
+      </nav>
+
+      <div class="sidebar-footer">
+        <!-- AI Readiness card -->
+        <button type="button" class="readiness-card" data-goto="interview" title="Improve AI readiness">
+          <div class="readiness-top">
+            <span class="readiness-label"><svg class="icon"><use href="#i-sparkles"/></svg> AI readiness</span>
+            <span id="readinessTotalPct" class="readiness-pct">0%</span>
+          </div>
+          <div class="readiness-segments">
+            <span class="seg" title="Schema"><span id="segSchema" class="seg-fill"></span></span>
+            <span class="seg" title="Joins"><span id="segJoins" class="seg-fill"></span></span>
+            <span class="seg" title="Rules"><span id="segInterview" class="seg-fill"></span></span>
+            <span class="seg" title="Measures"><span id="segMeasures" class="seg-fill"></span></span>
+          </div>
+          <div class="readiness-legend">
+            <span id="pillarSchema">Schema 0/25</span>
+            <span id="pillarJoins">Joins 0/25</span>
+            <span id="pillarInterview">Rules 0/30</span>
+            <span id="pillarMeasures">DAX 0/20</span>
+          </div>
+        </button>
+
+        <button id="openLlmSettingsBtn" type="button" class="footer-row-btn" title="AI model settings">
+          <span class="footer-row-left">
+            <svg class="icon"><use href="#i-cpu"/></svg>
+            <span id="llmModelLabel" class="truncate">model</span>
+          </span>
+          <span id="llmStatusDot" class="status-dot online" title="Provider status"></span>
+        </button>
+
+        <div class="privacy-row">
+          <svg class="icon"><use href="#i-lock"/></svg>
+          <label for="privacyModeSelect" class="sr-label">Privacy mode</label>
+          <select id="privacyModeSelect" class="input-select input-sm input-bare" title="Outbound LLM privacy mode">
+            <option value="strict_schema_only">Strict — schema only</option>
+            <option value="sanitized_samples">Sanitized samples</option>
+            <option value="local_only">Local only (air-gapped)</option>
+          </select>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ==================== MAIN ==================== -->
+    <div class="main-area">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button id="mobileMenuBtn" class="btn btn-ghost btn-icon-only mobile-only" aria-label="Open navigation">
+            <svg class="icon"><use href="#i-menu"/></svg>
+          </button>
+          <nav class="breadcrumb" aria-label="Breadcrumb">
+            <span id="breadcrumbWorkspace" class="crumb-muted">workspace</span>
+            <svg class="icon crumb-sep"><use href="#i-chevron-right"/></svg>
+            <h1 id="activeViewTitle" class="crumb-current">Ask Data</h1>
+          </nav>
+          <div class="topbar-meta">
+            <span id="activeDialectBadge" class="meta-chip">—</span>
+            <span id="ragStatsBadge" class="meta-chip meta-chip-accent">—</span>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <button id="openCmdPaletteBtn" type="button" class="search-trigger" title="Search & commands (Ctrl+K)">
+            <svg class="icon"><use href="#i-search"/></svg>
+            <span>Search or run a command…</span>
+            <kbd class="kbd">Ctrl K</kbd>
+          </button>
+          <div class="topbar-icons">
+            <button id="openScratchpadBtn" type="button" class="btn btn-ghost btn-icon-only" title="SQL scratchpad" aria-label="SQL scratchpad">
+              <svg class="icon"><use href="#i-terminal"/></svg>
+            </button>
+            <button id="openAuditModalBtn" type="button" class="btn btn-ghost btn-icon-only" title="Privacy & security audit" aria-label="Privacy & security audit">
+              <svg class="icon"><use href="#i-shield"/></svg>
+            </button>
+            <button id="themeToggleBtn" type="button" class="btn btn-ghost btn-icon-only" title="Toggle theme" aria-label="Toggle light/dark theme">
+              <svg class="icon theme-icon-dark"><use href="#i-moon"/></svg>
+              <svg class="icon theme-icon-light"><use href="#i-sun"/></svg>
+            </button>
+          </div>
+          <a href="/api/export/report" target="_blank" class="btn btn-secondary btn-sm">
+            <svg class="icon"><use href="#i-file"/></svg><span class="hide-sm">Export report</span>
+          </a>
+        </div>
+      </header>
+
+      <div id="toastContainer" class="toast-container" aria-live="polite"></div>
+
+      <main class="workspace-canvas">
+
+        <!-- ==================== VIEW: ASK DATA ==================== -->
+        <section id="view-chat" class="view-panel view-chat active" tabindex="-1" aria-hidden="false">
+          <div class="chat-column">
+            <div class="chat-header-row">
+              <div class="chat-header-left">
+                <span class="eyebrow">Conversational BI</span>
+              </div>
+              <div class="header-actions">
+                <button id="toggleRootCauseBtn" type="button" class="btn btn-ghost btn-sm">
+                  <svg class="icon"><use href="#i-trend-down"/></svg> Why did it change?
+                </button>
+                <button id="clearChatBtn" type="button" class="btn btn-ghost btn-sm" title="Clear conversation">
+                  <svg class="icon"><use href="#i-trash"/></svg><span class="hide-sm">Clear</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Root-cause drawer -->
+            <div id="rootCauseDrawer" class="panel-card rc-drawer hidden">
+              <div class="card-header">
+                <div class="card-header-icon tone-warning"><svg class="icon"><use href="#i-trend-down"/></svg></div>
+                <div class="grow">
+                  <h3 class="card-title">Root-cause analysis</h3>
+                  <p class="card-subtitle">Compare the last 90 days against the prior 90 days and see which segment drove the change.</p>
+                </div>
+                <button id="closeRootCauseBtn" type="button" class="btn btn-ghost btn-icon-only" aria-label="Close">
+                  <svg class="icon"><use href="#i-x"/></svg>
+                </button>
+              </div>
+              <form id="rootCauseForm" class="rc-inline-form">
+                <div>
+                  <label class="field-label" for="rcMetricSelect">Metric</label>
+                  <select id="rcMetricSelect" class="input-select">
+                    <option value="rev_net_usd">Net revenue</option>
+                    <option value="profit_usd">Net profit</option>
+                    <option value="rev_gross_lcy">Gross revenue</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="field-label" for="rcDimensionSelect">Break down by</label>
+                  <select id="rcDimensionSelect" class="input-select">
+                    <option value="category">Product category</option>
+                    <option value="region">Customer region</option>
+                    <option value="customer_tier">Customer tier</option>
+                    <option value="sales_channel">Sales channel</option>
+                  </select>
+                </div>
+                <button type="submit" class="btn btn-primary">Analyze</button>
+              </form>
+              <div id="rootCauseResultBox" class="rc-result-box"></div>
+            </div>
+
+            <!-- Conversation stream (empty state rendered by JS) -->
+            <div id="chatMessagesStream" class="chat-stream" aria-live="polite"></div>
+          </div>
+
+          <!-- Sticky composer -->
+          <div class="composer-dock">
+            <div class="chat-column">
+              <div id="composerSuggestions" class="composer-suggestions"></div>
+              <form id="chatInputForm" class="chat-composer">
+                <label for="chatQuestionInput" class="sr-label">Ask a question</label>
+                <textarea
+                  id="chatQuestionInput"
+                  class="chat-input"
+                  rows="1"
+                  placeholder="Ask anything about your data…"
+                  autocomplete="off"
+                  required
+                ></textarea>
+                <button type="submit" id="chatSendBtn" class="btn btn-primary btn-send" aria-label="Send question">
+                  <svg class="icon"><use href="#i-send"/></svg>
+                </button>
+              </form>
+              <div class="composer-hint">
+                <span><kbd class="kbd">Enter</kbd> to send · <kbd class="kbd">Shift</kbd>+<kbd class="kbd">Enter</kbd> new line</span>
+                <span class="hide-sm">Answers are compiled to verified, read-only SQL</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================== VIEW: DATA SOURCES ==================== -->
+        <section id="view-connect" class="view-panel inactive" tabindex="-1" aria-hidden="true">
+          <div class="page-header">
+            <div>
+              <span class="eyebrow">Step 1 of 4</span>
+              <h2 class="page-title">Data sources</h2>
+              <p class="page-sub">Connect files, SQL databases, or Power BI models. Every column is profiled and scanned for PII automatically.</p>
+            </div>
+            <div class="header-actions">
+              <button id="heroLoadDemoBtn" class="btn btn-secondary">
+                <svg class="icon"><use href="#i-zap"/></svg> Load demo data
+              </button>
+              <button class="btn btn-primary" data-goto="joins">
+                Next: Relationships <svg class="icon"><use href="#i-arrow-right"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="panel-card connector-card">
+            <div class="segmented" role="tablist" aria-label="Source type">
+              <button type="button" class="source-tab active" data-source-tab="files" role="tab">
+                <svg class="icon"><use href="#i-upload"/></svg> Files
+              </button>
+              <button type="button" class="source-tab" data-source-tab="sql" role="tab">
+                <svg class="icon"><use href="#i-database"/></svg> SQL database
+              </button>
+              <button type="button" class="source-tab" data-source-tab="pbi" role="tab">
+                <svg class="icon"><use href="#i-bar"/></svg> Power BI
+              </button>
+            </div>
+
+            <div id="sourcePanel-files" class="source-tab-panel">
+              <form id="fileUploadForm" class="source-form-inline">
+                <label class="dropzone" for="fileUploadInput" id="dropzoneLabel">
+                  <input id="fileUploadInput" type="file" name="files" multiple accept=".csv,.xlsx,.xls,.parquet,.pbix" />
+                  <span class="dropzone-icon"><svg class="icon"><use href="#i-upload"/></svg></span>
+                  <span class="dropzone-title">Drop files here or <u>browse</u></span>
+                  <span id="selectedFilesLabel" class="dropzone-sub">CSV, Excel, Parquet or .pbix — loaded into a local DuckDB warehouse</span>
+                </label>
+                <button type="submit" class="btn btn-primary btn-lg">Ingest &amp; profile</button>
+              </form>
+            </div>
+
+            <div id="sourcePanel-sql" class="source-tab-panel hidden">
+              <form id="sqlConnectForm" class="form-row-4">
+                <div>
+                  <label class="field-label" for="sqlDialectInput">Dialect</label>
+                  <select id="sqlDialectInput" class="input-select">
+                    <option value="duckdb">DuckDB</option>
+                    <option value="postgres">PostgreSQL</option>
+                    <option value="mysql">MySQL</option>
+                    <option value="sqlite">SQLite</option>
+                    <option value="tsql">SQL Server (T-SQL)</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="field-label" for="sqlCredNameInput">Vault alias</label>
+                  <input id="sqlCredNameInput" type="text" class="input-text" value="prod_warehouse" />
+                </div>
+                <div>
+                  <label class="field-label" for="sqlUrlInput">Connection URL</label>
+                  <input id="sqlUrlInput" type="password" class="input-text mono" placeholder="postgresql+psycopg2://user:pass@host:5432/db" />
+                </div>
+                <button type="submit" class="btn btn-primary">Connect</button>
+              </form>
+              <p class="form-footnote"><svg class="icon"><use href="#i-lock"/></svg> Credentials are stored in the local encrypted vault and never sent to the AI.</p>
+            </div>
+
+            <div id="sourcePanel-pbi" class="source-tab-panel hidden">
+              <form id="pbiConnectForm" class="form-row-4">
+                <div>
+                  <label class="field-label" for="pbiModeInput">Connection mode</label>
+                  <select id="pbiModeInput" class="input-select">
+                    <option value="powerbi_desktop">Power BI Desktop (localhost)</option>
+                    <option value="powerbi_cloud">Power BI Service (cloud XMLA)</option>
+                  </select>
+                </div>
+                <div id="pbiDesktopFields">
+                  <label class="field-label" for="pbiPortInput">Local port</label>
+                  <input id="pbiPortInput" type="number" class="input-text mono" value="55000" />
+                </div>
+                <div id="pbiCloudFields" class="hidden">
+                  <label class="field-label" for="pbiDatasetInput">XMLA endpoint</label>
+                  <input id="pbiDatasetInput" type="text" class="input-text" placeholder="powerbi://api.powerbi.com/v1.0/myorg/Workspace" />
+                  <input id="pbiTokenInput" type="password" class="input-text" placeholder="Azure AD bearer token" style="margin-top:8px;" />
+                </div>
+                <button type="submit" class="btn btn-primary">Connect</button>
+              </form>
+            </div>
+          </div>
+
+          <div class="subsection-header">
+            <div>
+              <h3 class="subsection-title">Profiled tables</h3>
+              <p class="card-subtitle">Expand a table to see column statistics and control which columns the AI may use.</p>
+            </div>
+          </div>
+          <div id="schemaTablesContainer" class="schema-tables-stack"></div>
+        </section>
+
+        <!-- ==================== VIEW: RELATIONSHIPS ==================== -->
+        <section id="view-joins" class="view-panel inactive" tabindex="-1" aria-hidden="true">
+          <div class="page-header">
+            <div>
+              <span class="eyebrow">Step 2 of 4</span>
+              <h2 class="page-title">Relationships</h2>
+              <p class="page-sub">Confirm how tables join so the AI never invents an unverified join path.</p>
+            </div>
+            <div class="header-actions">
+              <button id="approveAllJoinsBtn" class="btn btn-secondary">
+                <svg class="icon"><use href="#i-check"/></svg> Approve all
+              </button>
+              <button class="btn btn-primary" data-goto="interview">
+                Next: Business rules <svg class="icon"><use href="#i-arrow-right"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="panel-card er-canvas-card">
+            <div class="er-toolbar">
+              <div class="er-filter-group">
+                <span class="field-label inline">Focus</span>
+                <div id="erFocalChips" class="chip-group"></div>
+              </div>
+              <div class="er-legend">
+                <span class="legend-item"><span class="dot dot-fact"></span> Fact</span>
+                <span class="legend-item"><span class="dot dot-dim"></span> Dimension</span>
+                <span class="legend-item"><span class="line-approved"></span> Approved</span>
+                <span class="legend-item"><span class="line-pending"></span> Pending</span>
+              </div>
+            </div>
+            <div id="erDiagramViewport" class="er-viewport"></div>
+          </div>
+
+          <div class="panel-card flush">
+            <div class="card-header padded">
+              <div class="grow">
+                <h3 class="card-title">Discovered join paths</h3>
+                <p class="card-subtitle">Adjust join type, cardinality, or approval status, then save.</p>
+              </div>
+              <button id="saveJoinEditsBtn" class="btn btn-primary btn-sm">Save changes</button>
+            </div>
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Source</th>
+                    <th>Key</th>
+                    <th>Join</th>
+                    <th>Target</th>
+                    <th>Key</th>
+                    <th>Cardinality</th>
+                    <th>Signal</th>
+                    <th>Confidence</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="joinTableBody"></tbody>
+              </table>
+            </div>
+
+            <details class="clean-disclosure inset">
+              <summary><svg class="icon"><use href="#i-plus"/></svg> Add a custom relationship</summary>
+              <form id="customJoinForm" class="custom-join-grid">
+                <div>
+                  <label class="field-label" for="cjSourceTable">Source table</label>
+                  <select id="cjSourceTable" class="input-select"></select>
+                </div>
+                <div>
+                  <label class="field-label" for="cjSourceCol">Source column</label>
+                  <select id="cjSourceCol" class="input-select"></select>
+                </div>
+                <div>
+                  <label class="field-label" for="cjTargetTable">Target table</label>
+                  <select id="cjTargetTable" class="input-select"></select>
+                </div>
+                <div>
+                  <label class="field-label" for="cjTargetCol">Target column</label>
+                  <select id="cjTargetCol" class="input-select"></select>
+                </div>
+                <div>
+                  <label class="field-label" for="cjCardinality">Cardinality</label>
+                  <select id="cjCardinality" class="input-select">
+                    <option value="N:1">N:1 (many-to-one)</option>
+                    <option value="1:N">1:N (one-to-many)</option>
+                    <option value="1:1">1:1 (one-to-one)</option>
+                  </select>
+                </div>
+                <div class="form-btn-align">
+                  <button type="submit" class="btn btn-secondary btn-block">Add join</button>
+                </div>
+              </form>
+            </details>
+          </div>
+        </section>
+
+        <!-- ==================== VIEW: BUSINESS RULES ==================== -->
+        <section id="view-interview" class="view-panel inactive" tabindex="-1" aria-hidden="true">
+          <div class="page-header">
+            <div>
+              <span class="eyebrow">Step 3 of 4</span>
+              <h2 class="page-title">Business rules</h2>
+              <p class="page-sub">Answer a few questions so the AI understands your status codes, KPIs and naming conventions.</p>
+            </div>
+            <div class="header-actions">
+              <button class="btn btn-primary" data-goto="measures">
+                Next: Measures <svg class="icon"><use href="#i-arrow-right"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div id="interviewProgressBanner" class="progress-banner"></div>
+          <div id="interviewQuestionsContainer" class="interview-cards-grid"></div>
+
+          <details class="clean-disclosure">
+            <summary><svg class="icon"><use href="#i-plus"/></svg> Add a custom glossary rule</summary>
+            <form id="customRuleForm" class="form-row-3">
+              <div>
+                <label class="field-label" for="ruleTermInput">Term or acronym</label>
+                <input id="ruleTermInput" type="text" class="input-text" placeholder="e.g., Realized revenue" required />
+              </div>
+              <div>
+                <label class="field-label" for="ruleDefInput">Definition</label>
+                <input id="ruleDefInput" type="text" class="input-text" placeholder="Always exclude cancelled orders (ord_stat = 'X')" required />
+              </div>
+              <div>
+                <label class="field-label" for="ruleSqlHintInput">SQL filter hint <span class="optional">optional</span></label>
+                <div class="input-with-btn">
+                  <input id="ruleSqlHintInput" type="text" class="input-text mono" placeholder="orders.ord_stat <> 'X'" />
+                  <button type="submit" class="btn btn-primary">Save</button>
+                </div>
+              </div>
+            </form>
+          </details>
+        </section>
+
+        <!-- ==================== VIEW: MEASURES ==================== -->
+        <section id="view-measures" class="view-panel inactive" tabindex="-1" aria-hidden="true">
+          <div class="page-header">
+            <div>
+              <span class="eyebrow">Step 4 of 4</span>
+              <h2 class="page-title">Measures</h2>
+              <p class="page-sub">Define reusable KPIs once in DAX or SQL. They are cross-compiled and verified against live data.</p>
+            </div>
+            <div class="header-actions">
+              <a href="/api/export/dax" download class="btn btn-secondary">
+                <svg class="icon"><use href="#i-download"/></svg> Export .dax
+              </a>
+              <button class="btn btn-primary" data-goto="chat">
+                Start asking <svg class="icon"><use href="#i-arrow-right"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div id="measuresCatalogGrid" class="measures-catalog-grid"></div>
+
+          <div class="subsection-header">
+            <div>
+              <h3 class="subsection-title">Templates</h3>
+              <p class="card-subtitle">One click to compile, verify and add to your catalog.</p>
+            </div>
+          </div>
+          <div id="starterTemplatesGrid" class="templates-grid"></div>
+
+          <details class="clean-disclosure">
+            <summary><svg class="icon"><use href="#i-code"/></svg> Create a custom measure or calculated column</summary>
+            <div class="studio-2col-grid">
+              <div class="panel-card nested">
+                <h4 class="card-title">New measure</h4>
+                <form id="measureCreateForm" class="card-body">
+                  <div class="form-row-2">
+                    <div>
+                      <label class="field-label" for="measNameInput">Name</label>
+                      <input id="measNameInput" type="text" class="input-text" placeholder="e.g., Net Revenue USD" required />
+                    </div>
+                    <div>
+                      <label class="field-label" for="measTableSelect">Base table</label>
+                      <select id="measTableSelect" class="input-select"></select>
+                    </div>
+                  </div>
+                  <div class="form-row-2">
+                    <div>
+                      <label class="field-label" for="measLangSelect">Language</label>
+                      <select id="measLangSelect" class="input-select">
+                        <option value="dax">Power BI DAX</option>
+                        <option value="sql">SQL expression</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label class="field-label" for="measDescInput">Description</label>
+                      <input id="measDescInput" type="text" class="input-text" placeholder="Excludes cancelled orders" />
+                    </div>
+                  </div>
+                  <div>
+                    <label class="field-label" for="measFormulaInput">Formula</label>
+                    <textarea id="measFormulaInput" class="input-textarea mono" rows="3" placeholder="CALCULATE(SUM('orders'[rev_net_usd]), 'orders'[ord_stat] <> &quot;X&quot;)" required></textarea>
+                  </div>
+                  <button type="submit" class="btn btn-primary btn-block">Compile, verify &amp; save</button>
+                </form>
+              </div>
+
+              <div class="panel-card nested">
+                <h4 class="card-title">New calculated column</h4>
+                <form id="calcColCreateForm" class="card-body">
+                  <div class="form-row-2">
+                    <div>
+                      <label class="field-label" for="ccNameInput">Column name</label>
+                      <input id="ccNameInput" type="text" class="input-text" placeholder="e.g., Deal Size Bucket" required />
+                    </div>
+                    <div>
+                      <label class="field-label" for="ccTableSelect">Table</label>
+                      <select id="ccTableSelect" class="input-select"></select>
+                    </div>
+                  </div>
+                  <div>
+                    <label class="field-label" for="ccLangSelect">Language</label>
+                    <select id="ccLangSelect" class="input-select">
+                      <option value="dax">Power BI DAX (IF / SWITCH)</option>
+                      <option value="sql">SQL (CASE WHEN)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="field-label" for="ccFormulaInput">Row expression</label>
+                    <textarea id="ccFormulaInput" class="input-textarea mono" rows="3" placeholder="IF('orders'[rev_net_usd] >= 5000, &quot;Enterprise&quot;, &quot;Standard&quot;)" required></textarea>
+                  </div>
+                  <button type="submit" class="btn btn-secondary btn-block">Compile &amp; add column</button>
+                </form>
+                <div id="calcColListContainer" class="calc-col-list"></div>
+              </div>
+            </div>
+          </details>
+        </section>
+
+        <!-- ==================== VIEW: PINBOARD ==================== -->
+        <section id="view-dashboard" class="view-panel inactive" tabindex="-1" aria-hidden="true">
+          <div class="page-header">
+            <div>
+              <span class="eyebrow">Analyze</span>
+              <h2 class="page-title">Pinboard</h2>
+              <p class="page-sub">Your pinned answers, plus a what-if simulator for revenue and cost shocks.</p>
+            </div>
+            <div class="header-actions">
+              <button id="refreshDashboardBtn" class="btn btn-ghost">
+                <svg class="icon"><use href="#i-refresh"/></svg> Refresh
+              </button>
+              <a href="/api/export/okf" download class="btn btn-secondary">
+                <svg class="icon"><use href="#i-download"/></svg> okf.yaml
+              </a>
+              <a href="/api/export/report" target="_blank" class="btn btn-primary">
+                <svg class="icon"><use href="#i-file"/></svg> Export report
+              </a>
+            </div>
+          </div>
+
+          <div class="whatif-kpis">
+            <div class="kpi-card">
+              <div class="kpi-label">Net revenue <span class="kpi-tag">simulated</span></div>
+              <div id="simRevValue" class="kpi-value">$0.00</div>
+              <div id="simRevDelta" class="kpi-delta">Baseline</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">Net profit <span class="kpi-tag">simulated</span></div>
+              <div id="simProfitValue" class="kpi-value">$0.00</div>
+              <div id="simProfitDelta" class="kpi-delta">Baseline</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">Gross margin <span class="kpi-tag">simulated</span></div>
+              <div id="simMarginValue" class="kpi-value">0.0%</div>
+              <div class="kpi-delta muted">Excludes cancelled orders</div>
+            </div>
+          </div>
+
+          <div class="panel-card whatif-strip">
+            <div class="whatif-title">
+              <svg class="icon"><use href="#i-sparkles"/></svg>
+              <div>
+                <div class="card-title">What-if scenario</div>
+                <div class="card-subtitle">Drag to simulate shocks; KPIs update live.</div>
+              </div>
+            </div>
+            <div class="whatif-slider-group">
+              <div class="slider-header">
+                <label for="revShockSlider">Revenue shock</label>
+                <span id="revShockVal" class="mono-badge">0%</span>
+              </div>
+              <input id="revShockSlider" type="range" min="-30" max="50" step="5" value="0" class="range-slider" />
+            </div>
+            <div class="whatif-slider-group">
+              <div class="slider-header">
+                <label for="costShockSlider">Cost (COGS) shock</label>
+                <span id="costShockVal" class="mono-badge">0%</span>
+              </div>
+              <input id="costShockSlider" type="range" min="-30" max="50" step="5" value="0" class="range-slider" />
+            </div>
+          </div>
+
+          <div id="pinnedWidgetsGrid" class="pinned-widgets-grid"></div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL: EXPLAIN / LINEAGE ==================== -->
+  <dialog id="lineageDialog" closedby="any" aria-labelledby="lineageDialogTitle" class="modal-dialog modal-lg">
+    <div class="modal-header">
+      <div>
+        <h2 id="lineageDialogTitle" class="modal-title">How this answer was computed</h2>
+        <p id="lineageDialogQuestion" class="modal-subtitle"></p>
+      </div>
+      <form method="dialog">
+        <button type="submit" class="btn btn-ghost btn-icon-only" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+      </form>
+    </div>
+    <div class="modal-body">
+      <div id="lineageBadgesRow" class="lineage-badges-row"></div>
+      <div class="code-comparison-grid">
+        <div>
+          <div class="code-header">SQL <span class="muted">· verified read-only</span></div>
+          <pre id="lineageSqlCode" class="code-block"></pre>
+        </div>
+        <div>
+          <div class="code-header">Power BI DAX <span class="muted">· EVALUATE</span></div>
+          <pre id="lineageDaxCode" class="code-block"></pre>
+        </div>
+      </div>
+      <div id="lineageMetaDetails" class="lineage-meta-box"></div>
+
+      <form id="teachAiForm" class="teach-ai-box">
+        <label class="field-label" for="teachAiRuleInput">Something off? Teach the AI a rule it will remember</label>
+        <div class="input-with-btn">
+          <input id="teachAiRuleInput" type="text" class="input-text" placeholder="e.g., Always exclude ord_stat = 'X' from realized revenue" required />
+          <button type="submit" class="btn btn-primary">Save rule</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- ==================== MODAL: SECURITY AUDIT ==================== -->
+  <dialog id="securityAuditDialog" closedby="any" aria-labelledby="securityAuditTitle" class="modal-dialog modal-lg">
+    <div class="modal-header">
+      <div>
+        <h2 id="securityAuditTitle" class="modal-title">Privacy &amp; security</h2>
+        <p class="modal-subtitle">Verify that no raw rows, credentials or unredacted PII leave this machine.</p>
+      </div>
+      <form method="dialog">
+        <button type="submit" class="btn btn-ghost btn-icon-only" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+      </form>
+    </div>
+    <div class="modal-body">
+      <div class="security-pillars-grid">
+        <div class="sec-badge-card"><svg class="icon"><use href="#i-check"/></svg><div><strong>PII auto-redaction</strong><span>Sensitive columns masked before prompting</span></div></div>
+        <div class="sec-badge-card"><svg class="icon"><use href="#i-check"/></svg><div><strong>Prompt-injection isolation</strong><span>Samples wrapped in untrusted tags</span></div></div>
+        <div class="sec-badge-card"><svg class="icon"><use href="#i-check"/></svg><div><strong>Read-only SQL firewall</strong><span>sqlglot AST blocks DDL/DML</span></div></div>
+        <div class="sec-badge-card"><svg class="icon"><use href="#i-check"/></svg><div><strong>DAX sandbox</strong><span>Only EVALUATE queries allowed</span></div></div>
+        <div class="sec-badge-card"><svg class="icon"><use href="#i-check"/></svg><div><strong>Encrypted vault</strong><span>Fernet-encrypted credentials</span></div></div>
+        <div class="sec-badge-card"><svg class="icon"><use href="#i-check"/></svg><div><strong>Outbound scrubber</strong><span>Every LLM payload logged below</span></div></div>
+      </div>
+      <div class="code-header" style="margin-top: 18px;">Recent outbound LLM payloads</div>
+      <pre id="auditLogJsonBox" class="code-block scroll-box"></pre>
+    </div>
+  </dialog>
+
+  <!-- ==================== MODAL: LLM SETTINGS ==================== -->
+  <dialog id="llmConfigDialog" closedby="any" aria-labelledby="llmConfigTitle" class="modal-dialog">
+    <div class="modal-header">
+      <div>
+        <h2 id="llmConfigTitle" class="modal-title">AI model</h2>
+        <p class="modal-subtitle">Groq + NVIDIA NIM with automatic failover via LiteLLM.</p>
+      </div>
+      <form method="dialog">
+        <button type="submit" class="btn btn-ghost btn-icon-only" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+      </form>
+    </div>
+    <form id="llmSettingsForm" class="modal-body stack">
+      <div>
+        <label class="field-label" for="llmModelSelect">Model</label>
+        <select id="llmModelSelect" class="input-select"></select>
+      </div>
+      <div>
+        <label class="field-label" for="llmApiKeyInput">API key override <span class="optional">optional</span></label>
+        <input id="llmApiKeyInput" type="password" class="input-text mono" placeholder="Leave blank to use the vault / .env keys" />
+      </div>
+      <div>
+        <label class="field-label" for="llmApiBaseInput">Custom base URL <span class="optional">optional</span></label>
+        <input id="llmApiBaseInput" type="text" class="input-text mono" placeholder="http://localhost:11434 (Ollama)" />
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">Save</button>
+    </form>
+  </dialog>
+
+  <!-- ==================== MODAL: COMMAND PALETTE ==================== -->
+  <dialog id="commandPaletteDialog" closedby="any" aria-label="Command palette" class="modal-dialog modal-palette">
+    <div class="palette-input-row">
+      <svg class="icon"><use href="#i-search"/></svg>
+      <input id="cmdSearchInput" type="text" class="palette-input" placeholder="Search views, tables, measures — or type a question…" autocomplete="off" />
+      <kbd class="kbd">Esc</kbd>
+    </div>
+    <div id="cmdResultsList" class="cmd-results-list" role="listbox"></div>
+    <div class="palette-footer">
+      <span><kbd class="kbd">↑</kbd><kbd class="kbd">↓</kbd> navigate</span>
+      <span><kbd class="kbd">Enter</kbd> select</span>
+    </div>
+  </dialog>
+
+  <!-- ==================== MODAL: SQL SCRATCHPAD ==================== -->
+  <dialog id="scratchpadDialog" closedby="any" aria-labelledby="scratchpadTitle" class="modal-dialog modal-lg">
+    <div class="modal-header">
+      <div>
+        <h2 id="scratchpadTitle" class="modal-title">SQL scratchpad</h2>
+        <p class="modal-subtitle">Read-only. DDL/DML and blocked PII columns are rejected automatically.</p>
+      </div>
+      <form method="dialog">
+        <button type="submit" class="btn btn-ghost btn-icon-only" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+      </form>
+    </div>
+    <div class="modal-body">
+      <form id="scratchpadForm">
+        <textarea id="scratchpadQueryInput" class="input-textarea mono code-editor" rows="7" spellcheck="false">SELECT p.category, COUNT(DISTINCT o.order_id) AS orders_cnt, ROUND(SUM(o.rev_net_usd), 2) AS net_revenue
+FROM orders o
+LEFT JOIN products p ON o.product_id = p.product_id
+WHERE o.ord_stat <> 'X'
+GROUP BY 1
+ORDER BY net_revenue DESC;</textarea>
+        <div class="scratchpad-actions">
+          <span class="muted small"><kbd class="kbd">Ctrl</kbd>+<kbd class="kbd">Enter</kbd> to run</span>
+          <button type="submit" class="btn btn-primary"><svg class="icon"><use href="#i-play"/></svg> Run query</button>
+        </div>
+      </form>
+      <div id="scratchpadResultBox" class="scratchpad-result"></div>
+    </div>
+  </dialog>
+
+  <script src="/static/app.js?v=2.0.3" defer></script>
+</body>
+</html>

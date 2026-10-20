@@ -1,0 +1,14 @@
+services:
+  datatalk-bi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: datatalk-enterprise-bi
+    ports:
+      - "8504:8504"
+    env_file:
+      - .env
+    volumes:
+      - ./workspaces:/app/workspaces
+      - ./.secrets:/app/.secrets
+    restart: unless-stopped

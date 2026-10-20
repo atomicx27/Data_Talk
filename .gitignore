@@ -1,0 +1,22 @@
+# Secrets & Encrypted Vault
+.env
+.secrets/
+*.pem
+*.key
+
+# Workspaces & Local Databases
+workspaces/*/.duckdb_tmp/
+workspaces/*/*.duckdb*
+workspaces/*/*.sqlite*
+workspaces/*/*.wal
+workspaces/*/uploads/*
+workspaces/students/
+
+# Python & testing caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+*.log
+scratch*
