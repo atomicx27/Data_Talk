@@ -1,2 +1,2 @@
 """Data_Talk: Enterprise Natural Language BI & Semantic Talk-to-Data System."""
-__version__ = "2.4.0"
+__version__ = "2.5.0"

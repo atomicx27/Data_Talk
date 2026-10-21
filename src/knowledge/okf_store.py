@@ -363,10 +363,11 @@ class OKFStore:
                     f'<tr><td colspan="2" align="left" cellpadding="4"><font color="#9CA3AF">... +{extra} more columns</font></td></tr>'
                 )
 
+            src_badge = f"[{tbl.source_name or tbl.source_id}] " if tbl.source_id and tbl.source_id != "default" else ""
             table_html = (
                 f'<<table border="0" cellborder="1" cellspacing="0" cellpadding="4" bgcolor="#111827" color="#374151">'
                 f'<tr><td colspan="2" bgcolor="{header_bg}" cellpadding="6">'
-                f'<font color="#FFFFFF"><b>{tbl.name}</b> ({role_badge} • {tbl.row_count:,} rows)</font></td></tr>'
+                f'<font color="#FFFFFF"><b>{src_badge}{tbl.name}</b> ({role_badge} • {tbl.row_count:,} rows)</font></td></tr>'
                 f'{"".join(col_rows)}'
                 f"</table>>"
             )
@@ -376,13 +377,19 @@ class OKFStore:
             if rel.status == JoinStatus.REJECTED:
                 continue
             if rel.source_table in visible_set and rel.target_table in visible_set:
-                color = "#10B981" if rel.status == JoinStatus.APPROVED else "#F59E0B"
+                if rel.is_cross_source:
+                    color = "#8B5CF6" if rel.status == JoinStatus.APPROVED else "#A78BFA"
+                    prefix = "🌐 Cross-DB: "
+                else:
+                    color = "#10B981" if rel.status == JoinStatus.APPROVED else "#F59E0B"
+                    prefix = ""
                 style = "solid" if rel.status == JoinStatus.APPROVED else "dashed"
                 status_tag = "✓" if rel.status == JoinStatus.APPROVED else "?"
-                label = f"{rel.source_column} → {rel.target_column}\\n({rel.cardinality.value} {status_tag} {int(rel.confidence*100)}%)"
+                label = f"{prefix}{rel.source_column} → {rel.target_column}\\n({rel.cardinality.value} {status_tag} {int(rel.confidence*100)}%)"
+                penwidth = 2.5 if rel.is_cross_source else 2.0
                 lines.append(
                     f'  "{rel.source_table}" -> "{rel.target_table}" '
-                    f'[label="{label}", color="{color}", fontcolor="{color}", style="{style}", penwidth=2.0];'
+                    f'[label="{label}", color="{color}", fontcolor="{color}", style="{style}", penwidth={penwidth}];'
                 )
 
         lines.append("}")

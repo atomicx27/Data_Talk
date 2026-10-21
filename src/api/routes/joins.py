@@ -61,6 +61,12 @@ def add_custom_join(
     ws_id = session.active_workspace_id
     with runtime.workspace_lock(ws_id):
         ws = runtime.get_workspace(ws_id)
+        src_tbl = ws.get_table(req.source_table)
+        tgt_tbl = ws.get_table(req.target_table)
+        src_src_id = src_tbl.source_id if src_tbl else ""
+        tgt_src_id = tgt_tbl.source_id if tgt_tbl else ""
+        is_cross = bool(src_src_id and tgt_src_id and src_src_id != tgt_src_id)
+
         new_id = f"user_rel_{req.source_table}_{req.source_column}_to_{req.target_table}_{req.target_column}"
         ws.relationships.append(
             RelationshipEdge(
@@ -72,9 +78,12 @@ def add_custom_join(
                 join_type=req.join_type,
                 cardinality=JoinCardinality(req.cardinality),
                 confidence=1.0,
-                discovery_method="user_defined",
+                discovery_method="cross_database_link" if is_cross else "user_defined",
                 status=JoinStatus.APPROVED,
                 overlap_ratio=1.0,
+                is_cross_source=is_cross,
+                source_source_id=src_src_id,
+                target_source_id=tgt_src_id,
             )
         )
         runtime.okf_store.save(ws)

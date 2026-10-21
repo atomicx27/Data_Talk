@@ -319,6 +319,21 @@
             </div>
           </div>
 
+          <!-- Connected Databases & Sources Card -->
+          <div class="panel-card" id="connectedSourcesCard" style="margin-bottom: 20px;">
+            <div class="card-header padded" style="padding-bottom:12px;">
+              <div class="grow">
+                <h3 class="card-title" style="display:flex;align-items:center;gap:8px;">
+                  <svg class="icon"><use href="#i-database"/></svg> Connected Databases &amp; Data Sources
+                </h3>
+                <p class="card-subtitle">Connect multiple SQL databases at once, link their tables, and query across them seamlessly.</p>
+              </div>
+            </div>
+            <div id="connectedSourcesContainer" class="sources-grid" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(280px, 1fr));gap:12px;padding:0 16px 16px 16px;">
+              <!-- Populated dynamically by JS -->
+            </div>
+          </div>
+
           <div class="panel-card connector-card">
             <div class="segmented" role="tablist" aria-label="Source type">
               <button type="button" class="source-tab active" data-source-tab="files" role="tab">
@@ -357,16 +372,32 @@
                   </select>
                 </div>
                 <div>
+                  <label class="field-label" for="sqlSourceIdInput">Database alias / ID</label>
+                  <input id="sqlSourceIdInput" type="text" class="input-text" placeholder="e.g. sales_db" />
+                </div>
+                <div>
+                  <label class="field-label" for="sqlSourceNameInput">Display name</label>
+                  <input id="sqlSourceNameInput" type="text" class="input-text" placeholder="e.g. Sales Warehouse" />
+                </div>
+                <div>
                   <label class="field-label" for="sqlCredNameInput">Vault alias</label>
                   <input id="sqlCredNameInput" type="text" class="input-text" value="prod_warehouse" />
                 </div>
-                <div>
+                <div style="grid-column: span 3;">
                   <label class="field-label" for="sqlUrlInput">Connection URL</label>
                   <input id="sqlUrlInput" type="password" class="input-text mono" placeholder="postgresql+psycopg2://user:pass@host:5432/db" />
                 </div>
-                <button type="submit" class="btn btn-primary">Connect</button>
+                <div style="display:flex;align-items:flex-end;">
+                  <button type="submit" class="btn btn-primary" style="width:100%;height:38px;">Connect DB</button>
+                </div>
               </form>
-              <p class="form-footnote"><svg class="icon"><use href="#i-lock"/></svg> Credentials are stored in the local encrypted vault and never sent to the AI.</p>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;">
+                <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);cursor:pointer;">
+                  <input type="checkbox" id="sqlAttachModeInput" checked />
+                  <span><strong>Multi-source mode</strong>: attach as additional database alongside existing sources</span>
+                </label>
+                <p class="form-footnote" style="margin:0;"><svg class="icon"><use href="#i-lock"/></svg> Credentials stored in local encrypted vault.</p>
+              </div>
             </div>
 
             <div id="sourcePanel-pbi" class="source-tab-panel hidden">
@@ -392,11 +423,12 @@
             </div>
           </div>
 
-          <div class="subsection-header">
+          <div class="subsection-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
             <div>
               <h3 class="subsection-title">Profiled tables</h3>
               <p class="card-subtitle">Expand a table to see column statistics and control which columns the AI may use.</p>
             </div>
+            <div id="sourceTableFilterChips" class="chip-group"></div>
           </div>
           <div id="schemaTablesContainer" class="schema-tables-stack"></div>
         </section>
@@ -513,6 +545,10 @@
           </div>
 
           <div id="interviewProgressBanner" class="progress-banner"></div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+            <span class="field-label" style="margin:0;font-size:12px;color:var(--text-secondary);">Filter by database:</span>
+            <div id="interviewFilterChips" class="chip-group"></div>
+          </div>
           <div id="interviewQuestionsContainer" class="interview-cards-grid"></div>
 
           <details class="clean-disclosure">

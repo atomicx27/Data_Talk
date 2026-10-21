@@ -1,0 +1,2467 @@
+okf_version: '1.0'
+workspace_id: univercity
+workspace_name: Univercity
+source_type: duckdb
+dialect: duckdb
+credential_ref: ''
+connection_metadata: {}
+data_sources:
+- id: uploaded_files
+  name: Uploaded Datasets
+  source_type: duckdb
+  dialect: duckdb
+  credential_ref: ''
+  connection_metadata: {}
+  table_names:
+  - academic_terms
+  - carbon_footprint_100_countries_2018_2025
+  - colleges
+  - course_sections
+  - courses
+  - degree_programs
+  - departments
+  - enrollments_marks
+  - faculty
+  - fee_invoices
+  - overview
+  - students
+  created_at: '2026-10-21T17:36:41.696500+00:00'
+tables:
+- name: academic_terms
+  business_name: ''
+  description: ''
+  table_role: DIMENSION
+  row_count: 22
+  is_blocked: false
+  columns:
+  - name: term_id
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 22
+    min_value: null
+    max_value: null
+    sample_values:
+    - 2019-FALL
+    - 2021-FALL
+    - 2022-SPRING
+    - 2023-FALL
+    - 2019-SPRING
+    - 2024-SPRING
+    - 2025-FALL
+    - 2020-SPRING
+    - 2023-SPRING
+    - 2024-SUMMER
+    value_meanings: {}
+  - name: academic_year
+    data_type: BIGINT
+    business_alias: ''
+    description: Standard categorical values for `academic_year` (2019, 2021, 2020,
+      2023, 2024).
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 8
+    min_value: '2018'
+    max_value: '2025'
+    sample_values:
+    - '2019'
+    - '2021'
+    - '2020'
+    - '2023'
+    - '2024'
+    - '2025'
+    - '2022'
+    - '2018'
+    value_meanings: {}
+  - name: term_season
+    data_type: VARCHAR
+    business_alias: ''
+    description: Standard categorical values for `term_season` (Fall, Summer, Spring).
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 3
+    min_value: null
+    max_value: null
+    sample_values:
+    - Fall
+    - Summer
+    - Spring
+    value_meanings: {}
+  - name: term_name
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 22
+    min_value: null
+    max_value: null
+    sample_values:
+    - Summer Session 2019
+    - Summer Session 2025
+    - Fall Semester 2018
+    - Summer Session 2020
+    - Summer Session 2022
+    - Spring Semester 2020
+    - Spring Semester 2024
+    - Summer Session 2024
+    - Spring Semester 2025
+    - Spring Semester 2019
+    value_meanings: {}
+  - name: start_date
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 22
+    min_value: null
+    max_value: null
+    sample_values:
+    - '2019-01-15'
+    - '2020-08-25'
+    - '2024-01-15'
+    - '2021-08-25'
+    - '2022-01-15'
+    - '2023-01-15'
+    - '2025-01-15'
+    - '2018-08-25'
+    - '2019-06-01'
+    - '2021-01-15'
+    value_meanings: {}
+  - name: end_date
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 22
+    min_value: null
+    max_value: null
+    sample_values:
+    - '2018-12-20'
+    - '2019-05-15'
+    - '2019-12-20'
+    - '2021-12-20'
+    - '2025-08-10'
+    - '2022-05-15'
+    - '2023-08-10'
+    - '2021-08-10'
+    - '2020-08-10'
+    - '2024-12-20'
+    value_meanings: {}
+  - name: is_active
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 2
+    min_value: '0'
+    max_value: '1'
+    sample_values:
+    - '0'
+    - '1'
+    value_meanings: {}
+  quality_alerts: []
+  source_id: uploaded_files
+  source_name: Uploaded Files
+- name: carbon_footprint_100_countries_2018_2025
+  business_name: ''
+  description: ''
+  table_role: DIMENSION
+  row_count: 856
+  is_blocked: false
+  columns:
+  - name: Country
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 107
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: Carrier
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 16
+    min_value: null
+    max_value: null
+    sample_values:
+    - AT&T
+    - Telefonica
+    - Airtel
+    - Swisscom
+    - MTN
+    - Deutsche Telekom
+    - Telia
+    - Vodafone
+    - Telenor
+    - Etisalat
+    value_meanings: {}
+  - name: Year
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 8
+    min_value: '2018'
+    max_value: '2025'
+    sample_values:
+    - '2018'
+    - '2019'
+    - '2020'
+    - '2021'
+    - '2022'
+    - '2023'
+    - '2024'
+    - '2025'
+    value_meanings: {}
+  - name: Payment_monthly_Constant_cost_MRC
+    data_type: DOUBLE
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 854
+    min_value: '229.49'
+    max_value: '4118.55'
+    sample_values: []
+    value_meanings: {}
+  - name: CO2_value
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 855
+    min_value: '72292'
+    max_value: '1340239'
+    sample_values: []
+    value_meanings: {}
+  quality_alerts: []
+  source_id: uploaded_files
+  source_name: Uploaded Files
+- name: colleges
+  business_name: ''
+  description: ''
+  table_role: DIMENSION
+  row_count: 8
+  is_blocked: false
+  columns:
+  - name: college_id
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: true
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 8
+    min_value: '1'
+    max_value: '8'
+    sample_values:
+    - '1'
+    - '2'
+    - '3'
+    - '4'
+    - '5'
+    - '6'
+    - '7'
+    - '8'
+    value_meanings: {}
+  - name: college_code
+    data_type: VARCHAR
+    business_alias: ''
+    description: Standard categorical values for `college_code` (CLPP, CHSM, CADB,
+      COE, CHSS).
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 8
+    min_value: null
+    max_value: null
+    sample_values:
+    - CLPP
+    - CHSM
+    - CADB
+    - COE
+    - CHSS
+    - CEHD
+    - CNS
+    - CBM
+    value_meanings: {}
+  - name: college_name
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 8
+    min_value: null
+    max_value: null
+    sample_values:
+    - College of Education & Human Development
+    - College of Architecture & Built Environment
+    - College of Natural Sciences & Mathematics
+    - College of Humanities & Social Sciences
+    - College of Health Sciences & Medicine
+    - College of Law & Public Policy
+    - College of Business & Management
+    - College of Engineering & Computing
+    value_meanings: {}
+  - name: campus_location
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 8
+    min_value: null
+    max_value: null
+    sample_values:
+    - North Campus, Innovation Quad
+    - Science Complex, Hall B
+    - Justice Hall, South Wing
+    - Old Main Quadrangle
+    - Central Campus, Executive Plaza
+    - West Medical Center, Tower 1
+    - Founders Hall, East Wing
+    - Design Arts Pavilion
+    value_meanings: {}
+  - name: established_year
+    data_type: BIGINT
+    business_alias: ''
+    description: Standard categorical values for `established_year` (1960, 1962, 1965,
+      1968, 1974).
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 8
+    min_value: '1960'
+    max_value: '1985'
+    sample_values:
+    - '1960'
+    - '1962'
+    - '1965'
+    - '1968'
+    - '1974'
+    - '1978'
+    - '1982'
+    - '1985'
+    value_meanings: {}
+  - name: dean_name
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 8
+    min_value: null
+    max_value: null
+    sample_values:
+    - Dr. Arthur Pendelton
+    - Hon. Evelyn Caldwell
+    - Dr. Robert Chen
+    - Prof. Sophia Rossi
+    - Dr. Fatima Al-Mansoor
+    - Dr. Marcus Sterling
+    - Dr. Julian Montgomery
+    - Dr. Eleanor Vance
+    value_meanings: {}
+  - name: dean_email
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: true
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 8
+    min_value: null
+    max_value: null
+    sample_values:
+    - <REDACTED_PII_COLUMN>
+    value_meanings: {}
+  - name: phone_number
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: true
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 8
+    min_value: null
+    max_value: null
+    sample_values:
+    - <REDACTED_PII_COLUMN>
+    value_meanings: {}
+  - name: created_at
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 1
+    min_value: null
+    max_value: null
+    sample_values:
+    - '2026-10-21 11:09:10'
+    value_meanings: {}
+  quality_alerts: []
+  source_id: uploaded_files
+  source_name: Uploaded Files
+- name: course_sections
+  business_name: ''
+  description: ''
+  table_role: FACT
+  row_count: 4621
+  is_blocked: false
+  columns:
+  - name: section_id
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 4621
+    min_value: '1'
+    max_value: '4621'
+    sample_values: []
+    value_meanings: {}
+  - name: course_id
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: true
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 192
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: term_id
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 22
+    min_value: null
+    max_value: null
+    sample_values:
+    - 2024-FALL
+    - 2020-SPRING
+    - 2023-SPRING
+    - 2022-FALL
+    - 2021-FALL
+    - 2024-SPRING
+    - 2021-SPRING
+    - 2020-FALL
+    - 2019-FALL
+    - 2022-SPRING
+    value_meanings: {}
+  - name: faculty_id
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: true
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 421
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: section_number
+    data_type: BIGINT
+    business_alias: ''
+    description: Standard categorical values for `section_number` (1, 2).
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 2
+    min_value: '1'
+    max_value: '2'
+    sample_values:
+    - '1'
+    - '2'
+    value_meanings: {}
+  - name: classroom
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 56
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: schedule_slot
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 10
+    min_value: null
+    max_value: null
+    sample_values:
+    - MWF 11:00-11:50
+    - TR 08:30-09:45
+    - TR 15:30-16:45
+    - TR 11:30-12:45
+    - TR 14:00-15:15
+    - TR 10:00-11:15
+    - MWF 10:00-10:50
+    - MWF 14:00-14:50
+    - MWF 09:00-09:50
+    - MWF 13:00-13:50
+    value_meanings: {}
+  - name: max_seats
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 1
+    min_value: '30'
+    max_value: '30'
+    sample_values:
+    - '30'
+    value_meanings: {}
+  quality_alerts: []
+  source_id: uploaded_files
+  source_name: Uploaded Files
+- name: courses
+  business_name: ''
+  description: ''
+  table_role: FACT
+  row_count: 192
+  is_blocked: false
+  columns:
+  - name: course_id
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: true
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 192
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: department_id
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: true
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 32
+    min_value: '1'
+    max_value: '32'
+    sample_values: []
+    value_meanings: {}
+  - name: course_title
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 192
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: credit_hours
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 2
+    min_value: '3'
+    max_value: '4'
+    sample_values:
+    - '3'
+    - '4'
+    value_meanings: {}
+  - name: course_level
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 5
+    min_value: null
+    max_value: null
+    sample_values:
+    - 300-Level
+    - 200-Level
+    - 500-Level Graduate
+    - 400-Level
+    - 100-Level
+    value_meanings: {}
+  - name: syllabus_summary
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 192
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  quality_alerts: []
+  source_id: uploaded_files
+  source_name: Uploaded Files
+- name: degree_programs
+  business_name: ''
+  description: ''
+  table_role: DIMENSION
+  row_count: 64
+  is_blocked: false
+  columns:
+  - name: program_id
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 64
+    min_value: '1'
+    max_value: '64'
+    sample_values: []
+    value_meanings: {}
+  - name: department_id
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: true
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 32
+    min_value: '1'
+    max_value: '32'
+    sample_values: []
+    value_meanings: {}
+  - name: program_code
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 64
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: program_name
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 64
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: degree_level
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 2
+    min_value: null
+    max_value: null
+    sample_values:
+    - Undergraduate
+    - Postgraduate
+    value_meanings: {}
+  - name: duration_years
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 2
+    min_value: '2'
+    max_value: '4'
+    sample_values:
+    - '2'
+    - '4'
+    value_meanings: {}
+  - name: total_credits_required
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 2
+    min_value: '36'
+    max_value: '120'
+    sample_values:
+    - '36'
+    - '120'
+    value_meanings: {}
+  quality_alerts: []
+  source_id: uploaded_files
+  source_name: Uploaded Files
+- name: departments
+  business_name: ''
+  description: ''
+  table_role: FACT
+  row_count: 32
+  is_blocked: false
+  columns:
+  - name: department_id
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: true
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 32
+    min_value: '1'
+    max_value: '32'
+    sample_values: []
+    value_meanings: {}
+  - name: college_id
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: true
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 8
+    min_value: '1'
+    max_value: '8'
+    sample_values:
+    - '1'
+    - '2'
+    - '3'
+    - '4'
+    - '5'
+    - '6'
+    - '7'
+    - '8'
+    value_meanings: {}
+  - name: department_code
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 32
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: department_name
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 32
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: head_of_department
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 32
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: office_location
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 32
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: budget_allocated
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 22
+    min_value: '2200000'
+    max_value: '5100000'
+    sample_values:
+    - '3100000'
+    - '2900000'
+    - '3600000'
+    - '3400000'
+    - '2600000'
+    - '2800000'
+    - '2400000'
+    - '2700000'
+    - '4500000'
+    - '3300000'
+    value_meanings: {}
+  quality_alerts: []
+  source_id: uploaded_files
+  source_name: Uploaded Files
+- name: enrollments_marks
+  business_name: ''
+  description: ''
+  table_role: DIMENSION
+  row_count: 344054
+  is_blocked: false
+  columns:
+  - name: enrollment_id
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 344054
+    min_value: '1'
+    max_value: '344054'
+    sample_values: []
+    value_meanings: {}
+  - name: student_id
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: true
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 12800
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: section_id
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 4621
+    min_value: '1'
+    max_value: '4621'
+    sample_values: []
+    value_meanings: {}
+  - name: enrollment_date
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 22
+    min_value: null
+    max_value: null
+    sample_values:
+    - '2025-08-20'
+    - '2024-08-20'
+    - '2023-08-20'
+    - '2022-08-20'
+    - '2025-01-10'
+    - '2024-01-10'
+    - '2021-08-20'
+    - '2023-01-10'
+    - '2022-01-10'
+    - '2020-08-20'
+    value_meanings: {}
+  - name: attendance_rate
+    data_type: DOUBLE
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 4716
+    min_value: '52.0'
+    max_value: '100.0'
+    sample_values: []
+    value_meanings: {}
+  - name: internal_assessment_score
+    data_type: DOUBLE
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 2526
+    min_value: '14.5'
+    max_value: '40.0'
+    sample_values: []
+    value_meanings: {}
+  - name: final_exam_score
+    data_type: DOUBLE
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0933
+    distinct_count: 3739
+    min_value: '22.01'
+    max_value: '60.0'
+    sample_values: []
+    value_meanings: {}
+  - name: total_marks
+    data_type: DOUBLE
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0933
+    distinct_count: 5994
+    min_value: '37.23'
+    max_value: '100.0'
+    sample_values: []
+    value_meanings: {}
+  - name: letter_grade
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0933
+    distinct_count: 10
+    min_value: null
+    max_value: null
+    sample_values:
+    - B
+    - B-
+    - B+
+    - C+
+    - A-
+    - C
+    - A
+    - A+
+    - D
+    - F
+    value_meanings: {}
+  - name: grade_points
+    data_type: DOUBLE
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0933
+    distinct_count: 10
+    min_value: '0.0'
+    max_value: '4.0'
+    sample_values:
+    - '2.7'
+    - '2.3'
+    - '3.0'
+    - '2.0'
+    - '3.3'
+    - '1.7'
+    - '3.7'
+    - '4.0'
+    - '1.0'
+    - '0.0'
+    value_meanings: {}
+  - name: completion_status
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 2
+    min_value: null
+    max_value: null
+    sample_values:
+    - Completed
+    - Enrolled
+    value_meanings: {}
+  - name: remarks
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 5
+    min_value: null
+    max_value: null
+    sample_values:
+    - Satisfactory course completion.
+    - Commendable mastery of academic subject matter.
+    - Dean's list honors level performance.
+    - Midterm assessment logged; semester finals schedul
+    - Grade below passing standard; prerequisite must be
+    value_meanings: {}
+  quality_alerts: []
+  source_id: uploaded_files
+  source_name: Uploaded Files
+- name: faculty
+  business_name: ''
+  description: ''
+  table_role: FACT
+  row_count: 421
+  is_blocked: false
+  columns:
+  - name: faculty_id
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: true
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 421
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: department_id
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: true
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 32
+    min_value: '1'
+    max_value: '32'
+    sample_values: []
+    value_meanings: {}
+  - name: first_name
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 95
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: last_name
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 64
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: email
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: true
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 421
+    min_value: null
+    max_value: null
+    sample_values:
+    - <REDACTED_PII_COLUMN>
+    value_meanings: {}
+  - name: phone
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: true
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 421
+    min_value: null
+    max_value: null
+    sample_values:
+    - <REDACTED_PII_COLUMN>
+    value_meanings: {}
+  - name: academic_rank
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 5
+    min_value: null
+    max_value: null
+    sample_values:
+    - Senior Lecturer
+    - Associate Professor
+    - Assistant Professor
+    - Lecturer
+    - Professor
+    value_meanings: {}
+  - name: hire_date
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 412
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: salary
+    data_type: DOUBLE
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: true
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 421
+    min_value: null
+    max_value: null
+    sample_values:
+    - <REDACTED_PII_COLUMN>
+    value_meanings: {}
+  - name: office_room
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 412
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: employment_status
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 2
+    min_value: null
+    max_value: null
+    sample_values:
+    - Active
+    - On Leave
+    value_meanings: {}
+  quality_alerts: []
+  source_id: uploaded_files
+  source_name: Uploaded Files
+- name: fee_invoices
+  business_name: ''
+  description: ''
+  table_role: DIMENSION
+  row_count: 105260
+  is_blocked: false
+  columns:
+  - name: invoice_id
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 105260
+    min_value: '1'
+    max_value: '105260'
+    sample_values: []
+    value_meanings: {}
+  - name: student_id
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: true
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 12800
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: term_id
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 22
+    min_value: null
+    max_value: null
+    sample_values:
+    - 2025-FALL
+    - 2024-FALL
+    - 2023-FALL
+    - 2022-FALL
+    - 2025-SUMMER
+    - 2025-SPRING
+    - 2024-SPRING
+    - 2024-SUMMER
+    - 2021-FALL
+    - 2023-SPRING
+    value_meanings: {}
+  - name: tuition_amount
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 3
+    min_value: '4200'
+    max_value: '5200'
+    sample_values:
+    - '4200'
+    - '5200'
+    - '4800'
+    value_meanings: {}
+  - name: technology_library_fee
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 1
+    min_value: '350'
+    max_value: '350'
+    sample_values:
+    - '350'
+    value_meanings: {}
+  - name: campus_facilities_fee
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 1
+    min_value: '250'
+    max_value: '250'
+    sample_values:
+    - '250'
+    value_meanings: {}
+  - name: total_fee_due
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 3
+    min_value: '4800'
+    max_value: '5800'
+    sample_values:
+    - '4800'
+    - '5800'
+    - '5400'
+    value_meanings: {}
+  - name: amount_paid
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 10
+    min_value: '0'
+    max_value: '5800'
+    sample_values:
+    - '4800'
+    - '5800'
+    - '5400'
+    - '0'
+    - '2400'
+    - '3600'
+    - '4350'
+    - '2900'
+    - '4050'
+    - '2700'
+    value_meanings: {}
+  - name: balance_outstanding
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 10
+    min_value: '0'
+    max_value: '5800'
+    sample_values:
+    - '0'
+    - '4800'
+    - '2400'
+    - '1200'
+    - '5800'
+    - '1450'
+    - '2900'
+    - '5400'
+    - '1350'
+    - '2700'
+    value_meanings: {}
+  - name: payment_status
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 4
+    min_value: null
+    max_value: null
+    sample_values:
+    - Fully Paid
+    - Partially Paid
+    - Overdue
+    - Pending
+    value_meanings: {}
+  - name: payment_date
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0505
+    distinct_count: 23
+    min_value: null
+    max_value: null
+    sample_values:
+    - '2025-01-25'
+    - '2024-01-25'
+    - '2023-01-25'
+    - '2022-01-25'
+    - '2021-01-25'
+    - '2025-09-10'
+    - '2024-09-10'
+    - '2023-09-10'
+    - '2022-09-10'
+    - '2021-09-10'
+    value_meanings: {}
+  - name: payment_method
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0505
+    distinct_count: 4
+    min_value: null
+    max_value: null
+    sample_values:
+    - Credit Card
+    - Academic Scholarship
+    - Educational Loan
+    - Direct Bank Wire
+    value_meanings: {}
+  quality_alerts: []
+  source_id: uploaded_files
+  source_name: Uploaded Files
+- name: overview
+  business_name: ''
+  description: ''
+  table_role: DIMENSION
+  row_count: 20
+  is_blocked: false
+  columns:
+  - name: Unnamed_0
+    data_type: DOUBLE
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 1.0
+    distinct_count: 0
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: Unnamed_1
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.2
+    distinct_count: 16
+    min_value: null
+    max_value: null
+    sample_values:
+    - Table Name
+    - faculty
+    - RELATIONAL TABLE DIRECTORY & ARCHITECTURE
+    - departments
+    - degree_programs
+    - Apex Metropolitan University — Enterprise Academic
+    - colleges
+    - course_sections
+    - student_fee_invoices
+    - 'Complete Relational Database Ledger (2018–2025) • '
+    value_meanings: {}
+  - name: Unnamed_2
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.4
+    distinct_count: 11
+    min_value: null
+    max_value: null
+    sample_values:
+    - '344054'
+    - Total Records
+    - '64'
+    - '22'
+    - '4621'
+    - '192'
+    - '12800'
+    - '105260'
+    - '421'
+    - '8'
+    value_meanings: {}
+  - name: Unnamed_3
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.4
+    distinct_count: 12
+    min_value: null
+    max_value: null
+    sample_values:
+    - faculty_id
+    - term_id
+    - student_id
+    - enrollment_id
+    - course_id
+    - '105260'
+    - department_id
+    - section_id
+    - Primary Key
+    - college_id
+    value_meanings: {}
+  - name: Unnamed_4
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.4
+    distinct_count: 9
+    min_value: null
+    max_value: null
+    sample_values:
+    - department_id
+    - '-'
+    - course_id, term_id, faculty_id
+    - college_id
+    - student_id, section_id
+    - student_id, term_id
+    - college_id, program_id, advisor_id
+    - '12800'
+    - Foreign Keys
+    value_meanings: {}
+  - name: Unnamed_5
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.4
+    distinct_count: 12
+    min_value: null
+    max_value: null
+    sample_values:
+    - Academic departments, division chairs, office hubs
+    - Constituent academic colleges, deans, campus sites
+    - Student profiles, demographics, cohort admission t
+    - Functional Description
+    - Course master catalog with credit hours, course le
+    - '421'
+    - Fall, Spring, and Summer terms covering the 2018–2
+    - Billed tuition, institutional fees, payments, bala
+    - Undergraduate and postgraduate degree offerings an
+    - Faculty directory, professorial ranks, hire dates,
+    value_meanings: {}
+  quality_alerts:
+  - Column 'Unnamed_0' has a high NULL rate (100.0%).
+  - Column 'Unnamed_2' has a high NULL rate (40.0%).
+  - Column 'Unnamed_3' has a high NULL rate (40.0%).
+  - Column 'Unnamed_4' has a high NULL rate (40.0%).
+  - Column 'Unnamed_5' has a high NULL rate (40.0%).
+  source_id: uploaded_files
+  source_name: Uploaded Files
+- name: students
+  business_name: ''
+  description: ''
+  table_role: FACT
+  row_count: 12800
+  is_blocked: false
+  columns:
+  - name: student_id
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: true
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 12800
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: first_name
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 96
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: last_name
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 64
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: gender
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 3
+    min_value: null
+    max_value: null
+    sample_values:
+    - Non-Binary
+    - Male
+    - Female
+    value_meanings: {}
+  - name: date_of_birth
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: true
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 3591
+    min_value: null
+    max_value: null
+    sample_values:
+    - <REDACTED_PII_COLUMN>
+    value_meanings: {}
+  - name: email
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: true
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 12800
+    min_value: null
+    max_value: null
+    sample_values:
+    - <REDACTED_PII_COLUMN>
+    value_meanings: {}
+  - name: phone_number
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: true
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 12783
+    min_value: null
+    max_value: null
+    sample_values:
+    - <REDACTED_PII_COLUMN>
+    value_meanings: {}
+  - name: address
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 12703
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: college_id
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: true
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 8
+    min_value: '1'
+    max_value: '8'
+    sample_values:
+    - '8'
+    - '2'
+    - '6'
+    - '5'
+    - '7'
+    - '4'
+    - '1'
+    - '3'
+    value_meanings: {}
+  - name: program_id
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 64
+    min_value: '1'
+    max_value: '64'
+    sample_values: []
+    value_meanings: {}
+  - name: advisor_faculty_id
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 421
+    min_value: null
+    max_value: null
+    sample_values: []
+    value_meanings: {}
+  - name: admission_year
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 8
+    min_value: '2018'
+    max_value: '2025'
+    sample_values:
+    - '2025'
+    - '2024'
+    - '2023'
+    - '2022'
+    - '2021'
+    - '2020'
+    - '2019'
+    - '2018'
+    value_meanings: {}
+  - name: admission_term_id
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 8
+    min_value: null
+    max_value: null
+    sample_values:
+    - 2025-FALL
+    - 2024-FALL
+    - 2023-FALL
+    - 2022-FALL
+    - 2021-FALL
+    - 2020-FALL
+    - 2019-FALL
+    - 2018-FALL
+    value_meanings: {}
+  - name: expected_graduation_year
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 10
+    min_value: '2020'
+    max_value: '2029'
+    sample_values:
+    - '2027'
+    - '2026'
+    - '2029'
+    - '2025'
+    - '2024'
+    - '2028'
+    - '2023'
+    - '2022'
+    - '2020'
+    - '2021'
+    value_meanings: {}
+  - name: academic_status
+    data_type: VARCHAR
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 4
+    min_value: null
+    max_value: null
+    sample_values:
+    - Active
+    - Graduated
+    - Withdrawn
+    - Academic Probation
+    value_meanings: {}
+  - name: current_semester_num
+    data_type: BIGINT
+    business_alias: ''
+    description: ''
+    is_primary_key: false
+    is_foreign_key: false
+    is_nullable: true
+    is_pii: false
+    is_blocked: false
+    null_ratio: 0.0
+    distinct_count: 6
+    min_value: '1'
+    max_value: '8'
+    sample_values:
+    - '8'
+    - '1'
+    - '3'
+    - '5'
+    - '4'
+    - '7'
+    value_meanings: {}
+  quality_alerts: []
+  source_id: uploaded_files
+  source_name: Uploaded Files
+relationships:
+- id: rel_course_sections_course_id_to_courses_course_id
+  source_table: course_sections
+  source_column: course_id
+  target_table: courses
+  target_column: course_id
+  cardinality: N:1
+  join_type: LEFT
+  confidence: 0.98
+  discovery_method: lexical_overlap
+  status: approved
+  overlap_ratio: 1.0
+  is_cross_source: false
+  source_source_id: default
+  target_source_id: default
+- id: rel_course_sections_faculty_id_to_faculty_faculty_id
+  source_table: course_sections
+  source_column: faculty_id
+  target_table: faculty
+  target_column: faculty_id
+  cardinality: N:1
+  join_type: LEFT
+  confidence: 0.98
+  discovery_method: lexical_overlap
+  status: approved
+  overlap_ratio: 1.0
+  is_cross_source: false
+  source_source_id: default
+  target_source_id: default
+- id: rel_courses_department_id_to_departments_department_id
+  source_table: courses
+  source_column: department_id
+  target_table: departments
+  target_column: department_id
+  cardinality: N:1
+  join_type: LEFT
+  confidence: 0.98
+  discovery_method: lexical_overlap
+  status: approved
+  overlap_ratio: 1.0
+  is_cross_source: false
+  source_source_id: default
+  target_source_id: default
+- id: rel_degree_programs_department_id_to_departments_department_id
+  source_table: degree_programs
+  source_column: department_id
+  target_table: departments
+  target_column: department_id
+  cardinality: N:1
+  join_type: LEFT
+  confidence: 0.98
+  discovery_method: lexical_overlap
+  status: approved
+  overlap_ratio: 1.0
+  is_cross_source: false
+  source_source_id: default
+  target_source_id: default
+- id: rel_departments_college_id_to_colleges_college_id
+  source_table: departments
+  source_column: college_id
+  target_table: colleges
+  target_column: college_id
+  cardinality: N:1
+  join_type: LEFT
+  confidence: 0.98
+  discovery_method: lexical_overlap
+  status: approved
+  overlap_ratio: 1.0
+  is_cross_source: false
+  source_source_id: default
+  target_source_id: default
+- id: rel_enrollments_marks_student_id_to_students_student_id
+  source_table: enrollments_marks
+  source_column: student_id
+  target_table: students
+  target_column: student_id
+  cardinality: N:1
+  join_type: LEFT
+  confidence: 0.98
+  discovery_method: lexical_overlap
+  status: approved
+  overlap_ratio: 1.0
+  is_cross_source: false
+  source_source_id: default
+  target_source_id: default
+- id: rel_faculty_department_id_to_departments_department_id
+  source_table: faculty
+  source_column: department_id
+  target_table: departments
+  target_column: department_id
+  cardinality: N:1
+  join_type: LEFT
+  confidence: 0.98
+  discovery_method: lexical_overlap
+  status: approved
+  overlap_ratio: 1.0
+  is_cross_source: false
+  source_source_id: default
+  target_source_id: default
+- id: rel_fee_invoices_student_id_to_students_student_id
+  source_table: fee_invoices
+  source_column: student_id
+  target_table: students
+  target_column: student_id
+  cardinality: N:1
+  join_type: LEFT
+  confidence: 0.98
+  discovery_method: lexical_overlap
+  status: approved
+  overlap_ratio: 1.0
+  is_cross_source: false
+  source_source_id: default
+  target_source_id: default
+- id: rel_students_college_id_to_colleges_college_id
+  source_table: students
+  source_column: college_id
+  target_table: colleges
+  target_column: college_id
+  cardinality: N:1
+  join_type: LEFT
+  confidence: 0.98
+  discovery_method: lexical_overlap
+  status: approved
+  overlap_ratio: 1.0
+  is_cross_source: false
+  source_source_id: default
+  target_source_id: default
+calculated_columns: []
+measures:
+- id: meas_recognized_net_revenue
+  name: Recognized Net Revenue
+  table_name: orders
+  description: Total Net Revenue in USD excluding Cancelled ('X') orders.
+  format_string: '#,##0.00'
+  user_input_type: dax
+  dax_expression: CALCULATE(SUM(orders[rev_net_usd]), orders[ord_stat] <> "X")
+  sql_expression: SUM(CASE WHEN orders.ord_stat <> 'X' THEN orders.rev_net_usd ELSE
+    0 END)
+  involved_tables:
+  - orders
+  verified: false
+  sample_value: null
+  synonyms: []
+- id: meas_gross_margin
+  name: Gross Margin %
+  table_name: orders
+  description: Profit divided by Net Revenue across active orders.
+  format_string: '#,##0.00'
+  user_input_type: dax
+  dax_expression: DIVIDE(SUM(orders[profit_usd]), SUM(orders[rev_net_usd]), 0)
+  sql_expression: COALESCE((SUM(orders.profit_usd)) / NULLIF((SUM(orders.rev_net_usd)),
+    0), 0)
+  involved_tables:
+  - orders
+  verified: false
+  sample_value: null
+  synonyms: []
+- id: meas_average_order_value_aov
+  name: Average Order Value (AOV)
+  table_name: orders
+  description: Recognized Net Revenue divided by distinct completed/pending orders.
+  format_string: '#,##0.00'
+  user_input_type: dax
+  dax_expression: DIVIDE(CALCULATE(SUM(orders[rev_net_usd]), orders[ord_stat] <> "X"),
+    DISTINCTCOUNT(orders[order_id]), 0)
+  sql_expression: COALESCE((SUM(CASE WHEN orders.ord_stat <> 'X' THEN orders.rev_net_usd
+    ELSE 0 END)) / NULLIF((COUNT(DISTINCT orders.order_id)), 0), 0)
+  involved_tables:
+  - orders
+  verified: false
+  sample_value: null
+  synonyms: []
+business_rules:
+- id: rule_q_codes_academic_terms_academic_year
+  category: status_codes
+  term: academic_terms.academic_year
+  definition: Standard categorical values for `academic_year` (2019, 2021, 2020, 2023,
+    2024).
+  applies_to_tables:
+  - academic_terms
+  sql_filter_hint: ''
+  dax_filter_hint: ''
+  source: interview
+- id: rule_q_codes_academic_terms_term_season
+  category: status_codes
+  term: academic_terms.term_season
+  definition: Standard categorical values for `term_season` (Fall, Summer, Spring).
+  applies_to_tables:
+  - academic_terms
+  sql_filter_hint: ''
+  dax_filter_hint: ''
+  source: interview
+- id: rule_q_codes_colleges_college_code
+  category: status_codes
+  term: colleges.college_code
+  definition: Standard categorical values for `college_code` (CLPP, CHSM, CADB, COE,
+    CHSS).
+  applies_to_tables:
+  - colleges
+  sql_filter_hint: ''
+  dax_filter_hint: ''
+  source: interview
+- id: rule_q_codes_colleges_established_year
+  category: status_codes
+  term: colleges.established_year
+  definition: Standard categorical values for `established_year` (1960, 1962, 1965,
+    1968, 1974).
+  applies_to_tables:
+  - colleges
+  sql_filter_hint: ''
+  dax_filter_hint: ''
+  source: interview
+- id: rule_q_codes_course_sections_section_number
+  category: status_codes
+  term: course_sections.section_number
+  definition: Standard categorical values for `section_number` (1, 2).
+  applies_to_tables:
+  - course_sections
+  sql_filter_hint: ''
+  dax_filter_hint: ''
+  source: interview
+interview_questions:
+- id: q_codes_academic_terms_academic_year
+  priority: 1
+  category: status_codes
+  table_name: academic_terms
+  column_name: academic_year
+  question_text: In table `academic_terms`, column `academic_year` contains values
+    ['2019', '2021', '2020', '2023', '2024', '2025', '2022', '2018']. What do these
+    codes mean, and should any be excluded when calculating standard metrics?
+  context_hint: 'Distinct values: 8 | Null rate: 0.0%'
+  suggested_options:
+  - Standard categorical values for `academic_year` (2019, 2021, 2020, 2023, 2024).
+  answer: Standard categorical values for `academic_year` (2019, 2021, 2020, 2023,
+    2024).
+  answered: true
+  source_id: uploaded_files
+- id: q_codes_academic_terms_term_season
+  priority: 1
+  category: status_codes
+  table_name: academic_terms
+  column_name: term_season
+  question_text: In table `academic_terms`, column `term_season` contains values ['Fall',
+    'Summer', 'Spring']. What do these codes mean, and should any be excluded when
+    calculating standard metrics?
+  context_hint: 'Distinct values: 3 | Null rate: 0.0%'
+  suggested_options:
+  - Standard categorical values for `term_season` (Fall, Summer, Spring).
+  answer: Standard categorical values for `term_season` (Fall, Summer, Spring).
+  answered: true
+  source_id: uploaded_files
+- id: q_codes_academic_terms_is_active
+  priority: 1
+  category: status_codes
+  table_name: academic_terms
+  column_name: is_active
+  question_text: In table `academic_terms`, column `is_active` contains values ['0',
+    '1']. What do these codes mean, and should any be excluded when calculating standard
+    metrics?
+  context_hint: 'Distinct values: 2 | Null rate: 0.0%'
+  suggested_options:
+  - Standard categorical values for `is_active` (0, 1).
+  answer: ''
+  answered: false
+  source_id: uploaded_files
+- id: q_codes_carbon_footprint_100_countries_2018_2025_Carrier
+  priority: 1
+  category: status_codes
+  table_name: carbon_footprint_100_countries_2018_2025
+  column_name: Carrier
+  question_text: In table `carbon_footprint_100_countries_2018_2025`, column `Carrier`
+    contains values ['AT&T', 'Telefonica', 'Airtel', 'Swisscom', 'MTN', 'Deutsche
+    Telekom', 'Telia', 'Vodafone']. What do these codes mean, and should any be excluded
+    when calculating standard metrics?
+  context_hint: 'Distinct values: 16 | Null rate: 0.0%'
+  suggested_options:
+  - Standard categorical values for `Carrier` (AT&T, Telefonica, Airtel, Swisscom,
+    MTN).
+  answer: ''
+  answered: false
+  source_id: uploaded_files
+- id: q_codes_carbon_footprint_100_countries_2018_2025_Year
+  priority: 1
+  category: status_codes
+  table_name: carbon_footprint_100_countries_2018_2025
+  column_name: Year
+  question_text: In table `carbon_footprint_100_countries_2018_2025`, column `Year`
+    contains values ['2018', '2019', '2020', '2021', '2022', '2023', '2024', '2025'].
+    What do these codes mean, and should any be excluded when calculating standard
+    metrics?
+  context_hint: 'Distinct values: 8 | Null rate: 0.0%'
+  suggested_options:
+  - Standard categorical values for `Year` (2018, 2019, 2020, 2021, 2022).
+  answer: ''
+  answered: false
+  source_id: uploaded_files
+- id: q_codes_colleges_college_code
+  priority: 1
+  category: status_codes
+  table_name: colleges
+  column_name: college_code
+  question_text: In table `colleges`, column `college_code` contains values ['CLPP',
+    'CHSM', 'CADB', 'COE', 'CHSS', 'CEHD', 'CNS', 'CBM']. What do these codes mean,
+    and should any be excluded when calculating standard metrics?
+  context_hint: 'Distinct values: 8 | Null rate: 0.0%'
+  suggested_options:
+  - Standard categorical values for `college_code` (CLPP, CHSM, CADB, COE, CHSS).
+  answer: Standard categorical values for `college_code` (CLPP, CHSM, CADB, COE, CHSS).
+  answered: true
+  source_id: uploaded_files
+- id: q_codes_colleges_established_year
+  priority: 1
+  category: status_codes
+  table_name: colleges
+  column_name: established_year
+  question_text: In table `colleges`, column `established_year` contains values ['1960',
+    '1962', '1965', '1968', '1974', '1978', '1982', '1985']. What do these codes mean,
+    and should any be excluded when calculating standard metrics?
+  context_hint: 'Distinct values: 8 | Null rate: 0.0%'
+  suggested_options:
+  - Standard categorical values for `established_year` (1960, 1962, 1965, 1968, 1974).
+  answer: Standard categorical values for `established_year` (1960, 1962, 1965, 1968,
+    1974).
+  answered: true
+  source_id: uploaded_files
+- id: q_codes_course_sections_section_number
+  priority: 1
+  category: status_codes
+  table_name: course_sections
+  column_name: section_number
+  question_text: In table `course_sections`, column `section_number` contains values
+    ['1', '2']. What do these codes mean, and should any be excluded when calculating
+    standard metrics?
+  context_hint: 'Distinct values: 2 | Null rate: 0.0%'
+  suggested_options:
+  - Standard categorical values for `section_number` (1, 2).
+  answer: Standard categorical values for `section_number` (1, 2).
+  answered: true
+  source_id: uploaded_files
+what_if_parameters: []
+pinned_widgets: []
+updated_at: '2026-10-21T17:42:56.071490+00:00'

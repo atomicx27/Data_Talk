@@ -134,6 +134,17 @@ class AppRuntime:
         with self._state_lock:
             if workspace_id not in self.connectors:
                 ws = self.get_workspace(workspace_id)
+                if ws.source_type == "federated" or ws.data_sources:
+                    from src.connectors.federated_connector import FederatedConnector
+
+                    fed_conn = FederatedConnector(self.okf_store.workspace_dir(workspace_id))
+                    for s in ws.data_sources:
+                        if s.source_type == "sql" and s.credential_ref:
+                            secret_url = self.vault.get_secret(s.credential_ref)
+                            if secret_url:
+                                fed_conn.register_sql_connector(s.id, secret_url, dialect_hint=s.dialect)
+                    self.connectors[workspace_id] = fed_conn
+                    return self.connectors[workspace_id]
                 if ws.source_type == "sql" and ws.credential_ref:
                     secret_url = self.vault.get_secret(ws.credential_ref)
                     if secret_url:

@@ -19,6 +19,13 @@ class SQLConnectRequest(BaseModel):
     dialect: str = "postgres"
     credential_name: str = Field("prod_sql_db", pattern=r"^[A-Za-z0-9_.-]{1,64}$")
     connection_url: str
+    source_id: str | None = None
+    source_name: str | None = None
+    attach_mode: bool = True
+
+
+class RemoveSourceRequest(BaseModel):
+    source_id: str
 
 
 class PowerBIConnectRequest(BaseModel):

@@ -1,29 +1,32 @@
-# Data_Talk Enterprise BI (`v2.4.0`)
+# Data_Talk Enterprise BI (`v2.5.0`)
 
-**Governed Conversational Business Intelligence, Semantic Layer Studio & Bidirectional DAX $\leftrightarrow$ SQL Compiler**
+**Governed Conversational Business Intelligence, Semantic Layer Studio, Multi-Database Federation & Bidirectional DAX $\leftrightarrow$ SQL Compiler**
 
-Data_Talk is a production-ready, zero-login enterprise conversational BI platform that connects to **CSV / Excel / Parquet files**, **SQL Databases** (`DuckDB`, `PostgreSQL`, `MySQL`, `SQLite`, `SQL Server`), and **Power BI Semantic Models** (`.pbix` schemas, Power BI Desktop Localhost XMLA, and Power BI Cloud XMLA).
+Data_Talk is a production-ready, zero-login enterprise conversational BI platform that connects to **multiple simultaneous SQL databases** (`PostgreSQL`, `MySQL`, `SQLite`, `DuckDB`, `SQL Server`), **CSV / Excel / Parquet files**, and **Power BI Semantic Models** (`.pbix` schemas, Power BI Desktop Localhost XMLA, and Power BI Cloud XMLA).
 
 Unlike generic "Text-to-SQL" wrappers that hallucinate on massive or cryptic schemas, Data_Talk builds a **Two-Tier Governed Semantic Brain** before answering executive queries:
-1. **Tier 1 — Organizational Knowledge Framework (`okf.yaml` + `NetworkX` Join Graph)**: Deterministic schema metadata, Fact vs. Dimension classification, verified join paths, and governed DAX/SQL measures.
+1. **Tier 1 — Organizational Knowledge Framework (`okf.yaml` + `NetworkX` Join Graph)**: Deterministic schema metadata, Fact vs. Dimension classification, verified multi-hop and cross-database join paths, and governed DAX/SQL measures.
 2. **Tier 2 — Hybrid Vector + BM25 RAG (`rag_memory.sqlite`)**: Local SQLite-backed BM25 lexical retriever combined with stable BLAKE2b feature hashing and cosine vector similarity, fused using **Reciprocal Rank Fusion (RRF, $k=60$)**.
 
 ---
 
 ## ✨ Key Product Capabilities
 
-- **01. Multi-Source Connector & Push-Down Statistical Profiler**
-  - Zero-row-load push-down profiling (`COUNT(*)`, `COUNT(DISTINCT col)`, `null_ratio`, `min`/`max`, and PII-redacted sample values).
+- **01. Multi-Database Federation & Push-Down Statistical Profiler (`FederatedConnector`)**
+  - Attach **multiple SQL databases concurrently** into a single unified workspace with isolated database schema aliasing (`"{source_id}"."{table}"`).
+  - Zero-row-load push-down profiling (`COUNT(*)`, `COUNT(DISTINCT col)`, `null_ratio`, `min`/`max`, and PII-redacted sample values) running directly on remote source engines.
   - Automatic **Anomaly & Data Quality Watchdog** (detects negative revenues, null spikes, and cancelled order flags like `ord_stat = 'X'`).
-- **02. Interactive SVG ER Diagram & 3-Signal Join Inference**
-  - Combines **Database FK constraints**, **Canonical Name Similarity**, and **Value Overlap Inclusion Dependency** to infer $N:1$, $1:N$, and $1:1$ relationships.
-  - Interactive Star/Snowflake ER graph with 1-hop focal filtering and human-in-the-loop join approval.
-- **03. Smart AI Business Knowledge Interviewer**
-  - Automatically detects cryptic columns (`ord_stat`, `rev_net_usd`, `cust_tier_cd`), generates high-impact domain questions with clickable 1-click answer chips, and indexes answers into both `okf.yaml` and Hybrid RAG.
+- **02. Interactive SVG ER Diagram & Cross-Database Join Inference**
+  - Discovers both intra-database and **cross-database relationships** (`🌐 Cross-DB`) using Database FKs, Canonical Name Similarity, and Value Overlap Probing.
+  - Interactive Star/Snowflake ER graph with 1-hop focal filtering, database source badges, and human-in-the-loop join approval.
+- **03. Smart AI Business Knowledge Interviewer & Cross-Database Link Clarifications**
+  - Per-database question isolation and auto-generated cross-database join confirmation questions (e.g. *"Table sales_db.orders and crm_db.customers share customer_id. Should these databases be joined?"*).
+  - High-impact domain questions with clickable 1-click answer chips indexed into both `okf.yaml` and Hybrid RAG.
 - **04. Unified DAX $\leftrightarrow$ SQL Measure & Calculated Column Studio**
   - Bidirectional compiler translating Power BI DAX (`SUM`, `AVERAGE`, `DISTINCTCOUNT`, `DIVIDE`, `CALCULATE`) into dialect-aware SQL (`FILTER (WHERE ...)` / `NULLIF`) and compiling SQL metrics back into `DEFINE MEASURE` / `EVALUATE SUMMARIZECOLUMNS(...)` DAX queries.
 - **05. Conversational BI, Root-Cause Variance Decomposition & Multi-Fact Fan-Trap Guard**
   - Automatically detects when a query spans multiple Fact tables (e.g., `orders` + `returns`) and compiles **separate pre-aggregated CTEs** joined on shared dimensions to prevent row multiplication (Chasm/Fan traps).
+  - Multi-hop dimensional aggregation synthesis (`SELECT colleges.college_name, SUM(enrollments_marks.total_marks) ... GROUP BY colleges.college_name`) across multi-table relationships.
   - Includes a **"Why Did It Change?" Root-Cause Analyzer** with Period-over-Period Waterfall charts, **"Explain This Number"** SQL/DAX lineage inspector, **1-Click "Teach AI" feedback loop**, and **CSV Export**.
 - **06. Executive Pinboard, What-If Scenario Simulator & Boardroom Report Export**
   - Live interactive Revenue & COGS shock sliders (`-30%` to `+50%`), pinned dashboard widgets, **Command Palette (`Ctrl+K`)**, **Live Read-Only SQL Scratchpad**, and 1-click **Executive BI Report (`.html` / Print-to-PDF)**.
@@ -62,6 +65,22 @@ Open **`http://127.0.0.1:8504`** in your browser.
 docker compose up --build -d
 ```
 
+### 3. Vercel Serverless Deployment
+
+Data_Talk includes out-of-the-box support for Vercel deployment:
+- **Root Entrypoint**: `api/index.py` routes serverless requests to the FastAPI ASGI application (`server:app`).
+- **Configuration**: `vercel.json` configures the serverless Python runtime (`@vercel/python`) and dynamic routes.
+
+To deploy via the Vercel CLI:
+```bash
+npm install -g vercel
+vercel
+```
+Or import your GitHub repository directly in the [Vercel Dashboard](https://vercel.com/new).
+
+> [!NOTE]
+> Vercel Serverless functions run in read-only container filesystems with temporary `/tmp` storage. When deploying on Vercel, connect to remote SQL databases (PostgreSQL, MySQL, Neon, Supabase, PlanetScale) or use pre-loaded workspace configurations.
+
 ---
 
 ## 🔒 Security & Deployment Configuration
@@ -88,11 +107,12 @@ All security settings can be customized via `.env` or container environment vari
 | `POST` | `/api/settings` | Updates session active workspace, LLM provider, privacy mode, and API keys |
 | `POST` | `/api/connect/demo` | Loads & profiles the 4-table enterprise demo warehouse |
 | `POST` | `/api/connect/upload` | Ingests & profiles uploaded `.csv`, `.xlsx`, `.parquet`, or `.pbix` files |
-| `POST` | `/api/connect/sql` | Connects to SQL databases (`duckdb`, `postgres`, `mysql`, `sqlite`, `tsql`) |
+| `POST` | `/api/connect/sql` | Connects or attaches SQL databases (`duckdb`, `postgres`, `mysql`, `sqlite`, `tsql`) |
+| `POST` | `/api/connect/remove-source` | Disconnects an attached SQL database, dropping its mirrored views and rules |
 | `POST` | `/api/connect/powerbi` | Connects to Power BI Desktop XMLA or Power BI Cloud XMLA |
 | `POST` | `/api/joins/approve-all` | Approves all candidate inferred relationships |
 | `POST` | `/api/joins/update` | Updates relationship governance (cardinality, status, join type) |
-| `POST` | `/api/joins/add` | Adds a custom user-defined relationship |
+| `POST` | `/api/joins/add` | Adds a custom user-defined relationship (supports cross-database links) |
 | `POST` | `/api/interview/answer` | Saves business interview answers into `okf.yaml` and RAG memory |
 | `POST` | `/api/interview/add-rule` | Adds custom business definitions and SQL filter hints |
 | `POST` | `/api/measures/create` | Compiles, verifies, and persists bidirectional DAX $\leftrightarrow$ SQL measures |
@@ -114,7 +134,7 @@ All security settings can be customized via `.env` or container environment vari
 
 ## 🧪 Automated Testing & CI
 
-Run the complete 43-test automated test suite:
+Run the complete 46-test automated test suite:
 
 ```bash
 # Run all tests

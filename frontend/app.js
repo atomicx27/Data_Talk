@@ -6,6 +6,8 @@
 let APP_STATE = null;
 let ACTIVE_VIEW = 'chat';
 let FOCAL_TABLE_FILTER = null;
+let CONNECTED_SOURCE_FILTER = null;
+let INTERVIEW_SOURCE_FILTER = null;
 let CURRENT_LINEAGE_ENTRY = null;
 let CMD_ACTIVE_INDEX = 0;
 let CMD_FILTERED_ITEMS = [];
@@ -450,23 +452,112 @@ function renderGlobalTelemetry() {
 function renderConnectView() {
   const container = document.getElementById('schemaTablesContainer');
   if (!container || !APP_STATE) return;
-  const tables = APP_STATE.workspace.tables || [];
+  const ws = APP_STATE.workspace || {};
+  const tables = ws.tables || [];
+  const dataSources = ws.data_sources || [];
+
+  // Render Connected Databases & Data Sources cards
+  const sourcesContainer = document.getElementById('connectedSourcesContainer');
+  if (sourcesContainer) {
+    if (!dataSources.length && !tables.length) {
+      sourcesContainer.innerHTML = `
+        <div style="grid-column: 1 / -1; padding: 20px; text-align: center; color: var(--text-muted); font-size: 13px;">
+          No active database sources yet. Ingest files above or connect an SQL database in multi-source mode.
+        </div>
+      `;
+    } else {
+      const activeSources = dataSources.length
+        ? dataSources
+        : [
+            {
+              id: 'default',
+              name: 'Default Source',
+              source_type: ws.source_type || 'duckdb',
+              dialect: ws.dialect || 'duckdb',
+              table_names: tables.map((t) => t.name),
+            },
+          ];
+
+      sourcesContainer.innerHTML = activeSources
+        .map((s) => {
+          const tCount = (s.table_names || []).length;
+          const badgeColor = s.source_type === 'sql' ? 'var(--accent-primary)' : 'var(--accent-emerald)';
+          return `
+            <div class="source-card">
+              <div class="source-card-header">
+                <div class="source-card-title">
+                  <svg class="icon" style="color:${badgeColor};"><use href="#i-database"/></svg>
+                  <span>${escapeHtml(s.name || s.id)}</span>
+                </div>
+                <span class="source-badge">${escapeHtml((s.dialect || s.source_type || 'sql').toUpperCase())}</span>
+              </div>
+              <div class="source-card-meta">
+                <span class="mono">ID: ${escapeHtml(s.id)}</span>
+                <span>·</span>
+                <span>${tCount} table${tCount === 1 ? '' : 's'}</span>
+                ${s.credential_ref ? `<span>·</span><span class="muted" title="Vault alias">🔑 ${escapeHtml(s.credential_ref)}</span>` : ''}
+              </div>
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px;">
+                <span class="meta-chip">${escapeHtml((s.source_type || 'SOURCE').toUpperCase())}</span>
+                ${
+                  activeSources.length > 1 || s.id !== 'default'
+                    ? `
+                  <button type="button" class="btn btn-secondary btn-sm" onclick="removeSource('${escapeHtml(s.id)}')" title="Disconnect this database" style="color:var(--accent-rose); padding: 2px 8px; font-size:11px;">
+                    <svg class="icon" style="width:11px;height:11px;display:inline;vertical-align:-1px;margin-right:2px;"><use href="#i-trash"/></svg>Remove
+                  </button>
+                `
+                    : ''
+                }
+              </div>
+            </div>
+          `;
+        })
+        .join('');
+    }
+  }
+
+  // Render source filter chips
+  const filterChips = document.getElementById('sourceTableFilterChips');
+  if (filterChips) {
+    if (dataSources.length > 1) {
+      const allChip = `<button type="button" class="filter-chip ${!CONNECTED_SOURCE_FILTER ? 'active' : ''}" data-source="">All sources (${tables.length})</button>`;
+      const srcChips = dataSources
+        .map((s) => {
+          const count = tables.filter((t) => t.source_id === s.id).length;
+          return `<button type="button" class="filter-chip ${CONNECTED_SOURCE_FILTER === s.id ? 'active' : ''}" data-source="${escapeHtml(s.id)}">${escapeHtml(s.name || s.id)} (${count})</button>`;
+        })
+        .join('');
+      filterChips.innerHTML = allChip + srcChips;
+      filterChips.querySelectorAll('.filter-chip').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          CONNECTED_SOURCE_FILTER = btn.dataset.source || null;
+          renderConnectView();
+        });
+      });
+    } else {
+      filterChips.innerHTML = '';
+    }
+  }
 
   if (!tables.length) {
     container.innerHTML = `
       <div class="panel-card" style="text-align:center; padding: 36px;">
         <h3 class="card-title">No tables connected yet</h3>
         <p class="card-subtitle" style="margin-top:6px;">
-          Click <strong>Load demo data</strong> above or upload CSV, Excel, Parquet, or .pbix files.
+          Click <strong>Load demo data</strong> above or upload CSV, Excel, Parquet, or connect SQL databases.
         </p>
       </div>
     `;
     return;
   }
 
-  const totalRows = tables.reduce((acc, t) => acc + Number(t.row_count || 0), 0);
-  const totalCols = tables.reduce((acc, t) => acc + (t.columns || []).length, 0);
-  const totalPii = tables.reduce(
+  const visibleTables = CONNECTED_SOURCE_FILTER
+    ? tables.filter((t) => (t.source_id || 'default') === CONNECTED_SOURCE_FILTER)
+    : tables;
+
+  const totalRows = visibleTables.reduce((acc, t) => acc + Number(t.row_count || 0), 0);
+  const totalCols = visibleTables.reduce((acc, t) => acc + (t.columns || []).length, 0);
+  const totalPii = visibleTables.reduce(
     (acc, t) => acc + (t.columns || []).filter((c) => c.is_pii).length,
     0
   );
@@ -474,8 +565,8 @@ function renderConnectView() {
   const summaryHtml = `
     <div class="schema-summary-strip">
       <div class="schema-stat-tile">
-        <div class="schema-stat-label">Connected tables</div>
-        <div class="schema-stat-val">${tables.length}</div>
+        <div class="schema-stat-label">Profiled tables ${CONNECTED_SOURCE_FILTER ? '(filtered)' : ''}</div>
+        <div class="schema-stat-val">${visibleTables.length}</div>
       </div>
       <div class="schema-stat-tile">
         <div class="schema-stat-label">Total rows profiled</div>
@@ -492,7 +583,7 @@ function renderConnectView() {
     </div>
   `;
 
-  const accordionHtml = tables
+  const accordionHtml = visibleTables
     .map((tbl, idx) => {
       const piiCount = (tbl.columns || []).filter((c) => c.is_pii).length;
       const alertsHtml = (tbl.quality_alerts || [])
@@ -549,9 +640,14 @@ function renderConnectView() {
       return `
         <details class="schema-table-card" name="schema-table-accordion" ${idx === 0 ? 'open' : ''}>
           <summary class="schema-table-header">
-            <div style="display:flex; align-items:center; gap:10px;">
+            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
               <span class="role-badge role-${escapeHtml(tbl.table_role)}">${escapeHtml(tbl.table_role)}</span>
               <strong class="mono" style="font-size:13.5px; color:var(--text-primary);">${escapeHtml(tbl.name)}</strong>
+              ${
+                tbl.source_name || tbl.source_id
+                  ? `<span class="source-badge" title="Source: ${escapeHtml(tbl.source_name || tbl.source_id)}"><svg class="icon" style="width:10px;height:10px;vertical-align:-1px;margin-right:2px;"><use href="#i-database"/></svg>${escapeHtml(tbl.source_name || tbl.source_id)}</span>`
+                  : ''
+              }
               <span class="muted" style="font-size:12px;">${Number(tbl.row_count || 0).toLocaleString()} rows · ${(tbl.columns || []).length} cols</span>
             </div>
             <div style="display:flex; align-items:center; gap:10px;">
@@ -647,7 +743,10 @@ function renderJoinsView() {
         .map(
           (r, idx) => `
           <tr data-rel-id="${escapeHtml(r.id)}">
-            <td class="mono" style="color:var(--text-primary); font-weight:600;">${escapeHtml(r.source_table)}</td>
+            <td class="mono" style="color:var(--text-primary); font-weight:600;">
+              ${escapeHtml(r.source_table)}
+              ${r.source_source_id && r.source_source_id !== 'default' ? `<span class="source-badge" style="font-size:9.5px;padding:1px 5px;margin-left:4px;">${escapeHtml(r.source_source_id)}</span>` : ''}
+            </td>
             <td class="mono">${escapeHtml(r.source_column)}</td>
             <td>
               <select class="input-select input-sm join-type-sel" data-idx="${idx}">
@@ -656,7 +755,10 @@ function renderJoinsView() {
                 <option value="FULL" ${r.join_type === 'FULL' ? 'selected' : ''}>FULL JOIN</option>
               </select>
             </td>
-            <td class="mono" style="color:var(--text-primary); font-weight:600;">${escapeHtml(r.target_table)}</td>
+            <td class="mono" style="color:var(--text-primary); font-weight:600;">
+              ${escapeHtml(r.target_table)}
+              ${r.target_source_id && r.target_source_id !== 'default' ? `<span class="source-badge" style="font-size:9.5px;padding:1px 5px;margin-left:4px;">${escapeHtml(r.target_source_id)}</span>` : ''}
+            </td>
             <td class="mono">${escapeHtml(r.target_column)}</td>
             <td>
               <select class="input-select input-sm join-card-sel" data-idx="${idx}">
@@ -665,7 +767,14 @@ function renderJoinsView() {
                 <option value="1:1" ${r.cardinality === '1:1' ? 'selected' : ''}>1:1</option>
               </select>
             </td>
-            <td><span class="meta-chip">${escapeHtml(r.discovery_method)}</span></td>
+            <td>
+              ${
+                r.is_cross_source
+                  ? `<span class="meta-chip meta-chip-cross-db" title="Cross-database link between ${escapeHtml(r.source_source_id || 'source 1')} and ${escapeHtml(r.target_source_id || 'source 2')}"><svg class="icon" style="width:10px;height:10px;display:inline;vertical-align:-1px;margin-right:2px;"><use href="#i-link"/></svg>🌐 Cross-DB</span> `
+                  : ''
+              }
+              <span class="meta-chip">${escapeHtml(r.discovery_method)}</span>
+            </td>
             <td class="mono">${Math.round((r.confidence || 0) * 100)}% · ${((r.overlap_ratio || 0) * 100).toFixed(0)}% overlap</td>
             <td>
               <select class="input-select input-sm join-status-sel" data-idx="${idx}">
@@ -685,7 +794,11 @@ function renderJoinsView() {
   const tTblSel = document.getElementById('cjTargetTable');
   if (sTblSel && tTblSel && tables.length) {
     const opts = tables
-      .map((t) => `<option value="${escapeHtml(t.name)}">${escapeHtml(t.name)}</option>`)
+      .map((t) => {
+        const srcLabel = t.source_name || (t.source_id && t.source_id !== 'default' ? t.source_id : '');
+        const display = srcLabel ? `${t.name} (${srcLabel})` : t.name;
+        return `<option value="${escapeHtml(t.name)}">${escapeHtml(display)}</option>`;
+      })
       .join('');
     sTblSel.innerHTML = opts;
     tTblSel.innerHTML = opts;
@@ -779,11 +892,13 @@ function renderERDiagram() {
       const cx1 = sameCol ? x1 + 90 : (x1 + x2) / 2;
       const cx2 = sameCol ? x2 + 90 : (x1 + x2) / 2;
 
-      const color = r.status === 'approved' ? '#10b981' : '#f59e0b';
-      const dash = r.status === 'approved' ? '' : 'stroke-dasharray="6,4"';
+      const color = r.is_cross_source ? '#8b5cf6' : r.status === 'approved' ? '#10b981' : '#f59e0b';
+      const dash = r.status === 'approved' && !r.is_cross_source ? '' : 'stroke-dasharray="6,4"';
       const midX = sameCol ? x1 + 74 : (x1 + x2) / 2;
       const midY = (y1 + y2) / 2 - 7;
-      const labelText = `${r.source_column} → ${r.target_column} (${r.cardinality})`;
+      const labelText = r.is_cross_source
+        ? `🌐 ${r.source_column} → ${r.target_column} (${r.cardinality})`
+        : `${r.source_column} → ${r.target_column} (${r.cardinality})`;
 
       return `
         <path d="M ${x1} ${y1} C ${cx1} ${y1}, ${cx2} ${y2}, ${x2} ${y2}" fill="none" stroke="${color}" stroke-width="2" ${dash} />
@@ -816,11 +931,14 @@ function renderERDiagram() {
         })
         .join('');
 
+      const srcTag = table.source_name || (table.source_id && table.source_id !== 'default' ? table.source_id : '');
+      const tableLabel = srcTag ? `${table.name} [${srcTag}]` : table.name;
+
       return `
         <g class="er-node" data-table="${escapeHtml(table.name)}" style="cursor:pointer;">
           <rect x="${x}" y="${y}" width="${cardW}" height="${cardH}" rx="10" fill="${nodeBg}" stroke="${nodeStroke}" stroke-width="1.2" />
           <rect x="${x}" y="${y}" width="${cardW}" height="28" rx="10" fill="${headerColor}" />
-          <text x="${x + 12}" y="${y + 18}" fill="#ffffff" font-family="Inter" font-size="11.5" font-weight="700">${escapeHtml(table.name)} · ${escapeHtml(table.table_role)}</text>
+          <text x="${x + 12}" y="${y + 18}" fill="#ffffff" font-family="Inter" font-size="11.5" font-weight="700">${escapeHtml(tableLabel)} · ${escapeHtml(table.table_role)}</text>
           <text x="${x + cardW - 10}" y="${y + 18}" text-anchor="end" fill="rgba(255,255,255,0.85)" font-family="JetBrains Mono" font-size="9.5">${Number(table.row_count || 0).toLocaleString()}r</text>
           ${colLines}
         </g>
@@ -867,6 +985,37 @@ function renderInterviewView() {
     `;
   }
 
+  // Multi-source question filter chips
+  const filterChipsEl = document.getElementById('interviewFilterChips');
+  if (filterChipsEl) {
+    const distinctSources = [...new Set(qs.map((q) => q.source_id).filter(Boolean))];
+    const crossCount = qs.filter(
+      (q) => q.id.startsWith('q_cross_link_') || q.category === 'CROSS_DATABASE_LINK'
+    ).length;
+
+    if (distinctSources.length > 1 || crossCount > 0) {
+      let chipsHtml = `<button type="button" class="filter-chip ${!INTERVIEW_SOURCE_FILTER ? 'active' : ''}" data-isource="">All (${qs.length})</button>`;
+      distinctSources.forEach((sId) => {
+        const count = qs.filter((q) => (q.source_id || 'default') === sId).length;
+        const sObj = (ws.data_sources || []).find((s) => s.id === sId);
+        const label = sObj ? sObj.name || sObj.id : sId;
+        chipsHtml += `<button type="button" class="filter-chip ${INTERVIEW_SOURCE_FILTER === sId ? 'active' : ''}" data-isource="${escapeHtml(sId)}">${escapeHtml(label)} (${count})</button>`;
+      });
+      if (crossCount > 0) {
+        chipsHtml += `<button type="button" class="filter-chip ${INTERVIEW_SOURCE_FILTER === '__cross__' ? 'active' : ''}" data-isource="__cross__">🌐 Cross-DB Links (${crossCount})</button>`;
+      }
+      filterChipsEl.innerHTML = chipsHtml;
+      filterChipsEl.querySelectorAll('.filter-chip').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          INTERVIEW_SOURCE_FILTER = btn.dataset.isource || null;
+          renderInterviewView();
+        });
+      });
+    } else {
+      filterChipsEl.innerHTML = `<span class="muted" style="font-size:12px;">Showing all rules</span>`;
+    }
+  }
+
   const container = document.getElementById('interviewQuestionsContainer');
   if (!container) return;
 
@@ -875,8 +1024,28 @@ function renderInterviewView() {
     return;
   }
 
-  container.innerHTML = qs
+  const filteredQs = qs.filter((q) => {
+    if (!INTERVIEW_SOURCE_FILTER) return true;
+    if (INTERVIEW_SOURCE_FILTER === '__cross__') {
+      return q.id.startsWith('q_cross_link_') || q.category === 'CROSS_DATABASE_LINK';
+    }
+    return (q.source_id || 'default') === INTERVIEW_SOURCE_FILTER;
+  });
+
+  if (!filteredQs.length) {
+    container.innerHTML = `<div class="panel-card" style="text-align:center; padding:24px; color:var(--text-muted);">No rules or questions found matching the selected database filter.</div>`;
+    return;
+  }
+
+  container.innerHTML = filteredQs
     .map((q) => {
+      const isCross = q.id.startsWith('q_cross_link_') || q.category === 'CROSS_DATABASE_LINK';
+      const sourceTag = isCross
+        ? `<span class="meta-chip meta-chip-cross-db">🌐 Cross-DB Link</span>`
+        : q.source_id && q.source_id !== 'default'
+        ? `<span class="source-badge"><svg class="icon" style="width:10px;height:10px"><use href="#i-database"/></svg>${escapeHtml(q.source_id)}</span>`
+        : '';
+
       const statusBadge = q.answered
         ? `<span class="pii-badge pii-safe"><svg class="icon" style="width:11px;height:11px"><use href="#i-check"/></svg>Indexed in RAG</span>`
         : `<span class="meta-chip">Priority P${q.priority} · ${escapeHtml(q.category)}</span>`;
@@ -894,8 +1063,11 @@ function renderInterviewView() {
 
       return `
         <div class="interview-card ${q.answered ? 'answered' : ''}">
-          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
-            <span class="mono" style="font-size:11px; color:var(--accent-primary); font-weight:600;">${escapeHtml(q.table_name || 'Global')}${q.column_name ? '.' + escapeHtml(q.column_name) : ''}</span>
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span class="mono" style="font-size:11px; color:var(--accent-primary); font-weight:600;">${escapeHtml(q.table_name || 'Global')}${q.column_name ? '.' + escapeHtml(q.column_name) : ''}</span>
+              ${sourceTag}
+            </div>
             ${statusBadge}
           </div>
           <div style="font-weight:600; font-size:13.5px; color:var(--text-primary);">${escapeHtml(q.question_text)}</div>
@@ -1132,21 +1304,24 @@ function renderChatView() {
   stream.innerHTML = history
     .map((entry, idx) => {
       const resp = entry.response || {};
-      const chartTypes = APP_STATE.supported_chart_types || [
-        'bar',
-        'horizontal_bar',
-        'combo',
-        'line',
-        'area',
-        'scatter',
-        'pie',
-        'waterfall',
-        'table',
-      ];
+      const isSingleRow = (entry.row_count || (entry.rows || []).length) === 1;
+      const chartTypes = isSingleRow
+        ? ['kpi', 'table']
+        : APP_STATE.supported_chart_types || [
+            'bar',
+            'horizontal_bar',
+            'combo',
+            'line',
+            'area',
+            'scatter',
+            'pie',
+            'waterfall',
+            'table',
+          ];
       const chartOpts = chartTypes
         .map(
           (ct) =>
-            `<option value="${escapeHtml(ct)}" ${ct === entry.chart_type ? 'selected' : ''}>Chart: ${escapeHtml(ct.replace('_', ' ').toUpperCase())}</option>`
+            `<option value="${escapeHtml(ct)}" ${ct === entry.chart_type ? 'selected' : ''}>${ct === 'kpi' ? 'KPI Summary Card' : 'Chart: ' + escapeHtml(ct.replace('_', ' ').toUpperCase())}</option>`
         )
         .join('');
 
@@ -1249,6 +1424,16 @@ function renderChatView() {
     } else if (plotEl && entry.chart_type === 'table') {
       plotEl.style.minHeight = '44px';
       plotEl.innerHTML = `<div style="padding:10px 12px; color:var(--text-muted); font-size:12px;">Tabular view active — inspect the result table below.</div>`;
+    } else if (plotEl && (entry.chart_type === 'kpi' || (!entry.plotly_spec && (entry.row_count || (entry.rows || []).length) === 1))) {
+      plotEl.style.display = 'block';
+      plotEl.style.minHeight = '52px';
+      const kpis = (entry.columns || []).map((c) => `
+        <div class="schema-stat-tile" style="flex:1; min-width:140px; padding:10px 14px;">
+          <div class="schema-stat-label">${escapeHtml(c.replace(/_/g, ' '))}</div>
+          <div class="schema-stat-val" style="font-size:18px;">${escapeHtml(formatCellVal(entry.rows[0]?.[c]))}</div>
+        </div>
+      `).join('');
+      plotEl.innerHTML = `<div style="display:flex; gap:10px; flex-wrap:wrap; margin:4px 0 10px 0;">${kpis}</div>`;
     } else if (plotEl && !entry.plotly_spec) {
       plotEl.style.display = 'none';
     }
@@ -1537,6 +1722,33 @@ async function loadDemoDataset() {
   }
 }
 
+window.removeSource = async function (sourceId) {
+  if (
+    !confirm(
+      `Are you sure you want to disconnect database "${sourceId}"?\n\nThis will remove its mirrored tables, relationships, and business rule questions from the active workspace.`
+    )
+  ) {
+    return;
+  }
+  try {
+    showToast(`Disconnecting source "${sourceId}"…`);
+    APP_STATE = await apiRequest('/api/connect/remove-source', {
+      method: 'POST',
+      body: JSON.stringify({ source_id: sourceId }),
+    });
+    if (CONNECTED_SOURCE_FILTER === sourceId) {
+      CONNECTED_SOURCE_FILTER = null;
+    }
+    if (INTERVIEW_SOURCE_FILTER === sourceId) {
+      INTERVIEW_SOURCE_FILTER = null;
+    }
+    renderAllViews();
+    showToast(`Disconnected database "${sourceId}"`);
+  } catch (err) {
+    showToast(`Error removing database: ${err.message}`);
+  }
+};
+
 async function submitChatQuestion(questionText) {
   const trimmed = (questionText || '').trim();
   if (!trimmed) return;
@@ -1696,16 +1908,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('sqlConnectForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
+      const source_id = document.getElementById('sqlSourceIdInput')?.value?.trim() || undefined;
+      const source_name = document.getElementById('sqlSourceNameInput')?.value?.trim() || undefined;
+      const attach_mode = document.getElementById('sqlAttachModeInput')?.checked ?? true;
+
       APP_STATE = await apiRequest('/api/connect/sql', {
         method: 'POST',
         body: JSON.stringify({
           dialect: document.getElementById('sqlDialectInput').value,
           credential_name: document.getElementById('sqlCredNameInput').value,
           connection_url: document.getElementById('sqlUrlInput').value,
+          source_id: source_id || null,
+          source_name: source_name || null,
+          attach_mode: attach_mode,
         }),
       });
       renderAllViews();
-      showToast('Connected & profiled SQL database');
+      showToast(attach_mode ? 'Connected and attached SQL database' : 'Connected & profiled SQL database');
     } catch (err) {
       showToast(`SQL Error: ${err.message}`);
     }

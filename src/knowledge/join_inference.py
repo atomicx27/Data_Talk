@@ -167,6 +167,16 @@ class JoinInferenceEngine:
                         else JoinCardinality.MANY_TO_ONE
                     )
                     rel_id = f"rel_{src_tbl.name}_{src_col.name}_to_{tgt_tbl.name}_{tgt_col.name}"
+                    is_cross = bool(
+                        src_tbl.source_id
+                        and tgt_tbl.source_id
+                        and src_tbl.source_id != tgt_tbl.source_id
+                    )
+                    disc_method = (
+                        "cross_database_link"
+                        if is_cross
+                        else ("lexical_overlap" if overlap_ratio > 0 else "lexical_schema")
+                    )
                     discovered[key] = RelationshipEdge(
                         id=rel_id,
                         source_table=src_tbl.name,
@@ -176,9 +186,12 @@ class JoinInferenceEngine:
                         cardinality=cardinality,
                         join_type="LEFT",
                         confidence=round(final_conf, 2),
-                        discovery_method="lexical_overlap" if overlap_ratio > 0 else "lexical_schema",
+                        discovery_method=disc_method,
                         status=JoinStatus.APPROVED if final_conf >= 0.92 else JoinStatus.PENDING,
                         overlap_ratio=round(overlap_ratio, 3),
+                        is_cross_source=is_cross,
+                        source_source_id=src_tbl.source_id,
+                        target_source_id=tgt_tbl.source_id,
                     )
                     src_col.is_foreign_key = True
 

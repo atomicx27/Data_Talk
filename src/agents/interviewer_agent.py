@@ -78,6 +78,7 @@ class InterviewerAgent:
                             question_text=q_text,
                             context_hint=f"Distinct values: {col.distinct_count} | Null rate: {col.null_ratio*100:.1f}%",
                             suggested_options=suggestions,
+                            source_id=tbl.source_id,
                         )
                     )
 
@@ -114,6 +115,7 @@ class InterviewerAgent:
                                 f"Use `{metric_cols[0]}` as Gross Revenue and `rev_net_usd` (or Gross minus Discount) as Default Recognized Revenue.",
                                 f"Always use `{metric_cols[0]}` for all Revenue queries.",
                             ],
+                            source_id=tbl.source_id,
                         )
                     )
 
@@ -143,6 +145,40 @@ class InterviewerAgent:
                             ),
                             context_hint=f"Distinct values: {col.distinct_count:,}",
                             suggested_options=cls._suggest_alias_for_column(col.name),
+                            source_id=tbl.source_id,
+                        )
+                    )
+
+        # 4. Cross-Database Common Link Confirmation Questions
+        for rel in workspace.relationships:
+            if rel.is_cross_source and rel.status != JoinStatus.REJECTED:
+                qid = f"q_cross_link_{rel.source_table}_{rel.target_table}"
+                if qid in existing_by_id:
+                    candidates.append(existing_by_id[qid])
+                else:
+                    src_tbl_obj = workspace.get_table(rel.source_table)
+                    tgt_tbl_obj = workspace.get_table(rel.target_table)
+                    src_db = (src_tbl_obj.source_name if src_tbl_obj else rel.source_source_id) or "Database A"
+                    tgt_db = (tgt_tbl_obj.source_name if tgt_tbl_obj else rel.target_source_id) or "Database B"
+                    q_text = (
+                        f"Cross-Database Common Link: Table `{rel.source_table}` in [{src_db}] matches "
+                        f"`{rel.target_table}.{rel.target_column}` in [{tgt_db}] via key `{rel.source_column}` "
+                        f"({int(rel.confidence * 100)}% match). Should Data_Talk link these databases for cross-source queries?"
+                    )
+                    candidates.append(
+                        InterviewQuestion(
+                            id=qid,
+                            priority=1,
+                            category="join_confirm",
+                            table_name=rel.source_table,
+                            column_name=rel.source_column,
+                            question_text=q_text,
+                            context_hint=f"Cardinality: {rel.cardinality.value} | Cross-Database link between [{src_db}] and [{tgt_db}]",
+                            suggested_options=[
+                                f"Yes, connect [{src_db}].`{rel.source_table}` to [{tgt_db}].`{rel.target_table}` on `{rel.source_column}` = `{rel.target_column}`.",
+                                f"No, keep [{src_db}] and [{tgt_db}] independent.",
+                            ],
+                            source_id=rel.source_source_id or "cross_database",
                         )
                     )
 
@@ -237,6 +273,23 @@ class InterviewerAgent:
 
         target_q.answer = cleaned
         target_q.answered = True
+
+        # Auto-approve cross-database relationship if confirmed
+        if target_q.id.startswith("q_cross_link_"):
+            if any(w in cleaned.lower() for w in ("yes", "connect", "link", "approve", "confirm")):
+                for rel in workspace.relationships:
+                    if rel.is_cross_source and (
+                        rel.source_table == target_q.table_name
+                        or rel.target_table == target_q.table_name
+                    ):
+                        rel.status = JoinStatus.APPROVED
+            elif any(w in cleaned.lower() for w in ("no", "reject", "separate", "ignore")):
+                for rel in workspace.relationships:
+                    if rel.is_cross_source and (
+                        rel.source_table == target_q.table_name
+                        or rel.target_table == target_q.table_name
+                    ):
+                        rel.status = JoinStatus.REJECTED
 
         # Update column description & code mappings if applicable
         if target_q.table_name and target_q.column_name:

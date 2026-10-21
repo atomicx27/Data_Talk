@@ -201,16 +201,27 @@ class QueryAgent:
         rag_bundle: dict[str, list[dict[str, Any]]],
     ) -> list[str]:
         q_low = question.lower()
+        q_norm = re.sub(r"[_\s]+", " ", q_low)
         found: list[str] = []
 
         for tbl in workspace.active_tables():
             t_low = tbl.name.lower()
+            t_norm = re.sub(r"[_\s]+", " ", t_low)
             singular = t_low[:-1] if t_low.endswith("s") else t_low
-            if t_low in q_low or singular in q_low:
+            singular_norm = singular.replace("_", " ")
+            if t_low in q_low or singular in q_low or t_norm in q_norm or singular_norm in q_norm:
                 found.append(tbl.name)
                 continue
             for col in tbl.columns:
-                if not col.is_blocked and col.name.lower() in q_low:
+                if col.is_blocked:
+                    continue
+                c_low = col.name.lower()
+                c_norm = re.sub(r"[_\s]+", " ", c_low)
+                if c_low in q_low or c_norm in q_norm:
+                    found.append(tbl.name)
+                    break
+                col_words = [w for w in c_norm.split() if len(w) > 3]
+                if len(col_words) >= 2 and all(w in q_norm for w in col_words):
                     found.append(tbl.name)
                     break
 
@@ -324,7 +335,8 @@ class QueryAgent:
                 )
                 codes = f" meanings={c.value_meanings}" if c.value_meanings else ""
                 cols_info.append(f"{c.name} ({c.data_type}){samples}{codes}")
-            schema_lines.append(f"Table `{tbl.name}` [{tbl.table_role.value}]: " + ", ".join(cols_info))
+            src_lbl = f" [Source DB: {tbl.source_name or tbl.source_id}]" if tbl.source_id and tbl.source_id != "default" else ""
+            schema_lines.append(f"Table `{tbl.name}`{src_lbl} [{tbl.table_role.value}]: " + ", ".join(cols_info))
 
         for cc in workspace.calculated_columns:
             schema_lines.append(
@@ -466,8 +478,9 @@ class QueryAgent:
                 f"ORDER BY net_revenue_usd DESC"
             )
 
-        # Case B: Standard Orders + Dimensions Query
-        if workspace.get_table("orders"):
+        # Case B: Standard Enterprise Demo Orders + Dimensions Query
+        orders_demo = workspace.get_table("orders")
+        if orders_demo and orders_demo.get_column("rev_net_usd") and orders_demo.get_column("cogs_usd"):
             joins: list[str] = []
             if need_customers:
                 joins.append("LEFT JOIN customers ON orders.customer_id = customers.customer_id")
@@ -514,6 +527,136 @@ class QueryAgent:
                 f"{extra_measure_select}\n"
                 f"FROM orders{join_str}{where_str}"
             )
+
+        # Case C: Multi-table / Cross-Database joined query
+        if len(join_plan.required_tables) >= 2 and join_plan.join_edges:
+            q_norm = re.sub(r"[_\s]+", " ", q_low)
+            metric_tbl = None
+            metric_col = None
+            dim_tbl = None
+            dim_col = None
+
+            # Look for metric (numeric column mentioned or present in required tables)
+            for t_name in join_plan.required_tables:
+                t_obj = workspace.get_table(t_name)
+                if not t_obj:
+                    continue
+                for c in t_obj.columns:
+                    if c.is_blocked or c.is_primary_key or c.is_foreign_key:
+                        continue
+                    if any(ty in c.data_type.upper() for ty in ("INT", "FLOAT", "DOUBLE", "NUMERIC", "DECIMAL")):
+                        c_norm = c.name.lower().replace("_", " ")
+                        if c.name.lower() in q_low or c_norm in q_norm or any(w in q_norm for w in c_norm.split() if len(w) > 3):
+                            metric_tbl = t_name
+                            metric_col = c.name
+                            break
+                if metric_tbl:
+                    break
+
+            # Look for dimension (text/categorical column representing the group)
+            for t_name in join_plan.required_tables:
+                t_obj = workspace.get_table(t_name)
+                if not t_obj:
+                    continue
+                t_norm = t_name.lower().replace("_", " ")
+                singular = t_name.lower()[:-1] if t_name.lower().endswith("s") else t_name.lower()
+                if t_name.lower() in q_low or t_norm in q_norm or singular in q_low:
+                    # Pick best descriptive column (e.g. college_name, name, code, etc.)
+                    for c in t_obj.columns:
+                        if c.is_blocked:
+                            continue
+                        if c.name.lower().endswith("name") or c.name.lower() in ("name", "title", "description", "label"):
+                            dim_tbl = t_name
+                            dim_col = c.name
+                            break
+                    if not dim_col:
+                        for c in t_obj.columns:
+                            if c.is_blocked:
+                                continue
+                            if any(k in c.name.lower() for k in ("name", "code", "title", "type", "category")):
+                                dim_tbl = t_name
+                                dim_col = c.name
+                                break
+                    if not dim_col:
+                        for c in t_obj.columns:
+                            if not c.is_blocked and not c.is_primary_key and any(ty in c.data_type.upper() for ty in ("CHAR", "TEXT", "VARCHAR", "STRING")):
+                                dim_tbl = t_name
+                                dim_col = c.name
+                                break
+                if dim_tbl:
+                    break
+
+            first_edge = join_plan.join_edges[0]
+            base_tbl_name = metric_tbl or first_edge.source_table
+            join_clauses = []
+            joined_tables = {base_tbl_name}
+
+            edges_to_process = list(join_plan.join_edges)
+            while edges_to_process:
+                progress = False
+                for edge in list(edges_to_process):
+                    if edge.source_table in joined_tables and edge.target_table not in joined_tables:
+                        join_clauses.append(
+                            f"{edge.join_type} JOIN {edge.target_table} ON {edge.source_table}.{edge.source_column} = {edge.target_table}.{edge.target_column}"
+                        )
+                        joined_tables.add(edge.target_table)
+                        edges_to_process.remove(edge)
+                        progress = True
+                    elif edge.target_table in joined_tables and edge.source_table not in joined_tables:
+                        join_clauses.append(
+                            f"{edge.join_type} JOIN {edge.source_table} ON {edge.target_table}.{edge.target_column} = {edge.source_table}.{edge.source_column}"
+                        )
+                        joined_tables.add(edge.source_table)
+                        edges_to_process.remove(edge)
+                        progress = True
+                if not progress:
+                    edge = edges_to_process.pop(0)
+                    join_clauses.append(
+                        f"{edge.join_type} JOIN {edge.target_table} ON {edge.source_table}.{edge.source_column} = {edge.target_table}.{edge.target_column}"
+                    )
+                    joined_tables.add(edge.target_table)
+
+            join_str = ("\n" + "\n".join(join_clauses)) if join_clauses else ""
+
+            # If user asks for a grouped aggregate (e.g. by/for each dimension)
+            if dim_tbl and dim_col:
+                dim_ref = f'"{dim_tbl}"."{dim_col}"'
+                dim_alias = re.sub(r"[^a-z0-9_]+", "_", dim_col.lower()).strip("_")
+                if metric_tbl and metric_col:
+                    agg_fn = "AVG" if any(w in q_low for w in ("avg", "average", "mean")) else "SUM"
+                    metric_ref = f'ROUND({agg_fn}("{metric_tbl}"."{metric_col}"), 2)'
+                    if metric_col.lower().startswith("total_") and agg_fn == "SUM":
+                        metric_alias = metric_col
+                    elif metric_col.lower().startswith("avg_") and agg_fn == "AVG":
+                        metric_alias = metric_col
+                    else:
+                        metric_alias = f"total_{metric_col}" if agg_fn == "SUM" else f"avg_{metric_col}"
+                else:
+                    metric_ref = "COUNT(*)"
+                    metric_alias = "row_count"
+
+                return (
+                    f"SELECT {dim_ref} AS {dim_alias},\n"
+                    f"       {metric_ref} AS {metric_alias}\n"
+                    f'FROM "{base_tbl_name}"{join_str}\n'
+                    f"GROUP BY {dim_ref}\n"
+                    f"ORDER BY {metric_alias} DESC\n"
+                    f"LIMIT 25"
+                )
+
+            select_cols: list[str] = []
+            for t_name in [base_tbl_name] + [t for t in join_plan.required_tables if t != base_tbl_name]:
+                t_obj = workspace.get_table(t_name)
+                if t_obj:
+                    for c in t_obj.columns:
+                        if not c.is_blocked and not c.is_pii:
+                            select_cols.append(f'"{t_name}"."{c.name}"')
+                            if len(select_cols) >= 8:
+                                break
+                    if len(select_cols) >= 8:
+                        break
+            if select_cols:
+                return f'SELECT {", ".join(select_cols)} FROM "{base_tbl_name}"{join_str} LIMIT 50'
 
         # Fallback for arbitrary user-uploaded single or multi-table schema
         first_tbl = workspace.active_tables()[0]

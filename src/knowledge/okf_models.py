@@ -71,6 +71,8 @@ class TableSchema(BaseModel):
     is_blocked: bool = False
     columns: list[ColumnProfile] = Field(default_factory=list)
     quality_alerts: list[str] = Field(default_factory=list)
+    source_id: str = "default"
+    source_name: str = ""
 
     def get_column(self, col_name: str) -> ColumnProfile | None:
         col_lower = col_name.lower()
@@ -94,6 +96,9 @@ class RelationshipEdge(BaseModel):
     discovery_method: str = "explicit_fk"  # explicit_fk | powerbi_dmv | lexical_overlap | user_defined
     status: JoinStatus = JoinStatus.PENDING
     overlap_ratio: float = 0.0
+    is_cross_source: bool = False
+    source_source_id: str = ""
+    target_source_id: str = ""
 
 
 class CalculatedColumn(BaseModel):
@@ -153,6 +158,7 @@ class InterviewQuestion(BaseModel):
     suggested_options: list[str] = Field(default_factory=list)
     answer: str = ""
     answered: bool = False
+    source_id: str = "default"
 
 
 class WhatIfParameter(BaseModel):
@@ -183,6 +189,19 @@ class PinnedWidget(BaseModel):
     pinned_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
+class DataSourceConfig(BaseModel):
+    """Configuration for an attached data source / database within the workspace."""
+
+    id: str
+    name: str = ""
+    source_type: str = "sql"  # sql | duckdb | powerbi_pbix | powerbi_desktop | powerbi_cloud
+    dialect: str = "duckdb"
+    credential_ref: str = ""
+    connection_metadata: dict[str, Any] = Field(default_factory=dict)
+    table_names: list[str] = Field(default_factory=list)
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+
 class OKFWorkspace(BaseModel):
     """Root Ontology & Knowledge Framework (OKF) document persisted to okf.yaml."""
 
@@ -193,6 +212,7 @@ class OKFWorkspace(BaseModel):
     dialect: str = "duckdb"
     credential_ref: str = ""     # Symbolic reference only; NEVER stores raw password/secret
     connection_metadata: dict[str, Any] = Field(default_factory=dict)
+    data_sources: list[DataSourceConfig] = Field(default_factory=list)
     tables: list[TableSchema] = Field(default_factory=list)
     relationships: list[RelationshipEdge] = Field(default_factory=list)
     calculated_columns: list[CalculatedColumn] = Field(default_factory=list)
@@ -227,3 +247,15 @@ class OKFWorkspace(BaseModel):
                     cols.add(c.name)
                     cols.add(f"{t.name}.{c.name}")
         return cols
+
+    def get_source(self, source_id: str) -> DataSourceConfig | None:
+        for s in self.data_sources:
+            if s.id == source_id:
+                return s
+        return None
+
+    def tables_by_source(self, source_id: str) -> list[TableSchema]:
+        return [t for t in self.tables if t.source_id == source_id]
+
+    def questions_by_source(self, source_id: str) -> list[InterviewQuestion]:
+        return [q for q in self.interview_questions if q.source_id == source_id]
