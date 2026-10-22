@@ -36,13 +36,23 @@ class ChartRecommender:
     SUPPORTED_CHART_TYPES = [
         "bar",
         "horizontal_bar",
+        "stacked_bar",
+        "stacked_bar_100",
+        "stacked_horizontal_bar",
         "combo",
         "line",
         "area",
+        "donut",
+        "pie",
         "waterfall",
         "treemap",
+        "sunburst",
+        "heatmap",
+        "radar",
+        "box",
+        "funnel",
         "scatter",
-        "pie",
+        "table",
     ]
 
     @classmethod
@@ -56,11 +66,29 @@ class ChartRecommender:
         q_low = (question or "").lower()
         if "waterfall" in q_low or "variance" in q_low or "why" in q_low:
             return "waterfall"
+        if "sunburst" in q_low:
+            return "sunburst"
         if "treemap" in q_low or "hierarchy" in q_low:
             return "treemap"
+        if any(k in q_low for k in ("heatmap", "matrix", "cross tab", "crosstab", "intensity")):
+            return "heatmap"
+        if any(k in q_low for k in ("radar", "spider", "polar")):
+            return "radar"
+        if any(k in q_low for k in ("box", "whisker", "distribution", "spread", "dispersion", "outlier")):
+            return "box"
+        if any(k in q_low for k in ("funnel", "pipeline", "conversion", "lifecycle stages")):
+            return "funnel"
+        if any(k in q_low for k in ("100%", "percent stack", "normalized stack", "proportional")):
+            return "stacked_bar_100"
+        if any(k in q_low for k in ("horizontal stack", "stacked horizontal")):
+            return "stacked_horizontal_bar"
+        if any(k in q_low for k in ("stacked bar", "stacked", "stack")):
+            return "stacked_bar"
+        if any(k in q_low for k in ("donut", "ring")):
+            return "donut"
         if "scatter" in q_low or "correlation" in q_low:
             return "scatter"
-        if "pie" in q_low or "donut" in q_low or "share" in q_low:
+        if "pie" in q_low or "share" in q_low:
             return "pie"
 
         num_cols = list(df.select_dtypes(include=["number"]).columns)
@@ -70,6 +98,10 @@ class ChartRecommender:
             first_dim = str(dim_cols[0]).lower()
             if any(k in first_dim for k in ("date", "month", "year", "quarter", "week", "day", "time")):
                 return "area" if "area" in q_low else "line"
+
+        # If 2 categorical dimensions and 1 numeric metric exist, stacked bar is ideal for breakdown queries
+        if len(dim_cols) >= 2 and len(num_cols) == 1 and any(k in q_low for k in ("by", "breakdown", "per", "across")):
+            return "stacked_bar"
 
         # If both a dollar/volume metric and a percentage/rate metric exist, recommend a Dual-Axis Combo chart!
         pct_cols = [c for c in num_cols if any(k in str(c).lower() for k in ("pct", "percent", "margin", "rate", "ratio"))]
@@ -152,6 +184,69 @@ class ChartRecommender:
                 text_auto=".2s",
             )
 
+        elif chosen_type == "stacked_bar":
+            color_col = dim_cols[1] if len(dim_cols) >= 2 else None
+            if color_col:
+                fig = px.bar(
+                    df,
+                    x=x,
+                    y=primary_y,
+                    color=color_col,
+                    barmode="stack",
+                    color_discrete_sequence=OKABE_ITO_PALETTE,
+                )
+            else:
+                fig = px.bar(
+                    df,
+                    x=x,
+                    y=ys,
+                    barmode="stack",
+                    color_discrete_sequence=OKABE_ITO_PALETTE,
+                )
+
+        elif chosen_type in ("stacked_bar_100", "percent_stacked_bar"):
+            color_col = dim_cols[1] if len(dim_cols) >= 2 else None
+            if color_col:
+                fig = px.bar(
+                    df,
+                    x=x,
+                    y=primary_y,
+                    color=color_col,
+                    barmode="stack",
+                    color_discrete_sequence=OKABE_ITO_PALETTE,
+                )
+            else:
+                fig = px.bar(
+                    df,
+                    x=x,
+                    y=ys,
+                    barmode="stack",
+                    color_discrete_sequence=OKABE_ITO_PALETTE,
+                )
+            fig.update_layout(barnorm="percent", yaxis=dict(ticksuffix="%"))
+
+        elif chosen_type == "stacked_horizontal_bar":
+            color_col = dim_cols[1] if len(dim_cols) >= 2 else None
+            if color_col:
+                fig = px.bar(
+                    df,
+                    x=primary_y,
+                    y=x,
+                    color=color_col,
+                    orientation="h",
+                    barmode="stack",
+                    color_discrete_sequence=OKABE_ITO_PALETTE,
+                )
+            else:
+                fig = px.bar(
+                    df,
+                    x=ys,
+                    y=x,
+                    orientation="h",
+                    barmode="stack",
+                    color_discrete_sequence=OKABE_ITO_PALETTE,
+                )
+
         elif chosen_type == "line":
             color_col = dim_cols[1] if (len(dim_cols) >= 2 and len(ys) == 1) else None
             fig = px.line(
@@ -195,12 +290,135 @@ class ChartRecommender:
                 color_continuous_scale="Blues",
             )
 
+        elif chosen_type == "sunburst":
+            path_cols = dim_cols[:3] if len(dim_cols) >= 2 else [x]
+            fig = px.sunburst(
+                df,
+                path=path_cols,
+                values=primary_y,
+                color=primary_y,
+                color_continuous_scale="Blues",
+            )
+
+        elif chosen_type == "donut":
+            fig = px.pie(
+                df,
+                names=x,
+                values=primary_y,
+                hole=0.55,
+                color_discrete_sequence=OKABE_ITO_PALETTE,
+            )
+            total_val = df[primary_y].sum()
+            formatted_total = f"{total_val:,.1f}" if isinstance(total_val, float) else f"{total_val:,}"
+            fig.update_layout(
+                annotations=[
+                    dict(
+                        text=f"<b>Total</b><br>{formatted_total}",
+                        x=0.5,
+                        y=0.5,
+                        font=dict(size=13, color="#cbd5e1"),
+                        showarrow=False,
+                    )
+                ]
+            )
+
         elif chosen_type == "pie":
             fig = px.pie(
                 df,
                 names=x,
                 values=primary_y,
                 hole=0.42,
+                color_discrete_sequence=OKABE_ITO_PALETTE,
+            )
+
+        elif chosen_type == "heatmap":
+            if len(dim_cols) >= 2:
+                pivot_df = df.pivot_table(
+                    index=dim_cols[0],
+                    columns=dim_cols[1],
+                    values=primary_y,
+                    aggfunc="mean",
+                ).fillna(0)
+                fig = go.Figure(
+                    data=go.Heatmap(
+                        z=pivot_df.values,
+                        x=[str(c) for c in pivot_df.columns],
+                        y=[str(r) for r in pivot_df.index],
+                        colorscale="Blues",
+                        hoverongaps=False,
+                    )
+                )
+            elif len(num_cols) >= 2 and dim_cols:
+                matrix_df = df.set_index(x)[num_cols[:8]].fillna(0)
+                fig = go.Figure(
+                    data=go.Heatmap(
+                        z=matrix_df.values,
+                        x=[str(c) for c in matrix_df.columns],
+                        y=[str(r) for r in matrix_df.index],
+                        colorscale="Blues",
+                    )
+                )
+            else:
+                fig = px.density_heatmap(
+                    df,
+                    x=x,
+                    y=primary_y,
+                    color_continuous_scale="Blues",
+                )
+
+        elif chosen_type == "radar":
+            fig = go.Figure()
+            if len(num_cols) >= 3:
+                theta_cols = [str(c) for c in num_cols[:8]]
+                for i, row in df.head(6).iterrows():
+                    name = str(row[x]) if x in row else f"Item {i+1}"
+                    r_vals = [float(row[c] or 0.0) for c in theta_cols]
+                    r_vals.append(r_vals[0])
+                    color = OKABE_ITO_PALETTE[i % len(OKABE_ITO_PALETTE)]
+                    fig.add_trace(
+                        go.Scatterpolar(
+                            r=r_vals,
+                            theta=theta_cols + [theta_cols[0]],
+                            fill="toself",
+                            name=name,
+                            line=dict(color=color, width=2),
+                            opacity=0.6,
+                        )
+                    )
+            else:
+                theta_vals = [str(v) for v in df[x]]
+                r_vals = df[primary_y].tolist()
+                fig.add_trace(
+                    go.Scatterpolar(
+                        r=r_vals + [r_vals[0]],
+                        theta=theta_vals + [theta_vals[0]],
+                        fill="toself",
+                        name=str(primary_y),
+                        line=dict(color=OKABE_ITO_PALETTE[0], width=2),
+                    )
+                )
+            fig.update_layout(
+                polar=dict(
+                    radialaxis=dict(visible=True, showticklabels=True),
+                    bgcolor="rgba(17,24,39,0.25)",
+                )
+            )
+
+        elif chosen_type == "box":
+            fig = px.box(
+                df,
+                x=x if len(df) <= 50 else None,
+                y=primary_y,
+                color=x if len(df) <= 20 else None,
+                points="all" if len(df) <= 80 else "outliers",
+                color_discrete_sequence=OKABE_ITO_PALETTE,
+            )
+
+        elif chosen_type == "funnel":
+            fig = px.funnel(
+                df.sort_values(by=primary_y, ascending=False),
+                x=primary_y,
+                y=x,
                 color_discrete_sequence=OKABE_ITO_PALETTE,
             )
 

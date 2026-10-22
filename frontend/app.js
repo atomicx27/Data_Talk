@@ -1305,23 +1305,55 @@ function renderChatView() {
     .map((entry, idx) => {
       const resp = entry.response || {};
       const isSingleRow = (entry.row_count || (entry.rows || []).length) === 1;
+      const chartLabels = {
+        kpi: 'KPI Summary Card',
+        bar: 'Grouped Bar Chart',
+        horizontal_bar: 'Horizontal Bar Chart',
+        stacked_bar: 'Stacked Bar Chart',
+        stacked_bar_100: '100% Stacked Bar Chart',
+        stacked_horizontal_bar: 'Stacked Horizontal Bar',
+        combo: 'Dual-Axis Combo (Bar + Line)',
+        line: 'Line Trend Chart',
+        area: 'Stacked Area Chart',
+        donut: 'Donut Ring Chart',
+        pie: 'Pie Chart',
+        waterfall: 'Variance Waterfall',
+        treemap: 'Hierarchical Treemap',
+        sunburst: 'Interactive Sunburst',
+        heatmap: '2D Cross-Tab Heatmap',
+        radar: 'Radar / Spider Chart',
+        box: 'Box & Whisker Distribution',
+        funnel: 'Funnel Stage Pipeline',
+        scatter: 'Correlation Scatter Plot',
+        table: 'Data Catalog Table',
+      };
       const chartTypes = isSingleRow
         ? ['kpi', 'table']
         : APP_STATE.supported_chart_types || [
             'bar',
             'horizontal_bar',
+            'stacked_bar',
+            'stacked_bar_100',
+            'stacked_horizontal_bar',
             'combo',
             'line',
             'area',
-            'scatter',
+            'donut',
             'pie',
             'waterfall',
+            'treemap',
+            'sunburst',
+            'heatmap',
+            'radar',
+            'box',
+            'funnel',
+            'scatter',
             'table',
           ];
       const chartOpts = chartTypes
         .map(
           (ct) =>
-            `<option value="${escapeHtml(ct)}" ${ct === entry.chart_type ? 'selected' : ''}>${ct === 'kpi' ? 'KPI Summary Card' : 'Chart: ' + escapeHtml(ct.replace('_', ' ').toUpperCase())}</option>`
+            `<option value="${escapeHtml(ct)}" ${ct === entry.chart_type ? 'selected' : ''}>${escapeHtml(chartLabels[ct] || ('Chart: ' + ct.replace(/_/g, ' ').toUpperCase()))}</option>`
         )
         .join('');
 
@@ -1430,8 +1462,7 @@ function renderChatView() {
         plotEl.innerHTML = `<div style="padding:12px; color:var(--text-muted); font-size:12px;">Visual chart temporarily unavailable.</div>`;
       }
     } else if (plotEl && entry.chart_type === 'table') {
-      plotEl.style.minHeight = '44px';
-      plotEl.innerHTML = `<div style="padding:10px 12px; color:var(--text-muted); font-size:12px;">Tabular view active — inspect the result table below.</div>`;
+      plotEl.style.display = 'none';
     } else if (plotEl && (entry.chart_type === 'kpi' || (!entry.plotly_spec && (entry.row_count || (entry.rows || []).length) === 1))) {
       plotEl.style.display = 'block';
       plotEl.style.minHeight = '52px';
