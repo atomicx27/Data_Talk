@@ -13,6 +13,7 @@ Orchestrates the end-to-end "Talk to Data" flow:
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import TYPE_CHECKING, Any
 
@@ -21,10 +22,12 @@ from pydantic import BaseModel, Field
 
 from src.agents.llm_router import LLMRouter
 from src.agents.measure_compiler import MeasureCompiler
-from src.knowledge.okf_models import OKFWorkspace, SemanticMeasure
+from src.knowledge.okf_models import OKFWorkspace, SemanticMeasure, TableRole
 from src.knowledge.okf_store import JoinPlan, OKFStore
 from src.knowledge.rag_store import RAGStore
 from src.security.privacy_firewall import PrivacyFirewall
+
+_LOGGER = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from src.connectors.base import BaseConnector
@@ -69,6 +72,10 @@ class QueryAgent:
     ) -> tuple[QueryResponse, pd.DataFrame]:
         """Execute a natural language analytical query with hybrid OKF+RAG retrieval and 3x self-healing."""
         q_clean = question.strip()
+
+        # 0. Check if the user is asking an exploratory overview question about the entire dataset
+        if cls._is_dataset_overview_question(q_clean):
+            return cls._generate_dataset_overview(q_clean, workspace, llm_router)
 
         # 1. Retrieve Hybrid RAG Context (Glossary, Business Rules, Few-Shot DAX/SQL)
         rag_bundle = rag_store.retrieve_context_bundle(q_clean, top_k_per_collection=5)
@@ -795,3 +802,195 @@ class QueryAgent:
             )
 
         return f"Returned **{len(df):,}** rows across {len(df.columns)} columns."
+
+    @classmethod
+    def _is_dataset_overview_question(cls, question: str) -> bool:
+        """Detect whether the user is asking for an exploratory narrative explanation of the dataset."""
+        q = question.lower().strip()
+        overview_patterns = [
+            r"\btell\s+me\s+about\s+(this|the)\s+(data|data\s*set|dataset|database|schema)\b",
+            r"\bwhat\s+(is|does)\s+(this|the)\s+(data|data\s*set|dataset|database|entire\s+dataset)\s+(about|show|contain|represent)\b",
+            r"\bexplain\s+(to\s+me\s+in\s+words\s+)?what\s+(this|the)\s+(data|data\s*set|dataset|entire\s+dataset)\s+(is\s+about|shows|means)\b",
+            r"\b(overview|summary|describe|description)\s+of\s+(this|the)\s+(data|data\s*set|dataset|database|schema)\b",
+            r"\bwhat\s+is\s+this\s+(data|data\s*set|dataset|database)\s+about\b",
+            r"\bexplain\s+(this|the)\s+(data|data\s*set|dataset|database)\b",
+            r"\bwhat\s+does\s+this\s+(data|data\s*set|dataset|database)\s+(represent|show|mean)\b",
+            r"\bwhat\s+tables?\s+(are|do\s+we\s+have|exist)\b",
+            r"\bexplain\s+to\s+me\s+in\s+words\b",
+        ]
+        for pat in overview_patterns:
+            if re.search(pat, q):
+                return True
+        phrases = (
+            "tell me about this data",
+            "tell me about this dataset",
+            "about this data set",
+            "about this dataset",
+            "what this entire dataset is about",
+            "what this dataset is about",
+            "what this data is about",
+            "overview of the data",
+            "overview of this data",
+            "explain to me in words",
+        )
+        return any(p in q for p in phrases)
+
+    @classmethod
+    def _generate_dataset_overview(
+        cls,
+        question: str,
+        workspace: OKFWorkspace,
+        llm_router: LLMRouter | None,
+    ) -> tuple[QueryResponse, pd.DataFrame]:
+        """Generate a structured, in-words semantic explanation of the workspace dataset."""
+        active_tables = workspace.active_tables()
+        total_rows = sum(t.row_count or 0 for t in active_tables)
+        total_cols = sum(len(t.columns) for t in active_tables)
+
+        # 1. If LLM is configured, ask LLM for an executive natural-language briefing
+        if llm_router is not None and llm_router.is_configured():
+            try:
+                table_summaries = []
+                for t in active_tables:
+                    col_names = [c.name for c in t.columns if not c.is_blocked]
+                    table_summaries.append(
+                        f"- `{t.name}` ({t.table_role.value}, {t.row_count:,} rows): {', '.join(col_names[:10])}"
+                    )
+                rels_summary = [
+                    f"- `{r.source_table}.{r.source_column}` -> `{r.target_table}.{r.target_column}`"
+                    for r in (workspace.relationships or [])
+                    if r.status != "rejected"
+                ]
+
+                sys_prompt = (
+                    "You are Data_Talk's Senior Business Intelligence Data Architect. "
+                    "The user is asking for an executive, in-words explanation of what this dataset is about and what it shows.\n"
+                    "Provide a clear, well-structured executive briefing in clean GitHub markdown:\n"
+                    "1. High-level Domain & Core Purpose (2-3 sentences explaining what real-world domain this represents)\n"
+                    "2. Key Entities & Master Tables (what core business entities are tracked)\n"
+                    "3. Core Operational Facts & Performance Metrics (what transactions, scores, or volume can be measured)\n"
+                    "4. Connected Relationship Paths (how key tables join together)\n"
+                    "5. 4 High-Value Starter Questions they can ask right now"
+                )
+                usr_prompt = (
+                    f"Workspace: {workspace.workspace_name}\n"
+                    f"User Question: {question}\n\n"
+                    f"Tables ({len(active_tables)} total, {total_rows:,} records):\n" + "\n".join(table_summaries) + "\n\n"
+                    f"Approved Relationships:\n" + ("\n".join(rels_summary) or "None")
+                )
+                res = llm_router.complete_text("dataset_overview", sys_prompt, usr_prompt)
+                if res and len(res.strip()) > 50:
+                    df_overview = pd.DataFrame([
+                        {
+                            "table_name": t.name,
+                            "table_role": t.table_role.value,
+                            "row_count": t.row_count,
+                            "column_count": len(t.columns),
+                            "key_columns": ", ".join(c.name for c in t.columns[:4] if not c.is_blocked),
+                        }
+                        for t in active_tables
+                    ])
+                    return (
+                        QueryResponse(
+                            user_question=question,
+                            success=True,
+                            executed_query="/* Semantic Schema Catalog */ SHOW TABLES;",
+                            compiled_dax_equivalent="// Overview of Semantic Model",
+                            involved_tables=[t.name for t in active_tables[:6]],
+                            executive_summary=res.strip(),
+                            recommended_chart_type="table",
+                        ),
+                        df_overview,
+                    )
+            except Exception as exc:
+                _LOGGER.warning("LLM dataset overview generation failed: %s", exc)
+
+        # 2. Deterministic / Offline Fallback Overview Synthesis
+        facts = [t for t in active_tables if t.table_role == TableRole.FACT]
+        dims = [t for t in active_tables if t.table_role != TableRole.FACT]
+
+        all_table_names = [t.name.lower() for t in active_tables]
+        domain_name = "Enterprise Operations & Analytics"
+        domain_desc = "Tracks organizational master records, operational transactions, and business metrics."
+        if any("student" in n or "college" in n or "enroll" in n for n in all_table_names):
+            domain_name = "University Administration & Academic Performance"
+            domain_desc = (
+                "Tracks complete higher education lifecycle operations: student admissions, demographic records, "
+                "college and department hierarchies, faculty assignments, course curriculum sections, "
+                "student grade assessments, and tuition fee billings."
+            )
+        elif any("order" in n or "sales" in n or "product" in n for n in all_table_names):
+            domain_name = "Retail, E-Commerce & Commercial Sales"
+            domain_desc = "Tracks retail order processing, product catalogs, customer segments, sales revenue, and merchandise returns."
+        elif any("patient" in n or "clinic" in n or "health" in n for n in all_table_names):
+            domain_name = "Healthcare & Clinical Operations"
+            domain_desc = "Tracks patient encounters, clinical appointments, diagnoses, and medical billing."
+
+        dim_lines = [
+            f"- **`{t.name}`** ({t.row_count:,} records): Master entity catalog with {len(t.columns)} attributes"
+            for t in dims[:6]
+        ]
+        fact_lines = [
+            f"- **`{t.name}`** ({t.row_count:,} records): Operational facts measuring {', '.join(c.name for c in t.columns if not c.is_blocked and not c.is_primary_key)[:55]}..."
+            for t in facts[:6]
+        ]
+
+        rel_samples = [
+            f"`{r.source_table}` → `{r.target_table}`"
+            for r in (workspace.relationships or [])[:5]
+            if r.status != "rejected"
+        ]
+        rel_text = ", ".join(rel_samples) if rel_samples else "Self-contained analytical entities"
+
+        suggested = []
+        if any("college" in n for n in all_table_names):
+            suggested.append('"Show me bar graph of total marks for each college."')
+            suggested.append('"Show count of students by degree program."')
+            suggested.append('"Total tuition fee due, amount paid, and outstanding balance by term."')
+            suggested.append('"Average attendance rate and final exam score by department."')
+        elif any("order" in n for n in all_table_names):
+            suggested.append('"Show net revenue, profit, and gross margin % by product category."')
+            suggested.append('"Monthly net revenue trend over time."')
+            suggested.append('"Compare net revenue and returns by customer tier."')
+        else:
+            suggested.append('"Show summary statistics and top records."')
+
+        overview_md = (
+            f"### 🌐 Domain Overview: **{domain_name}**\n\n"
+            f"{domain_desc}\n\n"
+            f"The database consists of **{len(active_tables)} interconnected tables** comprising **{total_rows:,} total records** and **{total_cols} attributes**.\n\n"
+            f"#### 🏛️ Master Entities & Dimensions:\n"
+            + ("\n".join(dim_lines) if dim_lines else "- Master entity records across operational areas.")
+            + "\n\n"
+            f"#### 📊 Core Operational Facts & Metrics:\n"
+            + ("\n".join(fact_lines) if fact_lines else "- Transactional activity and performance metrics.")
+            + "\n\n"
+            f"#### 🔗 Connected Relationship Paths:\n"
+            f"Entities are linked across the join graph: {rel_text}.\n\n"
+            f"#### 💡 Example Business Questions to Ask:\n"
+            + "\n".join(f"- {s}" for s in suggested[:4])
+        )
+
+        df_overview = pd.DataFrame([
+            {
+                "table_name": t.name,
+                "table_role": t.table_role.value,
+                "row_count": t.row_count,
+                "column_count": len(t.columns),
+                "key_columns": ", ".join(c.name for c in t.columns[:4] if not c.is_blocked),
+            }
+            for t in active_tables
+        ])
+
+        return (
+            QueryResponse(
+                user_question=question,
+                success=True,
+                executed_query="/* Semantic Schema Catalog */ SHOW TABLES;",
+                compiled_dax_equivalent="// Overview of Semantic Model",
+                involved_tables=[t.name for t in active_tables[:6]],
+                executive_summary=overview_md,
+                recommended_chart_type="table",
+            ),
+            df_overview,
+        )

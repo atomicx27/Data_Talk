@@ -1697,9 +1697,25 @@ function escapeHtml(str) {
 }
 
 function formatMarkdownBold(text) {
-  return escapeHtml(text)
+  if (!text) return '';
+  let html = escapeHtml(text)
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
     .replace(/`([^`]+)`/g, '<code class="mono">$1</code>');
+
+  // Convert markdown headers
+  html = html.replace(/^### (.+)$/gm, '<h4 style="margin:14px 0 6px 0; font-size:14px; color:var(--text-primary); font-weight:700;">$1</h4>');
+  html = html.replace(/^#### (.+)$/gm, '<h5 style="margin:10px 0 4px 0; font-size:13px; color:var(--text-primary); font-weight:600;">$1</h5>');
+
+  // Convert bullet lists
+  html = html.replace(/^\s*-\s+(.+)$/gm, '<li style="margin-left:18px; margin-bottom:4px; font-size:12.5px; line-height:1.5;">$1</li>');
+  html = html.replace(/(<li.*<\/li>\n?)+/g, '<ul style="margin:6px 0; padding-left:4px;">$&</ul>');
+
+  // Convert paragraphs / double newlines
+  html = html.replace(/\n\n+/g, '<div style="margin:8px 0;"></div>');
+  html = html.replace(/\n/g, '<br/>');
+
+  return html;
 }
 
 function renderAllViews() {
