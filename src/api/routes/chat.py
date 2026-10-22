@@ -44,8 +44,11 @@ def run_chat_query(
         llm_router=session.llm_router,
         what_if_overrides=overrides,
     )
-    rec_chart = ChartRecommender.recommend_chart_type(df, req.question)
-    resp.recommended_chart_type = rec_chart
+    if resp.recommended_chart_type and resp.recommended_chart_type in ("table", "kpi", "none"):
+        rec_chart = resp.recommended_chart_type
+    else:
+        rec_chart = ChartRecommender.recommend_chart_type(df, req.question)
+        resp.recommended_chart_type = rec_chart
 
     fig = ChartRecommender.build_figure(df, chart_type=rec_chart, title=req.question)
     rows = df.head(250).to_dict(orient="records") if not df.empty else []

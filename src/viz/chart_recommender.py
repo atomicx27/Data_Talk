@@ -96,6 +96,8 @@ class ChartRecommender:
             return None
 
         chosen_type = chart_type or cls.recommend_chart_type(df, title)
+        if chosen_type == "table":
+            return None
         if chosen_type in ("none", "kpi") and len(df) == 1:
             return None
 

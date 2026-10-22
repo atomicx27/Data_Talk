@@ -1332,18 +1332,26 @@ function renderChatView() {
       const tablePreviewRows = (entry.rows || []).slice(0, 10);
       const cols = entry.columns || [];
       const totalRowsCount = entry.row_count || (entry.rows || []).length;
+      const isTableChart = entry.chart_type === 'table' || !entry.plotly_spec;
+      const chartBoxHtml = isTableChart
+        ? `<div id="plotly_chat_${idx}" class="chart-box" style="display:none;"></div>`
+        : `<div id="plotly_chat_${idx}" class="chart-box"></div>`;
+
       const miniTableHtml =
         cols.length && tablePreviewRows.length
           ? `
-          <details class="clean-disclosure" style="margin-top:12px; padding:10px 14px;">
-            <summary style="font-size:12px; color:var(--text-secondary);">
-              <svg class="icon" style="width:14px;height:14px"><use href="#i-table"/></svg>
-              <span>Result table (${totalRowsCount} ${totalRowsCount === 1 ? 'row' : 'rows'})</span>
-            </summary>
-            <div class="table-responsive" style="max-height:240px;">
+          <div class="result-table-wrapper" style="margin-top:14px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+              <span style="font-size:12px; font-weight:600; color:var(--text-secondary); display:flex; align-items:center; gap:6px;">
+                <svg class="icon" style="width:14px;height:14px"><use href="#i-table"/></svg>
+                ${isTableChart ? 'Schema & Table Catalog' : 'Result Table'} (${totalRowsCount} ${totalRowsCount === 1 ? 'row' : 'rows'})
+              </span>
+              <span style="font-size:11px; color:var(--text-muted)">Showing ${tablePreviewRows.length} ${tablePreviewRows.length === 1 ? 'row' : 'rows'}</span>
+            </div>
+            <div class="table-responsive" style="max-height:320px; border:1px solid var(--border-color); border-radius:var(--radius-md); overflow:auto;">
               <table class="data-table">
                 <thead>
-                  <tr>${cols.map((c) => `<th>${escapeHtml(c)}</th>`).join('')}</tr>
+                  <tr>${cols.map((c) => `<th>${escapeHtml(c.replace(/_/g, ' ').toUpperCase())}</th>`).join('')}</tr>
                 </thead>
                 <tbody>
                   ${tablePreviewRows
@@ -1357,7 +1365,7 @@ function renderChatView() {
                 </tbody>
               </table>
             </div>
-          </details>
+          </div>
         `
           : '';
 
@@ -1400,7 +1408,7 @@ function renderChatView() {
             </div>
           </div>
 
-          <div id="plotly_chat_${idx}" class="chart-box"></div>
+          ${chartBoxHtml}
           ${miniTableHtml}
         </article>
       `;

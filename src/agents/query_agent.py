@@ -844,14 +844,21 @@ class QueryAgent:
     ) -> tuple[QueryResponse, pd.DataFrame]:
         """Generate a structured, in-words semantic explanation of the workspace dataset."""
         active_tables = workspace.active_tables()
-        total_rows = sum(t.row_count or 0 for t in active_tables)
-        total_cols = sum(len(t.columns) for t in active_tables)
+        # Filter out accidental spreadsheet cover sheets (e.g. tables where >= 60% of columns are Unnamed_*)
+        analytical_tables = [
+            t for t in active_tables
+            if sum(1 for c in t.columns if c.name.lower().startswith("unnamed_")) < max(1, len(t.columns) * 0.6)
+        ]
+        display_tables = analytical_tables if analytical_tables else active_tables
+
+        total_rows = sum(t.row_count or 0 for t in display_tables)
+        total_cols = sum(len(t.columns) for t in display_tables)
 
         # 1. If LLM is configured, ask LLM for an executive natural-language briefing
         if llm_router is not None and llm_router.is_configured():
             try:
                 table_summaries = []
-                for t in active_tables:
+                for t in display_tables:
                     col_names = [c.name for c in t.columns if not c.is_blocked]
                     table_summaries.append(
                         f"- `{t.name}` ({t.table_role.value}, {t.row_count:,} rows): {', '.join(col_names[:10])}"
@@ -875,7 +882,7 @@ class QueryAgent:
                 usr_prompt = (
                     f"Workspace: {workspace.workspace_name}\n"
                     f"User Question: {question}\n\n"
-                    f"Tables ({len(active_tables)} total, {total_rows:,} records):\n" + "\n".join(table_summaries) + "\n\n"
+                    f"Tables ({len(display_tables)} total, {total_rows:,} records):\n" + "\n".join(table_summaries) + "\n\n"
                     f"Approved Relationships:\n" + ("\n".join(rels_summary) or "None")
                 )
                 res = llm_router.complete_text("dataset_overview", sys_prompt, usr_prompt)
@@ -888,7 +895,7 @@ class QueryAgent:
                             "column_count": len(t.columns),
                             "key_columns": ", ".join(c.name for c in t.columns[:4] if not c.is_blocked),
                         }
-                        for t in active_tables
+                        for t in display_tables
                     ])
                     return (
                         QueryResponse(
@@ -896,7 +903,7 @@ class QueryAgent:
                             success=True,
                             executed_query="/* Semantic Schema Catalog */ SHOW TABLES;",
                             compiled_dax_equivalent="// Overview of Semantic Model",
-                            involved_tables=[t.name for t in active_tables[:6]],
+                            involved_tables=[t.name for t in display_tables[:6]],
                             executive_summary=res.strip(),
                             recommended_chart_type="table",
                         ),
@@ -906,10 +913,10 @@ class QueryAgent:
                 _LOGGER.warning("LLM dataset overview generation failed: %s", exc)
 
         # 2. Deterministic / Offline Fallback Overview Synthesis
-        facts = [t for t in active_tables if t.table_role == TableRole.FACT]
-        dims = [t for t in active_tables if t.table_role != TableRole.FACT]
+        facts = [t for t in display_tables if t.table_role == TableRole.FACT]
+        dims = [t for t in display_tables if t.table_role != TableRole.FACT]
 
-        all_table_names = [t.name.lower() for t in active_tables]
+        all_table_names = [t.name.lower() for t in display_tables]
         domain_name = "Enterprise Operations & Analytics"
         domain_desc = "Tracks organizational master records, operational transactions, and business metrics."
         if any("student" in n or "college" in n or "enroll" in n for n in all_table_names):

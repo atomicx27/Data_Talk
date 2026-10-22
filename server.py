@@ -39,4 +39,5 @@ app = create_app(runtime=runtime, auth_config=auth_config)
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8504"))
     host = os.environ.get("HOST", "127.0.0.1")
-    uvicorn.run("server:app", host=host, port=port, reload=False)
+    reload_flag = os.environ.get("RELOAD", "true").lower() in ("1", "true", "yes")
+    uvicorn.run("server:app", host=host, port=port, reload=reload_flag)
