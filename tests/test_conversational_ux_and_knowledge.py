@@ -508,3 +508,117 @@ def test_now_show_conversational_pivot_and_gender_wise_query(enriched_demo_works
     assert "ratio_pct" in sql
 
 
+def test_do_same_for_faculty_entity_substitution_and_no_dummy_gender(enriched_demo_workspace):
+    """Verify that 'do same for faculty' replaces students with faculty, drops students from inherited tables,
+    recognizes faculty has no gender column, and resolves to academic rank breakdown without dummy 'Unknown' literals.
+    """
+    from src.agents.query_agent import QueryAgent
+    from src.knowledge.okf_models import TableSchema, ColumnProfile, RelationshipEdge
+    from src.knowledge.okf_store import JoinPlan
+
+    ws, okf_store, rag_store, conn, report = enriched_demo_workspace
+
+    tbl_colleges = TableSchema(
+        name="colleges",
+        columns=[
+            ColumnProfile(name="college_id", data_type="BIGINT", is_primary_key=True),
+            ColumnProfile(name="college_name", data_type="VARCHAR"),
+        ]
+    )
+    tbl_depts = TableSchema(
+        name="departments",
+        columns=[
+            ColumnProfile(name="department_id", data_type="BIGINT", is_primary_key=True),
+            ColumnProfile(name="college_id", data_type="BIGINT", is_foreign_key=True),
+            ColumnProfile(name="department_name", data_type="VARCHAR"),
+        ]
+    )
+    tbl_faculty = TableSchema(
+        name="faculty",
+        columns=[
+            ColumnProfile(name="faculty_id", data_type="BIGINT", is_primary_key=True),
+            ColumnProfile(name="department_id", data_type="BIGINT", is_foreign_key=True),
+            ColumnProfile(name="first_name", data_type="VARCHAR"),
+            ColumnProfile(name="last_name", data_type="VARCHAR"),
+            ColumnProfile(name="academic_rank", data_type="VARCHAR"),
+            ColumnProfile(name="salary", data_type="DOUBLE"),
+        ]
+    )
+    tbl_students = TableSchema(
+        name="students",
+        columns=[
+            ColumnProfile(name="student_id", data_type="BIGINT", is_primary_key=True),
+            ColumnProfile(name="college_id", data_type="BIGINT", is_foreign_key=True),
+            ColumnProfile(name="gender", data_type="VARCHAR"),
+        ]
+    )
+    ws.tables.extend([tbl_colleges, tbl_depts, tbl_faculty, tbl_students])
+
+    history = [
+        {
+            "response": {
+                "success": True,
+                "executed_query": "SELECT college_name, gender, count(*) FROM students GROUP BY 1, 2",
+                "user_question": "show me gender ratio of students for each college",
+                "involved_tables": ["colleges", "students"],
+            }
+        }
+    ]
+
+    # 1. Follow-up resolution
+    resolved_q, is_follow_up, ctx, inherited = QueryAgent._resolve_follow_up_context(
+        question="do same for faculty",
+        conversation_history=history,
+        workspace=ws,
+        llm_router=None,
+    )
+
+    assert is_follow_up is True
+    # 'students' MUST NOT be in inherited tables when substituting faculty
+    assert "students" not in inherited
+    assert "colleges" in inherited
+    # Because faculty does not have gender, resolved_q should target faculty distribution / academic rank
+    assert "faculty" in resolved_q.lower()
+    assert "gender" not in resolved_q.lower()
+
+    # 2. Join plan and deterministic SQL compilation
+    plan = JoinPlan(
+        required_tables=["faculty", "departments", "colleges"],
+        bridge_tables=[],
+        join_edges=[
+            RelationshipEdge(
+                id="r1", source_table="faculty", source_column="department_id",
+                target_table="departments", target_column="department_id", join_type="LEFT", cardinality="N:1"
+            ),
+            RelationshipEdge(
+                id="r2", source_table="departments", source_column="college_id",
+                target_table="colleges", target_column="college_id", join_type="LEFT", cardinality="N:1"
+            ),
+        ],
+        sql_join_clauses=[
+            "LEFT JOIN departments ON faculty.department_id = departments.department_id",
+            "LEFT JOIN colleges ON departments.college_id = colleges.college_id",
+        ],
+        has_fan_trap=False,
+        fact_tables_involved=["faculty"],
+        shared_dimensions=[],
+        fan_trap_guidance="",
+    )
+
+    sql = QueryAgent._deterministic_sql_compiler(
+        question=resolved_q,
+        workspace=ws,
+        join_plan=plan,
+        matched_measures=[],
+    )
+
+    # Must NOT contain dummy 'Unknown' or hallucinated columns
+    assert "'Unknown'" not in sql
+    assert '"colleges"."college_name"' in sql
+    assert '"faculty"' in sql
+    assert "departments" in sql
+    # Sibling table 'students' must not be joined
+    assert "students" not in sql.lower()
+
+
+

@@ -151,6 +151,10 @@ class ChartRecommender:
             and 2 <= len(df) <= 20
             and not is_breakdown_intent
         ):
+            # Guard against flat / constant rate metrics (e.g. constant 100% or single value across all rows)
+            p_col = pct_breakdowns[0]
+            if df[p_col].nunique() <= 1:
+                return "horizontal_bar" if len(df) > 8 else "bar"
             return "combo"
 
         if len(df) > 10 and dim_cols:
@@ -585,15 +589,19 @@ class ChartRecommender:
                 )
 
         fig.update_layout(
-            title=dict(text=title, font=dict(size=13, color="#94a3b8"), x=0.01),
+            title=dict(text="", font=dict(size=12, color="#94a3b8"), x=0.01)
+            if not title
+            else dict(text=title, font=dict(size=12, color="#94a3b8"), x=0.01, y=0.98),
             template="plotly_dark",
-            paper_bgcolor="rgba(17,24,39,0.0)",
-            plot_bgcolor="rgba(17,24,39,0.28)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
             font=dict(family="Inter, -apple-system, BlinkMacSystemFont, sans-serif", size=12),
-            margin=dict(l=24, r=24, t=42 if title else 20, b=24),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            margin=dict(l=16, r=24, t=44 if title else 20, b=32),
+            legend=dict(orientation="h", yanchor="bottom", y=1.04, xanchor="right", x=1),
             hoverlabel=dict(bgcolor="#0f172a", font_size=12, font_family="Inter, sans-serif"),
             bargap=0.28,
             height=380,
         )
+        fig.update_xaxes(automargin=True)
+        fig.update_yaxes(automargin=True)
         return fig

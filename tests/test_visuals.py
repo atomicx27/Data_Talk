@@ -175,3 +175,33 @@ def test_long_format_two_dimensions_colored_by_category():
     assert "Female" in trace_labels and "Male" in trace_labels and "Non-Binary" in trace_labels
 
 
+def test_constant_percentage_metric_avoids_combo_chart():
+    """Verify that if a percentage column is completely constant (e.g. all 100%),
+    recommend_chart_type does NOT recommend a misleading dual-axis combo chart with a flat line.
+    """
+    df_flat = pd.DataFrame({
+        "College Name": ["Architecture", "Business", "Education", "Engineering", "Medicine"],
+        "Total Faculty": [52, 52, 54, 52, 52],
+        "Gender Ratio Pct": [100.0, 100.0, 100.0, 100.0, 100.0],
+    })
+
+    rec = ChartRecommender.recommend_chart_type(df_flat, "do same for faculty")
+    assert rec != "combo"
+    assert rec in ("bar", "horizontal_bar")
+
+
+def test_automargin_and_transparent_canvas():
+    """Verify that chart layout uses transparent canvas background and automargin on both axes."""
+    df_sample = pd.DataFrame({
+        "Category": ["A", "B", "C"],
+        "Value": [10, 20, 30],
+    })
+    fig = ChartRecommender.build_figure(df_sample, chart_type="bar", title="Sample")
+    assert fig is not None
+    assert fig.layout.paper_bgcolor == "rgba(0,0,0,0)"
+    assert fig.layout.plot_bgcolor == "rgba(0,0,0,0)"
+    assert fig.layout.xaxis.automargin is True
+    assert fig.layout.yaxis.automargin is True
+
+
+

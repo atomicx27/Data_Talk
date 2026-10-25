@@ -354,17 +354,41 @@ function applyPlotlyThemeLayout(baseLayout = {}) {
   if (!baseLayout) return {};
   const isLight = getActiveTheme() === 'light';
   if (!isLight) {
-    // In dark theme, return the original server layout directly with zero modifications
-    return baseLayout;
+    // In dark theme, ensure seamless transparent canvas and automargins
+    return {
+      ...baseLayout,
+      paper_bgcolor: 'rgba(0,0,0,0)',
+      plot_bgcolor: 'rgba(0,0,0,0)',
+      xaxis: {
+        ...(baseLayout.xaxis || {}),
+        automargin: true,
+        gridcolor: 'rgba(255, 255, 255, 0.08)',
+      },
+      yaxis: {
+        ...(baseLayout.yaxis || {}),
+        automargin: true,
+        gridcolor: 'rgba(255, 255, 255, 0.08)',
+      },
+    };
   }
-  // In light theme, only adjust paper and plot background and font color without touching any axes
+  // In light theme, transparent canvas blends seamlessly with card surface, avoiding cut-off gray rectangles
   return {
     ...baseLayout,
     paper_bgcolor: 'rgba(0,0,0,0)',
-    plot_bgcolor: 'rgba(241, 245, 249, 0.7)',
+    plot_bgcolor: 'rgba(0,0,0,0)',
     font: {
       ...(baseLayout.font || {}),
       color: '#0f172a',
+    },
+    xaxis: {
+      ...(baseLayout.xaxis || {}),
+      automargin: true,
+      gridcolor: '#e2e8f0',
+    },
+    yaxis: {
+      ...(baseLayout.yaxis || {}),
+      automargin: true,
+      gridcolor: '#e2e8f0',
     },
   };
 }
@@ -1880,6 +1904,10 @@ function renderChatView() {
     if (plotEl && entry.plotly_spec && window.Plotly) {
       try {
         const themedLayout = applyPlotlyThemeLayout(entry.plotly_spec.layout);
+        // Remove duplicate inner title that collides with horizontal legend since card header displays it
+        if (themedLayout.title) {
+          themedLayout.title = { text: '' };
+        }
         window.Plotly.react(plotEl, entry.plotly_spec.data, themedLayout, {
           responsive: true,
           displayModeBar: false,
