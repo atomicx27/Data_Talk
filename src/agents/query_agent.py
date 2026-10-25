@@ -37,6 +37,7 @@ class QueryResponse(BaseModel):
     """Structured output from QueryAgent.answer_question()."""
 
     user_question: str
+    resolved_question: str = ""
     success: bool
     executed_query: str = ""
     compiled_dax_equivalent: str = ""
@@ -85,10 +86,21 @@ class QueryAgent:
 
         # 0. Check if the user is asking an exploratory overview question about the entire dataset
         if cls._is_dataset_overview_question(resolved_q):
+            empty_plan = JoinPlan(
+                required_tables=[],
+                bridge_tables=[],
+                join_edges=[],
+                sql_join_clauses=[],
+                has_fan_trap=False,
+                fact_tables_involved=[],
+                shared_dimensions=[],
+                fan_trap_guidance="",
+            )
             resp_ov, df_ov = cls._generate_dataset_overview(resolved_q, workspace, llm_router)
+            resp_ov.resolved_question = resolved_q
             resp_ov.is_follow_up = is_follow_up
             resp_ov.follow_up_context = follow_up_ctx
-            resp_ov.suggested_follow_ups = cls._generate_suggested_follow_ups(df_ov, resolved_q, workspace, JoinPlan([], [], False, ""))
+            resp_ov.suggested_follow_ups = cls._generate_suggested_follow_ups(df_ov, resolved_q, workspace, empty_plan)
             resp_ov.drill_down_dimensions = cls._generate_drill_down_options(df_ov, workspace)
             return resp_ov, df_ov
 
@@ -215,6 +227,7 @@ class QueryAgent:
 
                 resp = QueryResponse(
                     user_question=q_clean,
+                    resolved_question=resolved_q,
                     success=True,
                     executed_query=current_query,
                     compiled_dax_equivalent=dax_equiv,
@@ -345,13 +358,22 @@ class QueryAgent:
     def _match_measures(question: str, workspace: OKFWorkspace) -> list[SemanticMeasure]:
         q_low = question.lower()
         matched: list[SemanticMeasure] = []
+        STOP_MEASURE_WORDS = {
+            "total", "average", "count", "number", "amount", "value",
+            "metric", "ratio", "share", "trend", "breakdown", "gross",
+            "annual", "monthly", "overall", "summary",
+        }
         for m in workspace.measures:
             m_low = m.name.lower()
             if re.search(rf"\b{re.escape(m_low)}\b", q_low) or any(
                 re.search(rf"\b{re.escape(s.lower())}\b", q_low) for s in m.synonyms
             ):
                 matched.append(m)
-            elif any(re.search(rf"\b{re.escape(tok)}\b", q_low) for tok in m_low.split() if len(tok) > 4):
+            elif any(
+                re.search(rf"\b{re.escape(tok)}\b", q_low)
+                for tok in m_low.split()
+                if len(tok) > 4 and tok not in STOP_MEASURE_WORDS
+            ):
                 matched.append(m)
         return matched
 
@@ -498,6 +520,33 @@ class QueryAgent:
             return f"avg_{clean}"
         return f"{prefix}_{clean}"
 
+    @staticmethod
+    def _infer_agg_function(q_low: str, metric_col: str | None) -> str:
+        mc = (metric_col or "").lower()
+        if any(re.search(rf"\b{w}\b", q_low) for w in ("avg", "average", "mean")):
+            return "AVG"
+        if any(re.search(rf"\b{w}\b", q_low) for w in ("total", "sum", "payroll", "overall")) and not any(
+            k in mc for k in ("gpa", "cgpa", "rate", "pct", "percent", "ratio", "score", "marks")
+        ):
+            return "SUM"
+        if any(
+            k in mc
+            for k in (
+                "salary", "compensation", "wage", "gpa", "cgpa", "rate",
+                "pct", "percent", "ratio", "score", "marks", "age", "rating",
+            )
+        ):
+            return "AVG"
+        if any(w in q_low for w in ("salary", "salaries", "compensation", "rate", "gpa", "score")):
+            return "AVG"
+        return "SUM"
+
+    @staticmethod
+    def _infer_sort_direction(q_low: str) -> str:
+        if any(re.search(rf"\b{w}\b", q_low) for w in ("bottom", "lowest", "worst", "least", "smallest", "minimum")):
+            return "ASC"
+        return "DESC"
+
     @classmethod
     def _deterministic_sql_compiler(
         cls,
@@ -577,11 +626,15 @@ class QueryAgent:
 
         # Case A: Multi-Fact Fan/Chasm Trap Query (Orders + Returns together!)
         if (
-            join_plan.has_fan_trap
-            or ("return" in q_low or "refund" in q_low)
-            and any(w in q_low for w in ("revenue", "sales", "order", "rate", "net"))
-            and workspace.get_table("orders")
+            workspace.get_table("orders")
             and workspace.get_table("returns")
+            and (
+                (join_plan.has_fan_trap and "orders" in join_plan.required_tables and "returns" in join_plan.required_tables)
+                or (
+                    ("return" in q_low or "refund" in q_low)
+                    and any(w in q_low for w in ("revenue", "sales", "order", "rate", "net"))
+                )
+            )
         ):
             dim_select = "products.category" if need_products or not need_customers else "customers.region_code"
             dim_alias = "category" if "products" in dim_select else "region"
@@ -680,10 +733,14 @@ class QueryAgent:
                     break
 
             top_match = re.search(r"\b(?:top|bottom|limit)\s+(\d+)\b", q_low)
-            limit_clause = f"\nLIMIT {int(top_match.group(1))}" if top_match else "\nLIMIT 50"
+            limit_clause = f"\nLIMIT {int(top_match.group(1))}" if top_match else ""
+            sort_dir = cls._infer_sort_direction(q_low)
 
             if group_col and group_alias:
-                order_by = f"{group_alias} ASC" if group_alias == "order_month" else "net_revenue_usd DESC"
+                if group_alias == "order_month":
+                    extra_filters_month = list(extra_filters) + ["orders.order_date IS NOT NULL"]
+                    where_str = "\nWHERE " + " AND ".join(extra_filters_month)
+                order_by = f"{group_alias} ASC" if group_alias == "order_month" else f"net_revenue_usd {sort_dir}"
                 return (
                     f"SELECT {group_col} AS {group_alias},\n"
                     f"       ROUND({rev_expr}, 2) AS net_revenue_usd,\n"
@@ -719,7 +776,8 @@ class QueryAgent:
             NON_METRIC_COLS = {
                 "year", "hire_year", "birth_year", "established_year", "academic_year", "fiscal_year",
                 "date", "month", "day", "rank", "zip", "zip_code", "postal_code", "phone", "phone_number",
-                "id", "code", "term_id", "college_id", "department_id", "student_id", "faculty_id", "course_id"
+                "id", "code", "term_id", "college_id", "department_id", "student_id", "faculty_id", "course_id",
+                "current_semester", "semester",
             }
             for t_name in join_plan.required_tables:
                 t_obj = workspace.get_table(t_name)
@@ -772,19 +830,26 @@ class QueryAgent:
             ).lower()
 
             if target_dim_name:
-                for t_name in join_plan.required_tables:
+                # Prioritize tables whose name matches target_dim_name so 'college' checks 'colleges' before 'departments'
+                ordered_dim_tables = sorted(
+                    join_plan.required_tables,
+                    key=lambda tn: 0 if (target_dim_name in tn.lower() or target_dim_name.rstrip("s") in tn.lower()) else 1,
+                )
+                for t_name in ordered_dim_tables:
                     t_obj = workspace.get_table(t_name)
                     if not t_obj:
                         continue
                     # Prefer name/title columns over code/id columns for human-readable grouping
                     dim_candidates = sorted(
                         t_obj.columns,
-                        key=lambda col: 0 if col.name.lower().endswith("name") or col.name.lower() in ("name", "title") else 1
+                        key=lambda col: 0 if col.name.lower().endswith("name") or col.name.lower() in ("name", "title") else 1,
                     )
                     for c in dim_candidates:
-                        if c.is_blocked or c.is_primary_key or c.is_foreign_key:
-                            continue
                         c_low = c.name.lower()
+                        if c.is_blocked or c.is_primary_key or c.is_foreign_key or c_low.endswith("_id") or c_low == "id":
+                            continue
+                        if c_low in ("first_name", "last_name", "phone", "phone_number", "email"):
+                            continue
                         if target_dim_name == c_low or target_dim_name in c_low or (
                             target_dim_name.rstrip("s") in t_name.lower() and c_low.endswith("name")
                         ):
@@ -800,10 +865,10 @@ class QueryAgent:
                     if not t_obj:
                         continue
                     for c in t_obj.columns:
-                        if c.is_blocked or c.is_primary_key or c.is_foreign_key:
+                        c_low = c.name.lower()
+                        if c.is_blocked or c.is_primary_key or c.is_foreign_key or c_low.endswith("_id") or c_low == "id":
                             continue
                         if any(ty in c.data_type.upper() for ty in ("CHAR", "TEXT", "VARCHAR", "STRING")):
-                            c_low = c.name.lower()
                             if c_low in q_low and len(c_low) >= 4:
                                 dim_tbl = t_name
                                 dim_col = c.name
@@ -827,26 +892,29 @@ class QueryAgent:
                     if t_name.lower() in q_low or t_norm in q_norm or singular in q_low:
                         # Pick best descriptive column (e.g. college_name, name, code, etc.), avoiding personal names
                         for c in t_obj.columns:
-                            if c.is_blocked:
+                            c_low = c.name.lower()
+                            if c.is_blocked or c.is_primary_key or c.is_foreign_key or c_low.endswith("_id"):
                                 continue
-                            if c.name.lower() in ("first_name", "last_name", "phone", "email"):
+                            if c_low in ("first_name", "last_name", "phone", "email"):
                                 continue
-                            if c.name.lower().endswith("name") or c.name.lower() in ("name", "title", "description", "label"):
+                            if c_low.endswith("name") or c_low in ("name", "title", "description", "label"):
                                 dim_tbl = t_name
                                 dim_col = c.name
                                 break
                         if not dim_col:
                             for c in t_obj.columns:
-                                if c.is_blocked or c.name.lower() in ("first_name", "last_name", "phone", "email"):
+                                c_low = c.name.lower()
+                                if c.is_blocked or c.is_primary_key or c.is_foreign_key or c_low.endswith("_id") or c_low in ("first_name", "last_name", "phone", "email"):
                                     continue
-                                if any(k in c.name.lower() for k in ("name", "code", "title", "type", "category")):
+                                if any(k in c_low for k in ("name", "code", "title", "type", "category")):
                                     dim_tbl = t_name
                                     dim_col = c.name
                                     break
                         if not dim_col:
                             for c in t_obj.columns:
-                                if not c.is_blocked and not c.is_primary_key and any(ty in c.data_type.upper() for ty in ("CHAR", "TEXT", "VARCHAR", "STRING")):
-                                    if c.name.lower() in ("first_name", "last_name", "phone", "email"):
+                                c_low = c.name.lower()
+                                if not c.is_blocked and not c.is_primary_key and not c.is_foreign_key and not c_low.endswith("_id") and any(ty in c.data_type.upper() for ty in ("CHAR", "TEXT", "VARCHAR", "STRING")):
+                                    if c_low in ("first_name", "last_name", "phone", "email"):
                                         continue
                                     dim_tbl = t_name
                                     dim_col = c.name
@@ -857,30 +925,36 @@ class QueryAgent:
             # Check if a second dimension exists in a breakdown query (e.g. College AND Gender / Academic Rank / Year)
             second_dim_tbl = None
             second_dim_col = None
-            if dim_tbl and dim_col and any(k in q_low for k in ("ratio", "ritio", "rio", "gender", "rank", "status", "breakdown", "by", "across", "distribution", "trend", "year", "annual", "yearly", "over time")):
+            if dim_tbl and dim_col and any(
+                k in q_low
+                for k in (
+                    "ratio", "ritio", "raio", "gender", "rank", "status", "breakdown",
+                    "by", "across", "distribution", "trend", "year", "annual", "yearly", "over time",
+                )
+            ):
                 candidates: list[tuple[int, str, str]] = []
                 for t_name in join_plan.required_tables:
                     t_obj = workspace.get_table(t_name)
                     if not t_obj:
                         continue
                     for c in t_obj.columns:
-                        if c.is_blocked or c.is_primary_key or c.is_foreign_key:
+                        c_low = c.name.lower()
+                        if c.is_blocked or c.is_primary_key or c.is_foreign_key or c_low.endswith("_id") or c_low == "id":
                             continue
                         if t_name == dim_tbl and c.name == dim_col:
                             continue
                         if metric_tbl and t_name == metric_tbl and c.name == metric_col:
                             continue
-                        c_low = c.name.lower()
                         if c_low in ("first_name", "last_name", "phone", "phone_number", "email", "address", "remarks", "syllabus_summary"):
                             continue
 
                         score = 0
                         # 1. Direct whole-word mention in user question (highest precedence)
-                        if any(k in q_low for k in ("trend", "year", "annual", "yearly", "over time")) and any(k in c_low for k in ("hire_year", "hire_date", "order_date", "date")):
+                        if any(k in q_low for k in ("trend", "year", "annual", "yearly", "over time")) and any(k in c_low for k in ("hire_year", "payment_year", "hire_date", "order_date", "date")):
                             score = 105 if (metric_tbl and t_name == metric_tbl) else 95
                         elif re.search(rf"\b{re.escape(c_low)}\b", q_low):
                             score = 100
-                        # 2. Specific demographic/concept mappings
+                        # 2. Specific demographic/concept mappings explicitly requested in the question
                         elif any(k in q_low for k in ("trend", "year", "annual", "yearly", "over time")) and "year" in c_low:
                             score = 90 if (metric_tbl and t_name == metric_tbl) else 75
                         elif any(k in q_low for k in ("gender", "sex", "male", "female", "demographic")) and c_low == "gender":
@@ -893,18 +967,13 @@ class QueryAgent:
                             score = 90
                         elif "status" in q_low and "status" in c_low:
                             score = 90
-                        # 3. Fallback when user asks for general breakdown/ratio without naming a second dimension
-                        elif any(k in q_low for k in ("ratio", "breakdown", "distribution", "across")):
+                        # 3. Fallback ONLY when user explicitly asks for a demographic/ratio split without naming the 2nd column
+                        #    and NO specific numeric metric (like salary/fees) was already matched
+                        elif not metric_col and any(k in q_low for k in ("ratio", "ritio", "raio", "demographic", "diversity")):
                             if c_low == "gender":
                                 score = 50
                             elif "rank" in c_low:
                                 score = 40
-                            elif "tier" in c_low:
-                                score = 35
-                            elif "category" in c_low:
-                                score = 30
-                            elif "status" in c_low:
-                                score = 20
 
                         if score > 0:
                             candidates.append((score, t_name, c.name))
@@ -948,35 +1017,52 @@ class QueryAgent:
 
             join_str = ("\n" + "\n".join(join_clauses)) if join_clauses else ""
 
-            # Check for segment filter (e.g. "for 'College of Engineering & Computing'" or "into College of ...")
+            # Check for segment filter (e.g. "for 'College of Engineering & Computing'" or "filtered to College of ...")
             where_filters: list[str] = []
-            filter_seg_match = re.search(r"\b(?:for|into|filtered\s+to|filtered\s+by)\s+['\"]?([a-z0-9_ &]+?)['\"]?(?:\s+broken\s+down|\s+break\s+down|\s*$)", q_low)
+            filter_seg_match = re.search(
+                r"\b(?:for\s+['\"]([a-z0-9_ &]+?)['\"]|(?:into|filtered\s+to|filtered\s+by)\s+['\"]?([a-z0-9_ &]+?)['\"]?)(?:\s+broken\s+down|\s+break\s+down|\s*$)",
+                q_low,
+            )
             if filter_seg_match:
-                raw_seg = filter_seg_match.group(1).strip()
-                for t_name in joined_tables:
-                    t_obj = workspace.get_table(t_name)
-                    if not t_obj:
-                        continue
-                    for c in t_obj.columns:
-                        if c.is_blocked:
+                raw_seg = (filter_seg_match.group(1) or filter_seg_match.group(2) or "").strip()
+                STOP_SEG_WORDS = {
+                    "each", "every", "all", "any", "the", "this", "that", "these", "those",
+                    "drill", "down", "into", "result", "results",
+                    "college", "colleges", "department", "departments", "student", "students",
+                    "faculty", "course", "courses", "program", "programs", "degree", "degrees",
+                    "order", "orders", "customer", "customers", "product", "products",
+                    "category", "categories", "region", "regions", "year", "years", "month", "months",
+                    "gender", "genders", "rank", "ranks", "status", "tier", "tiers", "channel", "channels",
+                }
+                seg_words = [w for w in raw_seg.split() if len(w) > 2 and w not in STOP_SEG_WORDS]
+                if seg_words:
+                    ordered_joined = sorted(
+                        joined_tables,
+                        key=lambda tn: 0 if any(w in tn.lower() for w in raw_seg.split()) else 1,
+                    )
+                    for t_name in ordered_joined:
+                        t_obj = workspace.get_table(t_name)
+                        if not t_obj:
                             continue
-                        if any(ty in c.data_type.upper() for ty in ("CHAR", "TEXT", "VARCHAR", "STRING")):
-                            c_low = c.name.lower()
-                            if any(k in c_low for k in ("name", "code", "title", "desc", "category", "region")):
-                                seg_words = [w for w in raw_seg.split() if len(w) > 3 and w not in ("drill", "down", "into", "this", "result", "college", "colleges", "department", "departments")]
-                                if not seg_words:
-                                    seg_words = [w for w in raw_seg.split() if len(w) > 2 and w not in ("drill", "down", "into", "this", "result")]
-                                if seg_words:
+                        for c in t_obj.columns:
+                            if c.is_blocked:
+                                continue
+                            if any(ty in c.data_type.upper() for ty in ("CHAR", "TEXT", "VARCHAR", "STRING")):
+                                c_low = c.name.lower()
+                                if any(k in c_low for k in ("name", "code", "title", "desc", "category", "region")):
                                     pattern = "%" + "%".join(seg_words[:3]) + "%"
                                     where_filters.append(f'LOWER("{t_name}"."{c.name}") LIKE \'{pattern}\'')
                                     break
-                    if where_filters:
-                        break
+                        if where_filters:
+                            break
 
             where_clause = ("\nWHERE " + " AND ".join(where_filters)) if where_filters else ""
 
-            # Check if user asked for ratio / percentage / share
-            is_ratio_query = any(k in q_low for k in ("ratio", "raio", "ritio", "rio", "pct", "percent", "share", "proportion"))
+            # Check if user asked for ratio / percentage / share (matching 'rio' only as a whole word so 'prior'/'period' don't trigger it)
+            is_ratio_query = bool(
+                re.search(r"\b(?:ratio|raio|ritio|rio|pct|percent|share|proportion)\b", q_low)
+            )
+            sort_dir = cls._infer_sort_direction(q_low)
 
             # If user asks for 2-dimension breakdown (e.g. College AND Gender / Year)
             if dim_tbl and dim_col and second_dim_tbl and second_dim_col:
@@ -993,7 +1079,7 @@ class QueryAgent:
 
                 if metric_tbl and metric_col:
                     m_clean = re.sub(r"[^a-z0-9_]+", "_", metric_col.lower()).strip("_")
-                    agg_fn = "AVG" if any(w in q_low for w in ("avg", "average", "mean", "salary", "salaries", "compensation", "rate", "gpa", "score")) else "SUM"
+                    agg_fn = cls._infer_agg_function(q_low, metric_col)
                     metric_alias = cls._clean_agg_alias(metric_col, agg_fn)
                     ratio_alias = (m_clean.replace("total_", "") + "_ratio_pct").lstrip("_")
                     ratio_select = ""
@@ -1019,7 +1105,7 @@ class QueryAgent:
                     f"       ROUND(100.0 * COUNT(*) / NULLIF(SUM(COUNT(*)) OVER (PARTITION BY {d1_ref}), 0), 2) AS {d2_alias}_ratio_pct\n"
                     f'FROM "{base_tbl_name}"{join_str}{where_clause}\n'
                     f"GROUP BY {d1_ref}, {d2_ref}\n"
-                    f"ORDER BY {d1_ref}, {d2_alias}_count DESC"
+                    f"ORDER BY {d1_ref}, {d2_alias}_count {sort_dir}"
                     f"{limit_clause}"
                 )
 
@@ -1030,7 +1116,7 @@ class QueryAgent:
                 top_match = re.search(r"\b(?:top|bottom|limit)\s+(\d+)\b", q_low)
                 limit_clause = f"\nLIMIT {int(top_match.group(1))}" if top_match else ""
                 if metric_tbl and metric_col:
-                    agg_fn = "AVG" if any(w in q_low for w in ("avg", "average", "mean")) else "SUM"
+                    agg_fn = cls._infer_agg_function(q_low, metric_col)
                     metric_ref = f'ROUND({agg_fn}("{metric_tbl}"."{metric_col}"), 2)'
                     metric_alias = cls._clean_agg_alias(metric_col, agg_fn)
                     ratio_select = (
@@ -1043,7 +1129,7 @@ class QueryAgent:
                         f"       COUNT(*) AS total_count{ratio_select}\n"
                         f'FROM "{base_tbl_name}"{join_str}{where_clause}\n'
                         f"GROUP BY {dim_ref}\n"
-                        f"ORDER BY {metric_alias} DESC"
+                        f"ORDER BY {metric_alias} {sort_dir}"
                         f"{limit_clause}"
                     )
                 else:
@@ -1056,7 +1142,7 @@ class QueryAgent:
                         f"       COUNT(*) AS row_count{ratio_select}\n"
                         f'FROM "{base_tbl_name}"{join_str}{where_clause}\n'
                         f"GROUP BY {dim_ref}\n"
-                        f"ORDER BY row_count DESC"
+                        f"ORDER BY row_count {sort_dir}"
                         f"{limit_clause}"
                     )
 
@@ -1074,7 +1160,7 @@ class QueryAgent:
             if select_cols:
                 return f'SELECT {", ".join(select_cols)} FROM "{base_tbl_name}"{join_str}{where_clause} LIMIT 50'
 
-        # Fallback for arbitrary user-uploaded single or multi-table schema
+        # Fallback for single-table or unjoined schema queries
         target_tbl = None
         if join_plan and join_plan.required_tables:
             target_tbl = workspace.get_table(join_plan.required_tables[0])
@@ -1087,18 +1173,30 @@ class QueryAgent:
         if not target_tbl:
             target_tbl = workspace.active_tables()[0]
 
+        NON_METRIC_SINGLE = {
+            "year", "hire_year", "birth_year", "established_year", "academic_year", "fiscal_year", "payment_year",
+            "date", "month", "day", "rank", "zip", "zip_code", "postal_code", "phone", "phone_number",
+            "id", "code", "current_semester", "semester",
+        }
         cols = [c.name for c in target_tbl.columns if not c.is_blocked]
         num_cols = [
             c.name
             for c in target_tbl.columns
             if not c.is_blocked
             and any(t in c.data_type.upper() for t in ("INT", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC", "BIGINT"))
-            and not c.is_primary_key and not c.name.lower().endswith("_id")
+            and not c.is_primary_key
+            and not c.is_foreign_key
+            and not c.name.lower().endswith(("_id", "_year"))
+            and c.name.lower() not in NON_METRIC_SINGLE
         ]
-        # Prioritize metric column that matches question (e.g. salary)
+        # Prioritize metric column that matches question (e.g. salary, gpa, fee)
         matched_num_col = None
         for nc in num_cols:
-            if nc.lower() in q_low or any(w in q_low for w in nc.lower().split("_") if len(w) > 3):
+            nc_low = nc.lower()
+            if nc_low in q_low or any(w in q_low for w in nc_low.split("_") if len(w) > 3):
+                matched_num_col = nc
+                break
+            if any(w in q_low for w in ("salary", "salaries", "compensation", "pay")) and "salary" in nc_low:
                 matched_num_col = nc
                 break
         active_num_col = matched_num_col or (num_cols[0] if num_cols else None)
@@ -1106,13 +1204,39 @@ class QueryAgent:
         cat_cols = [
             c.name
             for c in target_tbl.columns
-            if not c.is_blocked and c.name not in num_cols and not c.is_primary_key
+            if not c.is_blocked
+            and c.name not in num_cols
+            and not c.is_primary_key
+            and not c.is_foreign_key
+            and not c.name.lower().endswith("_id")
+            and c.name.lower() not in ("first_name", "last_name", "email", "phone", "phone_number", "roll_number")
         ]
+        if not cat_cols:
+            cat_cols = [
+                c.name
+                for c in target_tbl.columns
+                if not c.is_blocked and c.name not in num_cols and not c.is_primary_key
+            ]
+
+        # Match the user's requested dimension column on single-table queries (e.g., academic_rank, gender, status)
+        matched_cat_col = None
+        by_single = re.search(r"\b(?:by|per|across|for\s+each|broken\s+down\s+by|break\s+(?:that\s+|it\s+)?down\s+by)\s+([a-z0-9_]+)", q_low)
+        target_single_dim = by_single.group(1).lower() if by_single else ""
+        for cc in cat_cols:
+            cc_low = cc.lower()
+            if (target_single_dim and (target_single_dim == cc_low or target_single_dim in cc_low)) or re.search(rf"\b{re.escape(cc_low)}\b", q_low):
+                matched_cat_col = cc
+                break
+            if any(w in cc_low for w in q_low.split() if len(w) > 3 and w not in ("show", "total", "average", "count", "trend")):
+                matched_cat_col = cc
+                break
+        active_cat_col = matched_cat_col or (cat_cols[0] if cat_cols else None)
+        sort_dir = cls._infer_sort_direction(q_low)
 
         # Check if question is a trend / time-series query
         date_col = next((c.name for c in target_tbl.columns if not c.is_blocked and any(k in c.name.lower() for k in ("date", "time", "year")) and not c.name.lower().endswith("_id")), None)
         if date_col and any(w in q_low for w in ("trend", "year", "monthly", "over time", "timeline")):
-            agg_fn = "AVG" if any(w in q_low for w in ("avg", "average", "mean", "salary", "salaries", "compensation", "rate", "gpa", "score")) else "SUM"
+            agg_fn = cls._infer_agg_function(q_low, active_num_col)
             dim_expr = f'STRFTIME(TRY_CAST("{target_tbl.name}"."{date_col}" AS DATE), \'%Y\')' if "date" in date_col.lower() else f'"{target_tbl.name}"."{date_col}"'
             dim_alias = date_col.lower().replace("date", "year") if "date" in date_col.lower() else date_col.lower()
             top_match = re.search(r"\b(?:top|bottom|limit)\s+(\d+)\b", q_low)
@@ -1130,14 +1254,21 @@ class QueryAgent:
                     f'{limit_clause}'
                 )
 
-        if cat_cols and active_num_col:
-            agg_fn = "AVG" if any(w in q_low for w in ("avg", "average", "mean", "salary", "salaries", "compensation", "rate", "gpa", "score")) else "SUM"
+        if active_cat_col and active_num_col and not (any(w in q_low for w in ("count", "how many", "number of")) and not matched_num_col):
+            agg_fn = cls._infer_agg_function(q_low, active_num_col)
             alias = cls._clean_agg_alias(active_num_col, agg_fn)
             top_match = re.search(r"\b(?:top|bottom|limit)\s+(\d+)\b", q_low)
             limit_clause = f" LIMIT {int(top_match.group(1))}" if top_match else ""
             return (
-                f'SELECT "{cat_cols[0]}", ROUND({agg_fn}("{target_tbl.name}"."{active_num_col}"), 2) AS {alias}, COUNT(*) AS row_count '
-                f'FROM "{target_tbl.name}" GROUP BY "{cat_cols[0]}" ORDER BY {alias} DESC{limit_clause}'
+                f'SELECT "{active_cat_col}", ROUND({agg_fn}("{target_tbl.name}"."{active_num_col}"), 2) AS {alias}, COUNT(*) AS row_count '
+                f'FROM "{target_tbl.name}" GROUP BY "{active_cat_col}" ORDER BY {alias} {sort_dir}{limit_clause}'
+            )
+        if active_cat_col:
+            top_match = re.search(r"\b(?:top|bottom|limit)\s+(\d+)\b", q_low)
+            limit_clause = f" LIMIT {int(top_match.group(1))}" if top_match else ""
+            return (
+                f'SELECT "{active_cat_col}", COUNT(*) AS row_count '
+                f'FROM "{target_tbl.name}" GROUP BY "{active_cat_col}" ORDER BY row_count {sort_dir}{limit_clause}'
             )
         return f'SELECT {", ".join(f"{c}" for c in cols[:8])} FROM "{target_tbl.name}" LIMIT 50'
 
@@ -1151,23 +1282,48 @@ class QueryAgent:
         """Build a companion Power BI DAX `DEFINE MEASURE ... EVALUATE SUMMARIZECOLUMNS` query."""
         q_low = question.lower()
         define_block = MeasureCompiler.format_dax_define_block(matched_measures or workspace.measures[:2])
-        group_dax = "'products'[category]"
-        if "region" in q_low:
-            group_dax = "'customers'[region_code]"
-        elif "tier" in q_low:
-            group_dax = "'customers'[cust_tier]"
-        elif "channel" in q_low:
-            group_dax = "'orders'[sales_channel]"
-        elif "month" in q_low or "trend" in q_low:
-            group_dax = "'orders'[order_date]"
+        if workspace.get_table("orders"):
+            group_dax = "'products'[category]"
+            if "region" in q_low:
+                group_dax = "'customers'[region_code]"
+            elif "tier" in q_low:
+                group_dax = "'customers'[cust_tier]"
+            elif "channel" in q_low:
+                group_dax = "'orders'[sales_channel]"
+            elif "month" in q_low or "trend" in q_low:
+                group_dax = "'orders'[order_date]"
 
+            eval_block = (
+                f"EVALUATE\n"
+                f"SUMMARIZECOLUMNS(\n"
+                f"  {group_dax},\n"
+                f"  \"Net Revenue USD\", CALCULATE(SUM('orders'[rev_net_usd]), 'orders'[ord_stat] <> \"X\"),\n"
+                f"  \"Profit USD\", CALCULATE(SUM('orders'[profit_usd]), 'orders'[ord_stat] <> \"X\"),\n"
+                f"  \"Gross Margin %\", DIVIDE(SUM('orders'[profit_usd]), SUM('orders'[rev_net_usd]), 0)\n"
+                f")"
+            )
+            return f"{define_block}\n{eval_block}".strip()
+
+        # Dynamic DAX generation for non-retail workspaces (e.g. Higher Education / Custom schemas)
+        active = workspace.active_tables()
+        if not active:
+            return "EVALUATE ROW(\"Count\", 0)"
+        dim_tbl = active[0].name
+        dim_col = active[0].columns[0].name if active[0].columns else "id"
+        for t in active:
+            for c in t.columns:
+                if not c.is_blocked and not c.is_primary_key and not c.is_foreign_key:
+                    if c.name.lower() in q_low or t.name.lower().rstrip("s") in q_low:
+                        if any(ty in c.data_type.upper() for ty in ("CHAR", "TEXT", "VARCHAR", "STRING")):
+                            dim_tbl, dim_col = t.name, c.name
+                            break
+        measure_name = matched_measures[0].name if matched_measures else "Row Count"
+        measure_dax = matched_measures[0].dax_expression if (matched_measures and matched_measures[0].dax_expression) else f"COUNTROWS('{dim_tbl}')"
         eval_block = (
             f"EVALUATE\n"
             f"SUMMARIZECOLUMNS(\n"
-            f"  {group_dax},\n"
-            f"  \"Net Revenue USD\", CALCULATE(SUM('orders'[rev_net_usd]), 'orders'[ord_stat] <> \"X\"),\n"
-            f"  \"Profit USD\", CALCULATE(SUM('orders'[profit_usd]), 'orders'[ord_stat] <> \"X\"),\n"
-            f"  \"Gross Margin %\", DIVIDE(SUM('orders'[profit_usd]), SUM('orders'[rev_net_usd]), 0)\n"
+            f"  '{dim_tbl}'[{dim_col}],\n"
+            f"  \"{measure_name}\", {measure_dax}\n"
             f")"
         )
         return f"{define_block}\n{eval_block}".strip()
@@ -1265,22 +1421,30 @@ class QueryAgent:
             second_dim_col = non_num_cols[1] if len(non_num_cols) >= 2 else None
 
             # Prioritize business metrics (revenue, fee, salary, amount, profit, etc.) over count columns
+            q_low = question.lower()
+            q_tokens = [w.strip("?,.:;()'\"") for w in q_low.split() if len(w.strip("?,.:;()'\"")) > 2]
             business_metrics = [
                 c for c in num_cols
                 if not any(k in str(c).lower() for k in ("row_count", "total_count", "_count", "count"))
             ]
-            matched_metrics = [
-                c for c in num_cols
-                if any(k in str(c).lower() for k in question.lower().split() if len(k) > 2)
+            matched_business = [
+                c for c in business_metrics
+                if any(k in str(c).lower() for k in q_tokens)
             ]
-            metric_col = matched_metrics[0] if matched_metrics else (business_metrics[0] if business_metrics else num_cols[0])
+            if matched_business:
+                metric_col = matched_business[0]
+            elif business_metrics and not any(k in q_low for k in ("count", "headcount", "how many", "number of")):
+                metric_col = business_metrics[0]
+            else:
+                matched_any = [c for c in num_cols if any(k in str(c).lower() for k in q_tokens)]
+                metric_col = matched_any[0] if matched_any else (business_metrics[0] if business_metrics else num_cols[0])
+
             sorted_df = df.sort_values(by=metric_col, ascending=False)
             top_row = sorted_df.iloc[0]
             bot_row = sorted_df.iloc[-1]
-            total_val = float(df[metric_col].sum())
             top_val = float(top_row[metric_col])
             bot_val = float(bot_row[metric_col])
-            share = (top_val / total_val * 100.0) if total_val else 0.0
+            mean_val = float(df[metric_col].mean())
 
             dim_title = dim_col.replace('_', ' ').title()
             metric_title = metric_col.replace('_', ' ').title()
@@ -1296,36 +1460,88 @@ class QueryAgent:
                 else f"**{bot_row[dim_col]}**"
             )
 
-            is_demographic_or_neutral = any(
-                k in (question + " " + dim_col + " " + metric_col).lower()
-                for k in (
-                    "gender", "sex", "age", "race", "ethnicity", "religion",
-                    "student", "enrollment", "faculty", "staff", "patient",
-                    "ratio", "raio", "demographic", "distribution", "split", "mix", "breakdown"
-                )
+            mc_low = str(metric_col).lower()
+            dc_low = str(dim_col).lower()
+            is_non_additive = (
+                any(mc_low.startswith(p) for p in ("avg_", "average_", "mean_", "median_", "pct_", "rate_"))
+                or any(k in mc_low for k in ("_avg", "_mean", "_rate", "_pct", "_percent", "_ratio", "margin", "gpa", "cgpa", "score", "marks"))
+                or mc_low in ("salary", "base_salary", "gpa", "cgpa", "rate", "percentage", "ratio", "score", "marks")
             )
-            top_badge = "📊 **Highest Representation / Volume**" if is_demographic_or_neutral else "🏆 **Top Performer**"
-            bot_badge = "📉 **Lowest Representation**" if is_demographic_or_neutral else "📉 **Lowest Group**"
+            is_time_dim = (
+                second_dim_col is None
+                and any(k in dc_low for k in ("date", "month", "year", "quarter", "week", "day", "time", "semester"))
+            )
 
-            summary_lines = [
-                f"Analyzed **{len(df):,}** groups across `{dim_title}` for `{metric_title}`.",
-                f"- {top_badge}: {top_label} with `{top_val:,.2f}` (**{share:.1f}%** of total `{total_val:,.2f}`).",
-            ]
-            if len(df) > 1 and str(bot_row[dim_col]) != str(top_row[dim_col]):
-                summary_lines.append(
-                    f"- {bot_badge}: {bot_label} at `{bot_val:,.2f}`."
-                )
-
-            if len(df) >= 3:
-                top_2_sum = float(sorted_df.head(2)[metric_col].sum())
-                top_2_share = (top_2_sum / (total_val or 1.0)) * 100.0
-                if top_2_share >= 60.0:
+            # Case 1: Time-Series Trend Narrative (Start -> End Trajectory, Peak/Trough, Period Mean)
+            if is_time_dim and len(df) >= 2:
+                time_df = df.sort_values(by=dim_col, ascending=True)
+                start_row = time_df.iloc[0]
+                end_row = time_df.iloc[-1]
+                start_val = float(start_row[metric_col])
+                end_val = float(end_row[metric_col])
+                delta_val = end_val - start_val
+                pct_change = ((end_val - start_val) / abs(start_val) * 100.0) if start_val else 0.0
+                summary_lines = [
+                    f"Analyzed **{len(df):,}** time periods across `{dim_title}` for `{metric_title}`.",
+                    f"- 📈 **Trend Trajectory**: Moved from `{start_val:,.2f}` (**{start_row[dim_col]}**) to `{end_val:,.2f}` (**{end_row[dim_col]}**) (**{pct_change:+.1f}%** / `{delta_val:+,.2f}`).",
+                    f"- 🏔️ **Peak Period**: {top_label} at `{top_val:,.2f}` | 📉 **Lowest Period**: {bot_label} at `{bot_val:,.2f}`.",
+                ]
+                if is_non_additive:
+                    summary_lines.append(f"- 📊 **Period Benchmark**: Average across periods is `{mean_val:,.2f}`.")
+                else:
+                    total_val = float(df[metric_col].sum())
                     summary_lines.append(
-                        f"- ⚖️ **Concentration Alert**: Top 2 segments represent **{top_2_share:.1f}%** of aggregate volume."
+                        f"- 📊 **Period Benchmark**: Average `{mean_val:,.2f}` per period (Cumulative Total: `{total_val:,.2f}`)."
+                    )
+            # Case 2: Non-Additive Metric across Categorical Groups (Never sum averages/rates or show % of sum!)
+            elif is_non_additive:
+                vs_mean = ((top_val - mean_val) / abs(mean_val) * 100.0) if mean_val else 0.0
+                spread = top_val - bot_val
+                summary_lines = [
+                    f"Analyzed **{len(df):,}** groups across `{dim_title}` for `{metric_title}`.",
+                    f"- ⬆️ **Highest Average / Rate**: {top_label} at `{top_val:,.2f}` (**{vs_mean:+.1f}%** vs. benchmark mean of `{mean_val:,.2f}`).",
+                ]
+                if len(df) > 1 and str(bot_row[dim_col]) != str(top_row[dim_col]):
+                    summary_lines.append(
+                        f"- ⬇️ **Lowest Average / Rate**: {bot_label} at `{bot_val:,.2f}` (Spread: `{spread:,.2f}`)."
+                    )
+            # Case 3: Additive Cross-Sectional Metric (Volume, Revenue, Fees, Headcount)
+            else:
+                total_val = float(df[metric_col].sum())
+                share = (top_val / total_val * 100.0) if total_val else 0.0
+                is_financial_metric = any(
+                    k in mc_low
+                    for k in ("revenue", "rev", "sales", "profit", "fee", "tuition", "salary", "amount", "paid", "cost", "budget")
+                )
+                is_demographic_or_neutral = (not is_financial_metric) and any(
+                    k in (q_low + " " + dc_low + " " + mc_low)
+                    for k in (
+                        "gender", "sex", "age", "race", "ethnicity", "religion",
+                        "student", "enrollment", "faculty", "staff", "patient",
+                        "ratio", "raio", "demographic", "distribution", "split", "mix", "breakdown", "count",
+                    )
+                )
+                top_badge = "📊 **Highest Representation / Volume**" if is_demographic_or_neutral else "🏆 **Top Performer**"
+                bot_badge = "📉 **Lowest Representation**" if is_demographic_or_neutral else "📉 **Lowest Group**"
+
+                summary_lines = [
+                    f"Analyzed **{len(df):,}** groups across `{dim_title}` for `{metric_title}`.",
+                    f"- {top_badge}: {top_label} with `{top_val:,.2f}` (**{share:.1f}%** of total `{total_val:,.2f}`).",
+                ]
+                if len(df) > 1 and str(bot_row[dim_col]) != str(top_row[dim_col]):
+                    summary_lines.append(
+                        f"- {bot_badge}: {bot_label} at `{bot_val:,.2f}`."
                     )
 
+                if len(df) >= 3:
+                    top_2_sum = float(sorted_df.head(2)[metric_col].sum())
+                    top_2_share = (top_2_sum / (total_val or 1.0)) * 100.0
+                    if top_2_share >= 60.0:
+                        summary_lines.append(
+                            f"- ⚖️ **Concentration Alert**: Top 2 segments represent **{top_2_share:.1f}%** of aggregate volume."
+                        )
+
             notice = ""
-            q_low = question.lower()
             if "gender" in q_low and not any("gender" in c.lower() for c in df.columns):
                 notice = "ℹ️ **Domain Notice**: Gender is not recorded in this table. Available classifications and distributions are shown instead.\n\n"
 
@@ -1356,7 +1572,7 @@ class QueryAgent:
             return question, False, None, []
 
         last_resp = last_turn.get("response", {})
-        prior_q = last_resp.get("user_question", "")
+        prior_q = last_resp.get("resolved_question") or last_resp.get("user_question", "")
         prior_tables = last_resp.get("involved_tables", [])
         q_low = question.lower().strip()
 
@@ -1562,7 +1778,12 @@ class QueryAgent:
         # Categorical Breakdown
         if non_num_cols and num_cols:
             dim_col = non_num_cols[0]
-            sorted_df = df.sort_values(by=num_cols[0], ascending=False)
+            business_metrics = [
+                c for c in num_cols
+                if not any(k in str(c).lower() for k in ("row_count", "total_count", "_count", "count"))
+            ]
+            sort_col = business_metrics[0] if business_metrics else num_cols[0]
+            sorted_df = df.sort_values(by=sort_col, ascending=False)
             top_seg = str(sorted_df.iloc[0][dim_col])
 
             if any(k in dim_col.lower() for k in ("category", "product", "sku")):

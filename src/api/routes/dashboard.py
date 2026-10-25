@@ -112,11 +112,11 @@ def simulate_dashboard(
         "base_revenue": 0.0,
         "base_profit": 0.0,
     }
-    target_tbl = ws.get_table("orders") or ws.get_table("fact_orders")
+    target_tbl = ws.get_table("orders") or ws.get_table("fact_orders") or ws.get_table("fee_invoices")
     if not target_tbl:
         for t in ws.active_tables():
             col_names = [c.name.lower() for c in t.columns]
-            if any("rev" in c or "sales" in c or "price" in c or "amount" in c for c in col_names):
+            if any(any(k in c for k in ("rev", "sales", "price", "amount", "fee", "tuition", "salary", "budget")) for c in col_names):
                 target_tbl = t
                 break
 
@@ -129,12 +129,24 @@ def simulate_dashboard(
                 or col_map.get("gross_revenue_usd")
                 or col_map.get("revenue")
                 or col_map.get("sales")
+                or col_map.get("total_fee_due")
+                or col_map.get("amount_paid")
+                or col_map.get("tuition_fee")
+                or col_map.get("salary")
+                or col_map.get("annual_budget")
             )
+            if not rev_col:
+                for cl, cname in col_map.items():
+                    if any(k in cl for k in ("rev", "sales", "fee", "amount", "salary", "budget")) and not cl.endswith("_id"):
+                        rev_col = cname
+                        break
             cogs_col = (
                 col_map.get("cogs_usd")
                 or col_map.get("cogs")
                 or col_map.get("cost")
                 or col_map.get("unit_cost_usd")
+                or col_map.get("scholarship_discount")
+                or col_map.get("balance_due")
             )
             stat_col = col_map.get("ord_stat") or col_map.get("order_status") or col_map.get("status")
             where_clause = ""

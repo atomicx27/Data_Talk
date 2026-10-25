@@ -33,7 +33,7 @@ class RootCauseAgent:
     ) -> dict[str, Any]:
         """Decompose period-over-period variance of `metric_col` across `dimension`."""
         if not workspace.get_table("orders"):
-            return cls._analyze_generic_table(workspace, connector)
+            return cls._analyze_generic_table(workspace, connector, metric_col, dimension)
 
         dim_map = {
             "category": ("products.category", "LEFT JOIN products ON orders.product_id = products.product_id"),
@@ -53,7 +53,7 @@ class RootCauseAgent:
             f"GROUP BY {dim_expr}\n"
             f"ORDER BY (period_current - period_prior) DESC"
         )
-        df = connector.execute_query(sql, max_rows=50)
+        df = connector.execute_query(sql, max_rows=5000)
         if df.empty:
             return {"summary": "Insufficient time-series data for variance analysis.", "df": df}
 
@@ -90,23 +90,55 @@ class RootCauseAgent:
     def _analyze_generic_table(
         workspace: OKFWorkspace,
         connector: "BaseConnector",
+        metric_col: str = "",
+        dimension: str = "",
     ) -> dict[str, Any]:
         active = workspace.active_tables()
         if not active:
             return {"summary": "No active tables.", "df": pd.DataFrame()}
-        tbl = active[0]
-        num_cols = [
-            c.name
-            for c in tbl.columns
-            if not c.is_blocked
-            and any(t in c.data_type.upper() for t in ("INT", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC"))
-        ]
-        cat_cols = [c.name for c in tbl.columns if not c.is_blocked and c.name not in num_cols]
-        if not (num_cols and cat_cols):
-            return {"summary": "Table requires at least 1 categorical and 1 numeric column.", "df": pd.DataFrame()}
+
+        NON_METRIC = {"year", "hire_year", "birth_year", "established_year", "academic_year", "payment_year", "id", "code", "semester", "current_semester"}
+        chosen_tbl = None
+        chosen_num = None
+        chosen_cat = None
+
+        # Prefer a table with business metrics (e.g. fee_invoices, faculty, enrollments_marks)
+        for tbl in active:
+            t_nums = [
+                c.name
+                for c in tbl.columns
+                if not c.is_blocked
+                and not c.is_primary_key
+                and not c.is_foreign_key
+                and any(t in c.data_type.upper() for t in ("INT", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC", "BIGINT"))
+                and not c.name.lower().endswith(("_id", "_year"))
+                and c.name.lower() not in NON_METRIC
+            ]
+            t_cats = [
+                c.name
+                for c in tbl.columns
+                if not c.is_blocked
+                and c.name not in t_nums
+                and not c.is_primary_key
+                and not c.is_foreign_key
+                and not c.name.lower().endswith(("_id", "_year"))
+                and c.name.lower() not in ("first_name", "last_name", "email", "phone", "phone_number")
+            ]
+            if t_nums and t_cats:
+                if metric_col and metric_col in t_nums:
+                    chosen_tbl, chosen_num = tbl, metric_col
+                    chosen_cat = dimension if dimension in t_cats else t_cats[0]
+                    break
+                if chosen_tbl is None:
+                    chosen_tbl, chosen_num, chosen_cat = tbl, t_nums[0], (dimension if dimension in t_cats else t_cats[0])
+
+        if not (chosen_tbl and chosen_num and chosen_cat):
+            return {"summary": "Table requires at least 1 categorical and 1 numeric business metric column.", "df": pd.DataFrame()}
+
+        agg_fn = "AVG" if any(k in chosen_num.lower() for k in ("salary", "gpa", "rate", "pct", "score", "marks")) else "SUM"
         sql = (
-            f'SELECT "{cat_cols[0]}" AS segment, ROUND(SUM("{num_cols[0]}"), 2) AS metric_value '
-            f'FROM "{tbl.name}" GROUP BY "{cat_cols[0]}" ORDER BY metric_value DESC LIMIT 15'
+            f'SELECT "{chosen_cat}" AS segment, ROUND({agg_fn}("{chosen_num}"), 2) AS metric_value '
+            f'FROM "{chosen_tbl.name}" GROUP BY "{chosen_cat}" ORDER BY metric_value DESC'
         )
-        df = connector.execute_query(sql, max_rows=15)
-        return {"summary": f"Segment contribution breakdown of `{num_cols[0]}` by `{cat_cols[0]}`.", "df": df}
+        df = connector.execute_query(sql, max_rows=500)
+        return {"summary": f"Segment contribution breakdown of `{chosen_num}` ({agg_fn}) by `{chosen_cat}`.", "df": df}

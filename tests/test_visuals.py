@@ -263,5 +263,39 @@ def test_two_dimension_drill_down_50_rows_recommends_stacked_bar_not_table():
     assert fig.layout.barmode == "stack"
 
 
+def test_non_additive_avg_salary_across_years_and_colleges_never_stacks():
+    """Verify Power BI / Data Analyst audit fix:
+    When breaking down a non-additive measure like avg_salary across College and Hire Year,
+    ChartRecommender must NOT stack 19 years of ~$80k averages into a $1.5M bar!
+    Instead, it recommends a multi-series 'line' chart with hire_year on the X-axis and college_name as color.
+    """
+    records = []
+    for c in ["College of Business", "College of Engineering", "College of Law"]:
+        for y in [2021, 2022, 2023, 2024]:
+            records.append({
+                "college_name": c,
+                "hire_year": y,
+                "avg_salary": 85000.0 + (y - 2021) * 2000.0,
+                "hire_year_count": 12,
+            })
+    df_sal = pd.DataFrame(records)
+
+    rec = ChartRecommender.recommend_chart_type(df_sal, "Break that down by College")
+    assert rec == "line"
+
+    fig = ChartRecommender.build_figure(df_sal, chart_type=rec, title="Salary Trend by College")
+    assert fig is not None
+    assert len(fig.data) == 3  # 3 college lines
+    # X-axis is hire_year (2021..2024), Y-axis is avg_salary (~85k..91k, NOT $350k+)
+    assert list(fig.data[0].x) == [2021, 2022, 2023, 2024]
+    assert max(fig.data[0].y) < 120000.0
+
+    # Even if user manually selects stacked_bar on a non-additive metric, barmode must be 'group'
+    fig_bar = ChartRecommender.build_figure(df_sal, chart_type="stacked_bar", title="Salary by College")
+    assert fig_bar is not None
+    assert fig_bar.layout.barmode == "group"
+
+
+
 
 

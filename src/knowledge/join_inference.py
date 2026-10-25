@@ -29,7 +29,9 @@ def _singularize(word: str) -> str:
     w = word.lower().strip()
     if w.endswith("ies") and len(w) > 4:
         return w[:-3] + "y"
-    if w.endswith("ses") and len(w) > 4:
+    if w.endswith(("sses", "shes", "ches", "xes", "zes")) and len(w) > 4:
+        return w[:-2]
+    if w in ("campuses", "buses", "bonuses", "statuses", "syllabuses", "viruses"):
         return w[:-2]
     if w.endswith("s") and not w.endswith("ss") and len(w) > 3:
         return w[:-1]
@@ -80,9 +82,15 @@ class JoinInferenceEngine:
         discovered: dict[tuple[str, str, str, str], RelationshipEdge] = {}
 
         # 1. Preserve any explicit FK / Power BI DMV relationships first
+        tbl_by_name = {t.name: t for t in tables}
         for rel in existing_relationships or []:
             key = (rel.source_table, rel.source_column, rel.target_table, rel.target_column)
             discovered[key] = rel
+            src_t = tbl_by_name.get(rel.source_table)
+            if src_t:
+                sc = src_t.get_column(rel.source_column)
+                if sc:
+                    sc.is_foreign_key = True
 
         active_tables = [t for t in tables if not t.is_blocked]
 

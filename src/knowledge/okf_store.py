@@ -20,6 +20,7 @@ import networkx as nx
 import yaml
 
 from src.knowledge.okf_models import (
+    JoinCardinality,
     JoinStatus,
     OKFWorkspace,
     RelationshipEdge,
@@ -170,25 +171,51 @@ class OKFStore:
                 "calendar",
                 "employees",
                 "suppliers",
+                "colleges",
+                "departments",
+                "degree_programs",
+                "programs",
+                "courses",
+                "students",
+                "faculty",
+                "instructors",
+                "teachers",
+                "campuses",
+                "branches",
+                "accounts",
+                "users",
+                "patients",
+                "doctors",
             }:
                 tbl.table_role = TableRole.DIMENSION
-            elif name_low.startswith(("fact_", "f_", "trn_", "txn_")) or name_low in {
-                "orders",
-                "order_items",
-                "sales",
-                "returns",
-                "transactions",
-                "invoices",
-                "shipments",
-                "payments",
-            }:
+            elif name_low.startswith(("fact_", "f_", "trn_", "txn_")) or any(
+                k in name_low
+                for k in (
+                    "orders",
+                    "order_items",
+                    "sales",
+                    "returns",
+                    "transactions",
+                    "invoices",
+                    "fee_invoices",
+                    "shipments",
+                    "payments",
+                    "enrollments",
+                    "marks",
+                    "grades",
+                    "attendance",
+                    "claims",
+                )
+            ):
                 tbl.table_role = TableRole.FACT
-            elif out_degree.get(tbl.name, 0) >= 2 and in_degree.get(tbl.name, 0) == 0:
+            elif out_degree.get(tbl.name, 0) >= 1 and in_degree.get(tbl.name, 0) == 0:
                 tbl.table_role = TableRole.FACT
             elif in_degree.get(tbl.name, 0) >= 1 and out_degree.get(tbl.name, 0) == 0:
                 tbl.table_role = TableRole.DIMENSION
             elif out_degree.get(tbl.name, 0) >= 1 and in_degree.get(tbl.name, 0) >= 1:
-                tbl.table_role = TableRole.FACT
+                # Intermediate tables in a snowflake hierarchy (referenced as 1-side parent by child tables)
+                # are snowflake DIMENSIONS unless explicitly named as transactional facts.
+                tbl.table_role = TableRole.DIMENSION
             else:
                 tbl.table_role = TableRole.DIMENSION
 
@@ -303,7 +330,6 @@ class OKFStore:
                 if not direct_edge:
                     has_fan_trap = True
                 else:
-                    rel_obj: RelationshipEdge = direct_edge["edge_obj"]
                     # If both f1 and f2 are transaction tables joining on a non-unique key, flag CTE split
                     if any(
                         w in f1.lower() or w in f2.lower()

@@ -1107,6 +1107,123 @@ def test_fee_trend_and_drill_down_executive_summary_and_follow_ups():
     assert "LIMIT 3" in sql_top
 
 
+def test_multi_persona_audit_fixes_non_additive_summary_and_sql_compiler():
+    """Verify fixes for the 4-subagent audit (Data Analyst, Business Analyst, Power BI Expert, Code Logic):
+    1. Time-series executive summary reports Trend Trajectory, Peak/Lowest Period, and Period Benchmark (never '% of total' sum of averages).
+    2. Categorical non-additive executive summary reports Highest/Lowest Average vs benchmark mean and Spread (never summing averages or showing Concentration Alert).
+    3. 'Bottom 5' / 'Lowest 3' queries sort ASC instead of DESC.
+    4. 'for each college' does not inject WHERE LOWER(...) LIKE '%each%' and selects colleges.college_name instead of departments.college_id.
+    5. 1D 'Show faculty salary by college' uses AVG, not SUM.
+    6. Single-table 'Show faculty count by academic rank' groups by academic_rank, not first_name.
+    """
+    ws = OKFWorkspace(
+        workspace_id="test_audit_uni",
+        workspace_name="University Audit Workspace",
+        tables=[
+            TableSchema(
+                name="colleges",
+                columns=[
+                    ColumnProfile(name="college_id", data_type="BIGINT", is_primary_key=True),
+                    ColumnProfile(name="college_name", data_type="VARCHAR"),
+                ],
+            ),
+            TableSchema(
+                name="departments",
+                columns=[
+                    ColumnProfile(name="department_id", data_type="BIGINT", is_primary_key=True),
+                    ColumnProfile(name="department_name", data_type="VARCHAR"),
+                    ColumnProfile(name="college_id", data_type="BIGINT"),
+                ],
+            ),
+            TableSchema(
+                name="faculty",
+                columns=[
+                    ColumnProfile(name="faculty_id", data_type="BIGINT", is_primary_key=True),
+                    ColumnProfile(name="first_name", data_type="VARCHAR"),
+                    ColumnProfile(name="academic_rank", data_type="VARCHAR"),
+                    ColumnProfile(name="department_id", data_type="BIGINT"),
+                    ColumnProfile(name="hire_year", data_type="BIGINT"),
+                    ColumnProfile(name="salary", data_type="DOUBLE"),
+                ],
+            ),
+        ],
+    )
+
+    # 1. Time-series executive summary on avg_salary
+    df_ts = pd.DataFrame({
+        "hire_year": [2020, 2021, 2022, 2023],
+        "avg_salary": [80000.0, 85000.0, 90000.0, 100000.0],
+        "row_count": [20, 25, 22, 30],
+    })
+    ts_sum = QueryAgent._build_executive_summary(
+        "show me salary trend of faculty year on year", df_ts, [], [], None, ws
+    )
+    assert "Trend Trajectory" in ts_sum
+    assert "Peak Period" in ts_sum
+    assert "% of total" not in ts_sum
+    assert "Concentration Alert" not in ts_sum
+
+    # 2. Categorical non-additive executive summary on avg_salary
+    df_cat_avg = pd.DataFrame({
+        "college_name": ["College of Law", "College of Business", "College of Arts"],
+        "avg_salary": [110000.0, 95000.0, 80000.0],
+        "total_count": [30, 45, 50],
+    })
+    cat_sum = QueryAgent._build_executive_summary(
+        "Show faculty salary by college", df_cat_avg, [], [], None, ws
+    )
+    assert "Highest Average / Rate" in cat_sum
+    assert "benchmark mean" in cat_sum
+    assert "% of total" not in cat_sum
+    assert "Concentration Alert" not in cat_sum
+
+    # 3, 4, 5. Multi-table 1D compiler checks: AVG(salary), colleges.college_name (not departments.college_id), no LIKE '%each%', and ASC for lowest/bottom
+    plan_fac = JoinPlan(
+        required_tables=["colleges", "departments", "faculty"],
+        bridge_tables=["departments"],
+        join_edges=[
+            RelationshipEdge(id="e1", source_table="faculty", source_column="department_id", target_table="departments", target_column="department_id"),
+            RelationshipEdge(id="e2", source_table="departments", source_column="college_id", target_table="colleges", target_column="college_id"),
+        ],
+        sql_join_clauses=[],
+        has_fan_trap=False,
+        fact_tables_involved=["faculty"],
+        shared_dimensions=["colleges", "departments"],
+        fan_trap_guidance="",
+    )
+    sql_each = QueryAgent._deterministic_sql_compiler(
+        "Show faculty salary for each college", ws, plan_fac, []
+    )
+    assert 'AVG("faculty"."salary")' in sql_each
+    assert '"colleges"."college_name"' in sql_each
+    assert '"departments"."college_id" AS' not in sql_each
+    assert "LIKE '%each%'" not in sql_each
+
+    sql_bottom = QueryAgent._deterministic_sql_compiler(
+        "Show bottom 3 faculty salary by college", ws, plan_fac, []
+    )
+    assert "ORDER BY avg_salary ASC" in sql_bottom
+    assert "LIMIT 3" in sql_bottom
+
+    # 6. Single-table query groups by requested dimension (academic_rank), not first_name
+    plan_single = JoinPlan(
+        required_tables=["faculty"],
+        bridge_tables=[],
+        join_edges=[],
+        sql_join_clauses=[],
+        has_fan_trap=False,
+        fact_tables_involved=["faculty"],
+        shared_dimensions=[],
+        fan_trap_guidance="",
+    )
+    sql_single = QueryAgent._deterministic_sql_compiler(
+        "Show faculty salary by academic_rank", ws, plan_single, []
+    )
+    assert '"academic_rank"' in sql_single
+    assert '"first_name"' not in sql_single
+
+
+
 
 
 

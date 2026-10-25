@@ -55,6 +55,48 @@ class ChartRecommender:
         "table",
     ]
 
+    @staticmethod
+    def _is_temporal_dim(col_name: str) -> bool:
+        c = str(col_name).lower()
+        return any(k in c for k in ("date", "month", "year", "quarter", "week", "day", "time", "semester"))
+
+    @staticmethod
+    def _is_non_additive_metric(col_name: str) -> bool:
+        c = str(col_name).lower()
+        if any(c.startswith(p) for p in ("avg_", "average_", "mean_", "median_", "pct_", "rate_")):
+            return True
+        if any(k in c for k in ("_avg", "_mean", "_rate", "_pct", "_percent", "_ratio", "margin", "gpa", "cgpa", "score", "marks")):
+            return True
+        if c in ("salary", "base_salary", "gpa", "cgpa", "rate", "percentage", "ratio", "score", "marks", "averagegpa"):
+            return True
+        return False
+
+    @classmethod
+    def _select_preferred_metric(cls, num_cols: list[str], question: str = "") -> str:
+        if not num_cols:
+            return ""
+        q_low = (question or "").lower()
+        q_tokens = [w.strip("?,.:;()'\"") for w in q_low.split() if len(w.strip("?,.:;()'\"")) > 2]
+        business_metrics = [
+            c for c in num_cols
+            if not any(k in str(c).lower() for k in ("row_count", "total_count", "_count"))
+        ]
+        matched_business = [
+            c for c in business_metrics
+            if any(k in str(c).lower() for k in q_tokens)
+        ]
+        if matched_business:
+            return matched_business[0]
+        if business_metrics and not any(k in q_low for k in ("count", "headcount", "how many", "number of")):
+            return business_metrics[0]
+        matched_any = [
+            c for c in num_cols
+            if any(k in str(c).lower() for k in q_tokens)
+        ]
+        if matched_any:
+            return matched_any[0]
+        return business_metrics[0] if business_metrics else num_cols[0]
+
     @classmethod
     def recommend_chart_type(cls, df: pd.DataFrame, question: str = "") -> str:
         """Select the best default chart type based on DataFrame shape, column names, and user prompt."""
@@ -62,34 +104,6 @@ class ChartRecommender:
             return "none"
         if len(df) == 1:
             return "kpi"
-
-        q_low = (question or "").lower()
-        if "waterfall" in q_low or "variance" in q_low or "why" in q_low:
-            return "waterfall"
-        if "sunburst" in q_low:
-            return "sunburst"
-        if "treemap" in q_low or "hierarchy" in q_low:
-            return "treemap"
-        if any(k in q_low for k in ("heatmap", "matrix", "cross tab", "crosstab", "intensity")):
-            return "heatmap"
-        if any(k in q_low for k in ("radar", "spider", "polar")):
-            return "radar"
-        if any(k in q_low for k in ("box", "whisker", "distribution", "spread", "dispersion", "outlier")):
-            return "box"
-        if any(k in q_low for k in ("funnel", "pipeline", "conversion", "lifecycle stages")):
-            return "funnel"
-        if any(k in q_low for k in ("100%", "percent stack", "normalized stack", "proportional")):
-            return "stacked_bar_100"
-        if any(k in q_low for k in ("horizontal stack", "stacked horizontal")):
-            return "stacked_horizontal_bar"
-        if any(k in q_low for k in ("stacked bar", "stacked", "stack")):
-            return "stacked_bar"
-        if any(k in q_low for k in ("donut", "ring")):
-            return "donut"
-        if "scatter" in q_low or "correlation" in q_low:
-            return "scatter"
-        if "pie" in q_low or "share" in q_low:
-            return "pie"
 
         num_cols = list(df.select_dtypes(include=["number"]).columns)
         dim_cols = [c for c in df.columns if c not in num_cols]
@@ -104,9 +118,37 @@ class ChartRecommender:
             num_cols = [c for c in num_cols if c not in calendar_id_dims]
             dim_cols = [c for c in dim_cols if c not in calendar_id_dims] + calendar_id_dims
 
+        q_low = (question or "").lower()
+        if "waterfall" in q_low or "variance" in q_low or ("why" in q_low and "variance_delta" in df.columns):
+            return "waterfall"
+        if "sunburst" in q_low:
+            return "sunburst"
+        if "treemap" in q_low or "hierarchy" in q_low:
+            return "treemap"
+        if any(k in q_low for k in ("heatmap", "matrix", "cross tab", "crosstab", "intensity")):
+            return "heatmap"
+        if any(k in q_low for k in ("radar", "spider", "polar")):
+            return "radar"
+        if any(k in q_low for k in ("box", "whisker", "spread", "dispersion", "outlier")):
+            return "box"
+        if any(k in q_low for k in ("funnel", "pipeline", "conversion", "lifecycle stages")):
+            return "funnel"
+        if any(k in q_low for k in ("100%", "percent stack", "normalized stack", "proportional")):
+            return "stacked_bar_100"
+        if any(k in q_low for k in ("horizontal stack", "stacked horizontal")):
+            return "stacked_horizontal_bar"
+        if any(k in q_low for k in ("stacked bar", "stacked", "stack")):
+            return "stacked_bar"
+        if any(k in q_low for k in ("donut", "ring")):
+            return "donut"
+        if "scatter" in q_low or "correlation" in q_low:
+            return "scatter"
+        if "pie" in q_low or ("share" in q_low and len(dim_cols) <= 1 and len(df) <= 12):
+            return "pie"
+
         if len(dim_cols) == 1:
             first_dim = str(dim_cols[0]).lower()
-            if any(k in first_dim for k in ("date", "month", "year", "quarter", "week", "day", "time")):
+            if cls._is_temporal_dim(first_dim):
                 return "area" if "area" in q_low else "line"
 
         # High cardinality guard: categorical charts with > 40 items become illegible walls of bars.
@@ -114,7 +156,7 @@ class ChartRecommender:
         # For 2-dimension breakdowns, cardinality applies to the primary X-axis dimension, not total rows.
         primary_dim = dim_cols[0] if dim_cols else None
         primary_categories = df[primary_dim].nunique() if (primary_dim and primary_dim in df.columns) else len(df)
-        is_primary_time = any(k in str(primary_dim).lower() for k in ("date", "month", "year", "quarter", "week", "day", "time")) if primary_dim else False
+        is_primary_time = cls._is_temporal_dim(primary_dim) if primary_dim else False
 
         if primary_categories > 40 and not is_primary_time:
             return "table"
@@ -134,24 +176,45 @@ class ChartRecommender:
         is_breakdown_intent = any(
             k in q_low
             for k in (
-                "ratio", "raio", "ritio", "rio", "gender", "breakdown", "demographic", "split",
+                "ratio", "raio", "ritio", "gender", "breakdown", "demographic", "split",
                 "proportion", "share", "composition", "distribution", "other", "wise"
             )
         )
 
-        # If 2+ percentage breakdown columns exist (e.g., Male Pct, Female Pct, Other Pct)
-        if len(pct_breakdowns) >= 2:
+        preferred_metric = cls._select_preferred_metric(num_cols, question)
+        is_non_additive = cls._is_non_additive_metric(preferred_metric)
+
+        # If 2+ percentage breakdown columns exist that represent a demographic/composition split (e.g., Male Pct, Female Pct, Other Pct)
+        if len(pct_breakdowns) >= 2 and (
+            is_breakdown_intent
+            or any(any(g in str(c).lower() for g in ("male", "female", "other", "share")) for c in pct_breakdowns)
+        ):
             return "stacked_bar_100" if (is_breakdown_intent or "100" in q_low) else "stacked_bar"
 
-        # If 2+ count/volume breakdown columns exist (e.g., Male Count, Female Count, Other Count)
-        if len(count_breakdowns) >= 2 and (
-            is_breakdown_intent
-            or any(k in q_low for k in ("by", "across", "per", "category", "status", "student", "college", "wise"))
+        # If 2+ count/volume breakdown columns exist in a 1D wide-format table (e.g., Male Count, Female Count, Other Count)
+        if (
+            len(dim_cols) <= 1
+            and len(count_breakdowns) >= 2
+            and not is_non_additive
+            and (
+                is_breakdown_intent
+                or any(k in q_low for k in ("by", "across", "per", "category", "status", "student", "college", "wise"))
+            )
         ):
             return "stacked_bar"
 
-        # If 2 categorical dimensions exist (e.g. COLLEGE NAME and GENDER/YEAR), multi-series stacked chart is ideal
+        # If 2 dimensions exist (e.g. COLLEGE NAME and GENDER/YEAR)
         if len(dim_cols) >= 2:
+            has_time_dim = any(cls._is_temporal_dim(d) for d in dim_cols[:2])
+            # Power BI / Data Analyst Rule: Non-additive metrics (AVG salary, GPA, rates) must NEVER stack!
+            if is_non_additive:
+                if has_time_dim:
+                    return "line"
+                sec_nunique = df[dim_cols[1]].nunique() if dim_cols[1] in df.columns else 1
+                if sec_nunique > 8:
+                    return "heatmap"
+                return "bar"
+
             if is_breakdown_intent or any(k in q_low for k in ("by", "breakdown", "per", "across", "wise", "student", "college", "grade", "trend")):
                 if df[dim_cols[0]].nunique() > 5 or len(df) > 8:
                     return "stacked_horizontal_bar"
@@ -216,15 +279,16 @@ class ChartRecommender:
         if chosen_type in ("bar", "horizontal_bar", "stacked_bar", "stacked_bar_100", "stacked_horizontal_bar", "pie", "donut", "radar", "funnel"):
             primary_dim = dim_cols[0] if dim_cols else None
             primary_categories = df[primary_dim].nunique() if (primary_dim and primary_dim in df.columns) else len(df)
-            is_time = any(k in str(primary_dim).lower() for k in ("date", "month", "year", "quarter", "week", "day", "time")) if primary_dim else False
+            is_time = cls._is_temporal_dim(primary_dim) if primary_dim else False
             if primary_categories > 40 and not is_time:
                 # If raw entity data (e.g. 10,000 raw students), refuse to render an unreadable blob
                 if primary_categories > 100:
                     return None
                 # Otherwise, gracefully truncate to Top 25 primary categories
-                p_sort = num_cols[0] if num_cols else df.columns[0]
+                p_sort = cls._select_preferred_metric(num_cols, title) or (num_cols[0] if num_cols else df.columns[0])
                 if len(dim_cols) >= 2 and primary_dim in df.columns:
-                    top_cats = df.groupby(primary_dim)[p_sort].sum().sort_values(ascending=False).head(25).index
+                    agg_op = "mean" if cls._is_non_additive_metric(p_sort) else "sum"
+                    top_cats = getattr(df.groupby(primary_dim)[p_sort], agg_op)().sort_values(ascending=False).head(25).index
                     df = df[df[primary_dim].isin(top_cats)]
                 else:
                     df = df.sort_values(by=p_sort, ascending=False).head(25)
@@ -243,22 +307,17 @@ class ChartRecommender:
         ]
         count_breakdowns = [c for c in non_total_num if c not in pct_breakdowns]
 
-        # Prioritize business measures (revenue, fee, salary, amount, profit, etc.) over row counts
-        business_metrics = [
-            c for c in num_cols
-            if not any(k in str(c).lower() for k in ("row_count", "total_count", "_count"))
-        ]
-        matched_metrics = [
-            c for c in num_cols
-            if any(k in str(c).lower() for k in title.lower().split() if len(k) > 2)
-        ]
-        preferred_single_metric = matched_metrics[0] if matched_metrics else (business_metrics[0] if business_metrics else num_cols[0])
+        preferred_single_metric = cls._select_preferred_metric(num_cols, title)
+        is_demo_pct_split = len(pct_breakdowns) >= 2 and any(
+            any(g in str(c).lower() for g in ("male", "female", "other", "share"))
+            for c in pct_breakdowns
+        )
 
         if chosen_type in ("stacked_bar_100", "percent_stacked_bar") and len(pct_breakdowns) >= 2:
             breakdown_ys = pct_breakdowns
-        elif len(count_breakdowns) >= 2 and chosen_type in ("stacked_bar", "stacked_horizontal_bar"):
+        elif len(count_breakdowns) >= 2 and chosen_type in ("stacked_bar", "stacked_horizontal_bar") and len(dim_cols) == 1:
             breakdown_ys = count_breakdowns
-        elif len(pct_breakdowns) >= 2:
+        elif is_demo_pct_split:
             breakdown_ys = pct_breakdowns
         else:
             breakdown_ys = [preferred_single_metric]
@@ -268,6 +327,7 @@ class ChartRecommender:
             ys = [preferred_single_metric]
 
         primary_y = ys[0]
+        is_non_additive_primary = cls._is_non_additive_metric(primary_y)
 
         if chosen_type == "combo" and len(num_cols) >= 2:
             pct_cols = [
@@ -315,7 +375,7 @@ class ChartRecommender:
                     y=x,
                     color=color_col,
                     orientation="h",
-                    barmode="stack",
+                    barmode="group",
                     color_discrete_sequence=OKABE_ITO_PALETTE,
                 )
             else:
@@ -331,12 +391,13 @@ class ChartRecommender:
         elif chosen_type == "stacked_bar":
             color_col = dim_cols[1] if len(dim_cols) >= 2 else None
             if color_col:
+                effective_barmode = "group" if is_non_additive_primary else "stack"
                 fig = px.bar(
                     df,
                     x=x,
                     y=primary_y,
                     color=color_col,
-                    barmode="stack",
+                    barmode=effective_barmode,
                     color_discrete_sequence=OKABE_ITO_PALETTE,
                 )
             else:
@@ -370,7 +431,7 @@ class ChartRecommender:
                     x=x,
                     y=primary_y,
                     color=color_col,
-                    barmode="stack",
+                    barmode="group" if is_non_additive_primary else "stack",
                     color_discrete_sequence=OKABE_ITO_PALETTE,
                 )
             else:
@@ -395,7 +456,8 @@ class ChartRecommender:
                     if clean.endswith(" %"):
                         clean = clean[:-2] + " %"
                     trace.name = clean
-            fig.update_layout(barnorm="percent", yaxis=dict(ticksuffix="%"))
+            if not (color_col and is_non_additive_primary):
+                fig.update_layout(barnorm="percent", yaxis=dict(ticksuffix="%"))
 
         elif chosen_type == "stacked_horizontal_bar":
             color_col = dim_cols[1] if len(dim_cols) >= 2 else None
@@ -406,7 +468,7 @@ class ChartRecommender:
                     y=x,
                     color=color_col,
                     orientation="h",
-                    barmode="stack",
+                    barmode="group" if is_non_additive_primary else "stack",
                     color_discrete_sequence=OKABE_ITO_PALETTE,
                 )
             else:
@@ -420,10 +482,18 @@ class ChartRecommender:
                 )
 
         elif chosen_type == "line":
+            line_x = x
             color_col = dim_cols[1] if (len(dim_cols) >= 2 and len(ys) == 1) else None
+            plot_df = df
+            if len(dim_cols) >= 2 and cls._is_temporal_dim(dim_cols[1]) and not cls._is_temporal_dim(dim_cols[0]):
+                line_x = dim_cols[1]
+                color_col = dim_cols[0]
+                plot_df = df.sort_values(by=[line_x, color_col])
+            elif cls._is_temporal_dim(line_x) and line_x in df.columns:
+                plot_df = df.sort_values(by=line_x)
             fig = px.line(
-                df,
-                x=x,
+                plot_df,
+                x=line_x,
                 y=ys if not color_col else ys[0],
                 color=color_col,
                 markers=True,
@@ -431,10 +501,18 @@ class ChartRecommender:
             )
 
         elif chosen_type == "area":
+            area_x = x
+            color_col = dim_cols[1] if (len(dim_cols) >= 2 and len(ys) == 1) else None
+            plot_df = df
+            if len(dim_cols) >= 2 and cls._is_temporal_dim(dim_cols[1]) and not cls._is_temporal_dim(dim_cols[0]):
+                area_x = dim_cols[1]
+                color_col = dim_cols[0]
+                plot_df = df.sort_values(by=[area_x, color_col])
             fig = px.area(
-                df,
-                x=x,
-                y=ys,
+                plot_df,
+                x=area_x,
+                y=ys if not color_col else ys[0],
+                color=color_col,
                 color_discrete_sequence=OKABE_ITO_PALETTE,
             )
 
@@ -480,12 +558,13 @@ class ChartRecommender:
                 hole=0.55,
                 color_discrete_sequence=OKABE_ITO_PALETTE,
             )
-            total_val = df[primary_y].sum()
-            formatted_total = f"{total_val:,.1f}" if isinstance(total_val, float) else f"{total_val:,}"
+            center_val = df[primary_y].mean() if is_non_additive_primary else df[primary_y].sum()
+            center_lbl = "Avg" if is_non_additive_primary else "Total"
+            formatted_total = f"{center_val:,.1f}" if isinstance(center_val, float) else f"{center_val:,}"
             fig.update_layout(
                 annotations=[
                     dict(
-                        text=f"<b>Total</b><br>{formatted_total}",
+                        text=f"<b>{center_lbl}</b><br>{formatted_total}",
                         x=0.5,
                         y=0.5,
                         font=dict(size=13, color="#cbd5e1"),
@@ -510,7 +589,9 @@ class ChartRecommender:
                     columns=dim_cols[1],
                     values=primary_y,
                     aggfunc="mean",
-                ).fillna(0)
+                )
+                if not is_non_additive_primary:
+                    pivot_df = pivot_df.fillna(0)
                 fig = go.Figure(
                     data=go.Heatmap(
                         z=pivot_df.values,

@@ -1286,7 +1286,7 @@ function renderInterviewView() {
     } else {
       rulesContainer.innerHTML = rules
         .map((r) => {
-          const sourceLabel = r.source === 'manual' ? 'Custom' : r.source === 'enriched' ? '✨ Auto-Enriched' : 'Interview';
+          const sourceLabel = r.source === 'manual' ? 'Custom' : (r.source === 'enriched' || r.source === 'auto_enricher') ? '✨ Auto-Enriched' : 'Interview';
           const filterHtml = r.sql_filter_hint ? `<div class="rule-item-sql">SQL: ${escapeHtml(r.sql_filter_hint)}</div>` : '';
           return `
             <div class="rule-item-card">
@@ -1849,7 +1849,7 @@ function renderChatView() {
         `
         : '';
 
-      const tablesUsed = (resp.involved_tables || []).length ? resp.involved_tables : ['orders'];
+      const tablesUsed = (resp.involved_tables || []).length ? resp.involved_tables : [];
 
       return `
         <article class="chat-card" data-entry-idx="${idx}">
@@ -1928,21 +1928,23 @@ function renderChatView() {
               bannerEl.className = 'plotly-click-banner';
               plotEl.insertAdjacentElement('beforebegin', bannerEl);
             }
+            const drillDims = (entry.response && entry.response.drill_down_dimensions) || [];
+            const primaryDrillLabel = drillDims.length ? drillDims[0].label : 'Subcategory';
             bannerEl.style.display = 'flex';
             bannerEl.innerHTML = `
               <span>📌 Selected: <strong>${escapeHtml(clickedVal)}</strong></span>
               <div style="display:flex; gap:6px; align-items:center;">
                 <button type="button" class="btn btn-primary btn-xs btn-click-drill-region" style="border-radius:14px;">
-                  🔍 Drill by Region
+                  🔍 Drill by ${escapeHtml(primaryDrillLabel)}
                 </button>
                 <button type="button" class="btn btn-secondary btn-xs btn-click-trend" style="border-radius:14px;">
-                  📈 Monthly Trend
+                  📈 Trend Over Time
                 </button>
                 <button type="button" class="btn btn-ghost btn-xs" onclick="this.closest('.plotly-click-banner').style.display='none'">✕</button>
               </div>
             `;
             bannerEl.querySelector('.btn-click-drill-region')?.addEventListener('click', () => {
-              const q = `Drill down into ${clickedVal} by region`;
+              const q = `Drill down into ${clickedVal} by ${primaryDrillLabel}`;
               const inputEl = document.getElementById('chatQuestionInput');
               if (inputEl) inputEl.value = q;
               submitChatQuestion(q);
