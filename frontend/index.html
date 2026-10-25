@@ -91,6 +91,9 @@
         <button id="newWorkspaceBtn" class="btn btn-ghost btn-icon-only" title="New workspace" aria-label="New workspace">
           <svg class="icon"><use href="#i-plus"/></svg>
         </button>
+        <button id="deleteWorkspaceBtn" class="btn btn-ghost btn-icon-only" title="Delete project / workspace and all its files" aria-label="Delete workspace" style="color:var(--accent-rose);">
+          <svg class="icon"><use href="#i-trash"/></svg>
+        </button>
       </div>
 
       <nav class="sidebar-nav" aria-label="Main navigation">
@@ -314,6 +317,9 @@
             <div class="header-actions">
               <button id="heroLoadDemoBtn" class="btn btn-secondary">
                 <svg class="icon"><use href="#i-zap"/></svg> Load demo data
+              </button>
+              <button id="btnDeleteCurrentProjectHeader" type="button" class="btn btn-secondary" style="color:var(--accent-rose); border-color:rgba(244,63,94,0.3);" title="Delete current project and all files">
+                <svg class="icon"><use href="#i-trash"/></svg> Delete project
               </button>
               <button class="btn btn-primary" data-goto="joins">
                 Next: Relationships <svg class="icon"><use href="#i-arrow-right"/></svg>
@@ -1023,6 +1029,50 @@ ORDER BY net_revenue DESC;</textarea>
         <textarea id="editColMeaningsInput" class="input-textarea mono" rows="3" placeholder="C: Completed&#10;P: Pending&#10;X: Cancelled&#10;H: On Hold"></textarea>
       </div>
       <button type="submit" class="btn btn-primary btn-block">Save Column Semantics</button>
+    </form>
+  </dialog>
+
+  <!-- ==================== MODAL: DELETE PROJECT ==================== -->
+  <dialog id="deleteProjectDialog" closedby="any" aria-labelledby="deleteProjectTitle" class="modal-dialog">
+    <div class="modal-header">
+      <div>
+        <h2 id="deleteProjectTitle" class="modal-title" style="color:var(--accent-rose);">Delete Project &amp; All Files</h2>
+        <p class="modal-subtitle">Permanently delete this project from disk. This action cannot be undone.</p>
+      </div>
+      <form method="dialog">
+        <button type="submit" class="btn btn-ghost btn-icon-only" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+      </form>
+    </div>
+    <form id="deleteProjectForm" class="modal-body stack">
+      <div style="background:var(--accent-rose-soft); border:1px solid rgba(244,63,94,0.3); border-radius:var(--radius-sm); padding:12px; font-size:12px; color:var(--text-primary);">
+        <strong style="color:var(--accent-rose); display:flex; align-items:center; gap:6px; margin-bottom:6px;">
+          <svg class="icon" style="width:14px;height:14px"><use href="#i-alert"/></svg> Warning: Permanent Deletion
+        </strong>
+        <p style="margin:0 0 6px 0;">This will permanently remove the entire project directory and all associated files:</p>
+        <ul style="margin:0; padding-left:18px; color:var(--text-secondary);">
+          <li>All uploaded Excel, CSV, and Parquet spreadsheets (<code>uploads/</code>)</li>
+          <li>The DuckDB analytical database (<code>warehouse.duckdb</code>)</li>
+          <li>The Hybrid RAG SQLite knowledge memory (<code>rag_memory.sqlite</code>)</li>
+          <li>Semantic models, rules, and KPI metadata (<code>okf.yaml</code>)</li>
+        </ul>
+      </div>
+
+      <div>
+        <label class="field-label" for="deleteProjectSelect">Select Project / Workspace to Delete</label>
+        <select id="deleteProjectSelect" class="input-select"></select>
+      </div>
+
+      <div>
+        <label class="field-label" for="deleteConfirmInput">To confirm, type <strong class="mono" style="color:var(--accent-rose);">DELETE</strong> below:</label>
+        <input id="deleteConfirmInput" type="text" class="input-text mono" placeholder="Type DELETE to confirm" required autocomplete="off" />
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:8px;">
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('deleteProjectDialog')?.close()">Cancel</button>
+        <button type="submit" id="btnConfirmProjectDelete" class="btn btn-danger" disabled>
+          <svg class="icon"><use href="#i-trash"/></svg> Permanently Delete Project
+        </button>
+      </div>
     </form>
   </dialog>
 

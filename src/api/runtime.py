@@ -160,6 +160,52 @@ class AppRuntime:
             names.add(extra)
         return sorted(names)
 
+    def delete_workspace(self, workspace_id: str, session: SessionState | None = None) -> bool:
+        """Safely release connectors and locks, permanently delete workspace files from disk, and reassign sessions."""
+        from src.security.validators import normalize_workspace_id
+        ws_id = normalize_workspace_id(workspace_id)
+        with self._state_lock:
+            # 1. Close and remove any active connector for this workspace
+            conn = self.connectors.pop(ws_id, None)
+            if conn is not None and hasattr(conn, "close"):
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+            # 2. Drop RAG store cache
+            self.rag_stores.pop(ws_id, None)
+
+            # 3. Force garbage collection to release file handles on Windows
+            import gc
+            gc.collect()
+
+            # 4. Remove workspace directory and all files from disk
+            deleted = self.okf_store.delete_workspace(ws_id)
+
+            # 5. Remove any workspace locks
+            self._ws_locks.pop(ws_id, None)
+
+            # 6. Reassign any session currently pointing to the deleted workspace
+            remaining = self.okf_store.list_workspaces()
+            fallback_ws = remaining[0] if remaining else self.default_workspace_id
+
+            for sess in self._sessions.values():
+                if sess.active_workspace_id == ws_id:
+                    sess.active_workspace_id = fallback_ws
+                    sess.chat_history.pop(ws_id, None)
+                    sess.what_if_overrides.pop(ws_id, None)
+
+            if session and session.active_workspace_id == ws_id:
+                session.active_workspace_id = fallback_ws
+                session.chat_history.pop(ws_id, None)
+                session.what_if_overrides.pop(ws_id, None)
+
+            # Ensure the fallback workspace exists in OKF
+            self.get_workspace(fallback_ws)
+
+            return deleted
+
     # ------------------------------------------------------------------ onboarding
     def run_onboarding(self, workspace: OKFWorkspace, connector: BaseConnector, llm_router: LLMRouter) -> None:
         rag_store = self.get_rag_store(workspace.workspace_id)

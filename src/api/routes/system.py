@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 import src
 from src.api.deps import get_runtime, get_session
 from src.api.runtime import AppRuntime, SessionState
-from src.api.schemas import SettingsUpdateRequest
+from src.api.schemas import SettingsUpdateRequest, WorkspaceDeleteRequest
 from src.security.privacy_firewall import PrivacyMode
 from src.security.validators import ValidationError, normalize_workspace_id, validate_http_url
 
@@ -82,4 +82,36 @@ def update_settings(
         else:
             session.llm_router.api_base = None
 
+    return runtime.serialize_state(session)
+
+
+@router.delete("/workspace/{workspace_id}")
+def delete_workspace(
+    workspace_id: str,
+    runtime: Annotated[AppRuntime, Depends(get_runtime)],
+    session: Annotated[SessionState, Depends(get_session)],
+) -> dict[str, Any]:
+    """Permanently delete an entire project/workspace, all database files, spreadsheets, and RAG memory."""
+    try:
+        clean_id = normalize_workspace_id(workspace_id)
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    runtime.delete_workspace(clean_id, session=session)
+    return runtime.serialize_state(session)
+
+
+@router.post("/workspace/delete")
+def delete_workspace_post(
+    req: WorkspaceDeleteRequest,
+    runtime: Annotated[AppRuntime, Depends(get_runtime)],
+    session: Annotated[SessionState, Depends(get_session)],
+) -> dict[str, Any]:
+    """Permanently delete an entire project/workspace via POST payload."""
+    try:
+        clean_id = normalize_workspace_id(req.workspace_id)
+    except ValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    runtime.delete_workspace(clean_id, session=session)
     return runtime.serialize_state(session)

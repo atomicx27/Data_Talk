@@ -42,6 +42,18 @@ class FederatedConnector(BaseConnector):
         self.duckdb_conn = DuckDBConnector(workspace_dir)
         self.sql_connectors: dict[str, SQLConnector] = {}
 
+    def close(self) -> None:
+        """Close wrapped connectors and release database file locks."""
+        if hasattr(self, "duckdb_conn") and self.duckdb_conn is not None:
+            self.duckdb_conn.close()
+        for c in list(self.sql_connectors.values()):
+            if hasattr(c, "close"):
+                try:
+                    c.close()
+                except Exception:
+                    pass
+        self.sql_connectors.clear()
+
     def register_sql_connector(
         self,
         source_id: str,

@@ -48,3 +48,7 @@ class BaseConnector(ABC):
         """Return a fast dictionary of {table_name: [col1, col2, ...]} for pre-OKF blocklist UI."""
         tables, _, _ = self.extract_schema()
         return {t.name: [c.name for c in t.columns] for t in tables}
+
+    def close(self) -> None:
+        """Release any underlying database connections or file handles."""
+        pass

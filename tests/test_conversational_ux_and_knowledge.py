@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from src.agents.knowledge_enricher import BusinessKnowledgeEnricher
 from src.agents.query_agent import QueryAgent
+from src.api.runtime import AppRuntime
 from src.connectors.duckdb_connector import DuckDBConnector
 from src.connectors.profiler import StatisticalProfiler
 from src.knowledge.join_inference import JoinInferenceEngine
@@ -332,3 +333,47 @@ def test_human_business_rule_edit_and_delete(test_client: TestClient):
     assert del_res.status_code == 200
     final_rules = del_res.json()["workspace"]["business_rules"]
     assert not any(r["id"] == rule_id for r in final_rules)
+
+
+def test_delete_entire_project_and_files(test_client: TestClient, test_runtime: AppRuntime):
+    """Business owner can delete an entire project/workspace and all its files from disk."""
+    ws_name = "test_to_be_deleted"
+
+    # 1. Switch to new workspace and load demo data
+    sw_res = test_client.post("/api/settings", json={"workspace_id": ws_name})
+    assert sw_res.status_code == 200
+
+    demo_res = test_client.post("/api/connect/demo")
+    assert demo_res.status_code == 200
+
+    # Verify files exist on disk in the runtime workspace directory
+    ws_path = test_runtime.okf_store.workspace_dir(ws_name)
+    assert ws_path.exists()
+    assert (ws_path / "okf.yaml").exists()
+
+    # 2. Call DELETE /api/workspace/{workspace_id}
+    del_res = test_client.delete(f"/api/workspace/{ws_name}")
+    assert del_res.status_code == 200
+    state = del_res.json()
+
+    # Workspace directory must be completely removed from disk
+    assert not ws_path.exists()
+    assert ws_name not in state["workspaces"]
+    assert state["active_workspace_id"] != ws_name
+
+
+def test_delete_project_post_body_and_traversal_defense(test_client: TestClient, test_runtime: AppRuntime):
+    """Verify POST /api/workspace/delete and traversal rejection."""
+    ws_name = "test_post_delete"
+    test_client.post("/api/settings", json={"workspace_id": ws_name})
+    ws_path = test_runtime.okf_store.workspace_dir(ws_name)
+    assert ws_path.exists()
+
+    # Delete via POST
+    del_res = test_client.post("/api/workspace/delete", json={"workspace_id": ws_name})
+    assert del_res.status_code == 200
+    assert not ws_path.exists()
+
+    # Reject path traversal
+    bad_res = test_client.post("/api/workspace/delete", json={"workspace_id": "../bad"})
+    assert bad_res.status_code == 400

@@ -43,6 +43,14 @@ class SQLConnector(BaseConnector):
         }
         self.dialect = dialect_map.get(raw_dialect, dialect_hint)
 
+    def close(self) -> None:
+        """Dispose SQLAlchemy connection engine."""
+        if hasattr(self, "engine") and self.engine is not None:
+            try:
+                self.engine.dispose()
+            except Exception:
+                pass
+
     def extract_schema(
         self,
         blocked_tables: set[str] | None = None,

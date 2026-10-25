@@ -15,6 +15,10 @@ class SettingsUpdateRequest(BaseModel):
     api_base: str | None = None
 
 
+class WorkspaceDeleteRequest(BaseModel):
+    workspace_id: str
+
+
 class SQLConnectRequest(BaseModel):
     dialect: str = "postgres"
     credential_name: str = Field("prod_sql_db", pattern=r"^[A-Za-z0-9_.-]{1,64}$")

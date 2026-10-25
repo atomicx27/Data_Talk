@@ -74,6 +74,16 @@ class DuckDBConnector(BaseConnector):
             safe_tmp = str(self.temp_dir).replace("\\", "/")
             self._conn.execute(f"SET temp_directory = '{safe_tmp}';")
 
+    def close(self) -> None:
+        """Close the DuckDB connection and release file locks."""
+        with self._lock:
+            if hasattr(self, "_conn") and self._conn is not None:
+                try:
+                    self._conn.close()
+                except Exception:
+                    pass
+                self._conn = None
+
     def ingest_dataframe(self, table_name: str, df: pd.DataFrame) -> str:
         """Register and materialize a DataFrame as a persistent DuckDB table."""
         safe_name = _sanitize_table_name(table_name)

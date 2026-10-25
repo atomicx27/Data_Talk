@@ -1366,6 +1366,24 @@ function openColumnEditModal(tableName, col) {
   document.getElementById('columnEditDialog')?.showModal();
 }
 
+function openDeleteProjectModal(targetWsId) {
+  const select = document.getElementById('deleteProjectSelect');
+  const confirmInput = document.getElementById('deleteConfirmInput');
+  const submitBtn = document.getElementById('btnConfirmProjectDelete');
+  if (select) {
+    const list = APP_STATE?.workspaces || [];
+    select.innerHTML = list
+      .map(
+        (id) =>
+          `<option value="${escapeHtml(id)}" ${(targetWsId || APP_STATE?.active_workspace_id) === id ? 'selected' : ''}>${escapeHtml(id)}</option>`
+      )
+      .join('');
+  }
+  if (confirmInput) confirmInput.value = '';
+  if (submitBtn) submitBtn.disabled = true;
+  document.getElementById('deleteProjectDialog')?.showModal();
+}
+
 async function submitInterviewAnswer(question_id, answer) {
   try {
     APP_STATE = await apiRequest('/api/interview/answer', {
@@ -2768,6 +2786,61 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  // Delete Workspace / Project Listeners
+  document.getElementById('deleteWorkspaceBtn')?.addEventListener('click', () => {
+    openDeleteProjectModal();
+  });
+
+  document.getElementById('btnDeleteCurrentProjectHeader')?.addEventListener('click', () => {
+    openDeleteProjectModal();
+  });
+
+  document.getElementById('deleteProjectSelect')?.addEventListener('change', () => {
+    const confirmInput = document.getElementById('deleteConfirmInput');
+    if (confirmInput) confirmInput.value = '';
+    const submitBtn = document.getElementById('btnConfirmProjectDelete');
+    if (submitBtn) submitBtn.disabled = true;
+  });
+
+  document.getElementById('deleteConfirmInput')?.addEventListener('input', (e) => {
+    const val = (e.target.value || '').trim();
+    const select = document.getElementById('deleteProjectSelect');
+    const selectedWs = select ? select.value : '';
+    const submitBtn = document.getElementById('btnConfirmProjectDelete');
+    if (submitBtn) {
+      const isConfirmed = val.toUpperCase() === 'DELETE' || (selectedWs && val.toLowerCase() === selectedWs.toLowerCase());
+      submitBtn.disabled = !isConfirmed;
+    }
+  });
+
+  document.getElementById('deleteProjectForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const select = document.getElementById('deleteProjectSelect');
+    const wsId = select ? select.value : APP_STATE?.active_workspace_id;
+    if (!wsId) return;
+
+    const submitBtn = document.getElementById('btnConfirmProjectDelete');
+    try {
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = `<svg class="icon spin" style="width:14px;height:14px"><use href="#i-refresh"/></svg> Deleting files...`;
+      }
+      APP_STATE = await apiRequest(`/api/workspace/${encodeURIComponent(wsId)}`, {
+        method: 'DELETE',
+      });
+      document.getElementById('deleteProjectDialog')?.close();
+      renderAllViews();
+      showToast(`🗑️ Permanently deleted project "${wsId}" and all its files from disk.`);
+    } catch (err) {
+      showToast(`Delete failed: ${err.message}`);
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = `<svg class="icon"><use href="#i-trash"/></svg> Permanently Delete Project`;
+      }
+    }
+  });
+
   // Privacy Mode Switcher & Modals
   document.getElementById('privacyModeSelect')?.addEventListener('change', async (e) => {
     APP_STATE = await apiRequest('/api/settings', {
@@ -2989,6 +3062,11 @@ function renderCommandPalette(queryText = '') {
       category: 'Data',
       label: 'Reload 4-table demo warehouse',
       action: () => loadDemoDataset(),
+    },
+    {
+      category: 'Project',
+      label: 'Delete project / workspace and all files',
+      action: () => openDeleteProjectModal(),
     },
   ];
 

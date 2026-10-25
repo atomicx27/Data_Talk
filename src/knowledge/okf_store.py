@@ -116,6 +116,31 @@ class OKFStore:
             ]
         )
 
+    def delete_workspace(self, workspace_id: str) -> bool:
+        """Completely and permanently delete a workspace and all its files from disk."""
+        ws_id = normalize_workspace_id(workspace_id)
+        path = self.base_dir / ws_id
+        ensure_within(self.base_dir, path)
+        with self._lock:
+            if not path.exists():
+                return False
+            import gc
+            import os
+            import shutil
+            import stat
+
+            gc.collect()
+
+            def _onerror(func, p, exc_info):
+                try:
+                    os.chmod(p, stat.S_IWRITE)
+                    func(p)
+                except Exception:
+                    pass
+
+            shutil.rmtree(path, onerror=_onerror)
+            return True
+
     @staticmethod
     def classify_table_roles(workspace: OKFWorkspace) -> None:
         """Automatically classify tables as FACT, DIMENSION, or BRIDGE based on FK topology & names."""
