@@ -1,11 +1,11 @@
-# Data_Talk Enterprise BI (`v2.5.0`)
+# Data_Talk Enterprise BI (`v2.7.0`)
 
-**Governed Conversational Business Intelligence, Semantic Layer Studio, Multi-Database Federation & Bidirectional DAX $\leftrightarrow$ SQL Compiler**
+**Governed Conversational Business Intelligence, Semantic Layer Studio, Multi-Database Federation, Multi-Fact Comparison Engine & Bidirectional DAX $\leftrightarrow$ SQL Compiler**
 
 Data_Talk is a production-ready, zero-login enterprise conversational BI platform that connects to **multiple simultaneous SQL databases** (`PostgreSQL`, `MySQL`, `SQLite`, `DuckDB`, `SQL Server`), **CSV / Excel / Parquet files**, and **Power BI Semantic Models** (`.pbix` schemas, Power BI Desktop Localhost XMLA, and Power BI Cloud XMLA).
 
 Unlike generic "Text-to-SQL" wrappers that hallucinate on massive or cryptic schemas, Data_Talk builds a **Two-Tier Governed Semantic Brain** before answering executive queries:
-1. **Tier 1 — Organizational Knowledge Framework (`okf.yaml` + `NetworkX` Join Graph)**: Deterministic schema metadata, Fact vs. Dimension classification, verified multi-hop and cross-database join paths, and governed DAX/SQL measures.
+1. **Tier 1 — Organizational Knowledge Framework (`okf.yaml` + `NetworkX` Join Graph)**: Deterministic schema metadata, Star Schema Fact vs. Dimension classification, verified multi-hop and cross-database join paths, compound foreign key resolution, and governed DAX/SQL measures.
 2. **Tier 2 — Hybrid Vector + BM25 RAG (`rag_memory.sqlite`)**: Local SQLite-backed BM25 lexical retriever combined with stable BLAKE2b feature hashing and cosine vector similarity, fused using **Reciprocal Rank Fusion (RRF, $k=60$)**.
 
 ---
@@ -36,6 +36,18 @@ Unlike generic "Text-to-SQL" wrappers that hallucinate on massive or cryptic sch
   - **Strict Path Containment**: Path traversal rejection on workspace identifiers and uploaded filenames.
   - **3-Tier Credential Vault**: Master-key resolution order (`DATA_TALK_MASTER_KEY` env var $\rightarrow$ OS Keyring $\rightarrow$ atomic Fernet encrypted file) with decrypt verification.
   - **AST Read-Only Firewall**: AST query parser blocking `DROP`, `DELETE`, `UPDATE`, `INSERT`, `COPY`, `ATTACH`, file reading functions (`read_csv`, `read_parquet`, `glob`), and blocked column leakage.
+- **08. Conversational UX, Multi-Persona Audit & Execution Transparency (`v2.7.0`)**
+  - **Real-Time Ingestion Stepper**: Animated modal progress overlay tracking sheet reading, statistical profiling, relationship inference, and vector embedding persistence.
+  - **Out-of-Domain Guardrail**: Graceful semantic advisory when questions reference missing domain entities, presenting active workspace catalogs without hallucinating arbitrary SQL.
+  - **Interactive Conformed Drill-Downs**: Contextual conformed dimension menus and Plotly click banner integration for instant drilling without client-side memory limits.
+  - **Multi-Persona Audit & BI Rigor**:
+    - *Non-Additive Safeguards*: Non-additive metrics (`avg_salary`, `gpa`, `margin`, `rates`) never stack; multi-series Line Trend charts recommended for temporal breakdowns.
+    - *Trend Trajectory Summaries*: Executive summaries report Start $\rightarrow$ End change %, Peak/Trough periods, and Period Benchmarks instead of summing calendar years.
+    - *Neutral & Cost Framing*: Avoids calling highest expenditures or demographic splits "Top Performer", using `💰 Highest Cost` and `📊 Highest Representation`.
+  - **Multi-Fact Comparison Engine**: Pre-aggregated CTE synthesis for comparing multi-fact expenditures vs. earnings across conformed dimensions (`colleges`, `departments`) without row multiplication or fan traps.
+  - **Execution Mode Transparency**: Transparent live pill badges on every chat card (`✨ LLM (<model>)` vs. `⚙️ Heuristic Engine (<reason>)`) and `<> Explain` modal detailing whether queries were solved by an LLM or the deterministic heuristic compiler.
+  - **Compound FK & Role Healing**: Automatic classification healing for `FACT` vs. `DIMENSION` roles and compound suffix foreign key inference (`program_id` $\rightarrow$ `degree_programs.program_id`, `section_id` $\rightarrow$ `course_sections.section_id`, `term_id` $\rightarrow$ `academic_terms.term_id`).
+  - **Agent Onboarding Skill**: Packaged agent development context and debugging playbook in `.gemini/skills/data-talk-dev/SKILL.md` and `.agents/skills/data-talk-dev/SKILL.md`.
 
 ---
 
@@ -134,11 +146,11 @@ All security settings can be customized via `.env` or container environment vari
 
 ## 🧪 Automated Testing & CI
 
-Run the complete 46-test automated test suite:
+Run the complete 82-test automated test suite:
 
 ```bash
 # Run all tests
-python -m pytest -v
+python -m pytest tests/ -q
 
 # Run with coverage report
 python -m pytest --cov=src --cov-report=term-missing
