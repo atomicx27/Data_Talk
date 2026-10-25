@@ -13,6 +13,7 @@ Orchestrates the end-to-end "Talk to Data" flow:
 
 from __future__ import annotations
 
+import difflib
 import logging
 import re
 from typing import TYPE_CHECKING, Any
@@ -86,22 +87,23 @@ class QueryAgent:
 
         # 0. Check if the user is asking an exploratory overview question about the entire dataset
         if cls._is_dataset_overview_question(resolved_q):
-            empty_plan = JoinPlan(
-                required_tables=[],
-                bridge_tables=[],
-                join_edges=[],
-                sql_join_clauses=[],
-                has_fan_trap=False,
-                fact_tables_involved=[],
-                shared_dimensions=[],
-                fan_trap_guidance="",
-            )
             resp_ov, df_ov = cls._generate_dataset_overview(resolved_q, workspace, llm_router)
             resp_ov.resolved_question = resolved_q
             resp_ov.is_follow_up = is_follow_up
             resp_ov.follow_up_context = follow_up_ctx
-            resp_ov.suggested_follow_ups = cls._generate_suggested_follow_ups(df_ov, resolved_q, workspace, empty_plan)
-            resp_ov.drill_down_dimensions = cls._generate_drill_down_options(df_ov, workspace)
+            if not resp_ov.suggested_follow_ups:
+                empty_plan = JoinPlan(
+                    required_tables=[],
+                    bridge_tables=[],
+                    join_edges=[],
+                    sql_join_clauses=[],
+                    has_fan_trap=False,
+                    fact_tables_involved=[],
+                    shared_dimensions=[],
+                    fan_trap_guidance="",
+                )
+                resp_ov.suggested_follow_ups = cls._generate_suggested_follow_ups(df_ov, resolved_q, workspace, empty_plan)
+            resp_ov.drill_down_dimensions = []
             return resp_ov, df_ov
 
         # 1. Retrieve Hybrid RAG Context (Glossary, Business Rules, Few-Shot DAX/SQL)
@@ -283,13 +285,31 @@ class QueryAgent:
     # Helper Methods: Retrieval, Compilation & Self-Healing Repair
     # ------------------------------------------------------------------
     @staticmethod
+    def _fuzzy_matches_word(q_words: list[str], candidate: str, threshold: float = 0.80) -> bool:
+        """Return True if any token in q_words matches candidate exactly or with fuzzy similarity >= threshold."""
+        cand = candidate.lower().strip()
+        if not cand:
+            return False
+        if cand in q_words:
+            return True
+        if len(cand) < 5:
+            return False
+        for qw in q_words:
+            if len(qw) >= 5 and abs(len(qw) - len(cand)) <= 2:
+                if difflib.SequenceMatcher(None, qw, cand).ratio() >= threshold:
+                    return True
+        return False
+
+    @classmethod
     def _detect_relevant_tables(
+        cls,
         question: str,
         workspace: OKFWorkspace,
         rag_bundle: dict[str, list[dict[str, Any]]],
     ) -> list[str]:
         q_low = question.lower()
         q_norm = re.sub(r"[_\s]+", " ", q_low)
+        q_words = [w for w in re.findall(r"[a-z0-9]+", q_low) if len(w) >= 2]
         found: list[str] = []
 
         GENERIC_COL_NAMES = {
@@ -307,6 +327,8 @@ class QueryAgent:
                 or re.search(rf"\b{re.escape(singular)}\b", q_low)
                 or re.search(rf"\b{re.escape(t_norm)}\b", q_norm)
                 or re.search(rf"\b{re.escape(singular_norm)}\b", q_norm)
+                or cls._fuzzy_matches_word(q_words, t_low)
+                or cls._fuzzy_matches_word(q_words, singular)
             ):
                 found.append(tbl.name)
                 continue
@@ -325,7 +347,7 @@ class QueryAgent:
                     found.append(tbl.name)
                     break
 
-        # Domain keyword mapping for common dimensions/facts (with word boundary protection)
+        # Domain keyword mapping for common dimensions/facts (with word boundary + fuzzy typo protection)
         keyword_table_hints = {
             "customers": ("customer", "customers", "client", "clients", "tier", "region", "company", "ent", "smb"),
             "products": ("product", "products", "sku", "category", "categories", "hardware", "cloud", "suite"),
@@ -336,14 +358,28 @@ class QueryAgent:
             "colleges": ("college", "colleges", "campus", "dean"),
             "courses": ("course", "courses", "credit", "credits", "syllabus"),
             "degree_programs": ("program", "degree", "major"),
-            "departments": ("department", "departments", "dept", "budget"),
+            "departments": ("department", "departments", "dept", "budget", "cost", "expense", "spend", "allocated"),
             "fee_invoices": ("fee", "fees", "invoice", "invoices", "tuition", "paid", "balance", "due", "payment"),
-            "faculty": ("faculty", "professor", "professors", "teacher", "instructor", "salary", "rank"),
+            "faculty": ("faculty", "professor", "professors", "teacher", "instructor", "salary", "rank", "payroll"),
         }
         for t_name, kw_tuple in keyword_table_hints.items():
-            if workspace.get_table(t_name) and any(re.search(rf"\b{re.escape(k)}\b", q_low) for k in kw_tuple):
+            if workspace.get_table(t_name) and any(
+                re.search(rf"\b{re.escape(k)}\b", q_low) or cls._fuzzy_matches_word(q_words, k)
+                for k in kw_tuple
+            ):
                 if t_name not in found:
                     found.append(t_name)
+
+        # If user asks for department cost/budget/spend over time (year-on-year / trend) and departments has no date/year column,
+        # automatically include faculty (which joins to departments and tracks annual salary / hire_date cost)
+        if (
+            "departments" in found
+            and workspace.get_table("faculty")
+            and "faculty" not in found
+            and any(w in q_low for w in ("year", "trend", "annual", "yearly", "over time", "yoy"))
+            and any(w in q_low for w in ("cost", "expense", "spend", "salary", "payroll", "budget"))
+        ):
+            found.append("faculty")
 
         if not found:
             for item in rag_bundle.get("schema_glossary", [])[:2]:
@@ -777,12 +813,20 @@ class QueryAgent:
                 "year", "hire_year", "birth_year", "established_year", "academic_year", "fiscal_year",
                 "date", "month", "day", "rank", "zip", "zip_code", "postal_code", "phone", "phone_number",
                 "id", "code", "term_id", "college_id", "department_id", "student_id", "faculty_id", "course_id",
-                "current_semester", "semester",
+                "current_semester", "current_semester_num", "semester", "semester_num",
+                "section_number", "credit_hours", "course_level", "is_active",
             }
+            has_time_intent = any(w in q_low for w in ("year", "trend", "annual", "yearly", "over time", "yoy", "monthly"))
             for t_name in join_plan.required_tables:
                 t_obj = workspace.get_table(t_name)
                 if not t_obj:
                     continue
+                tbl_has_date = any(
+                    any(k in col.name.lower() for k in ("date", "year", "time"))
+                    and not any(b in col.name.lower() for b in ("birth", "dob", "established"))
+                    for col in t_obj.columns
+                    if not col.is_blocked
+                )
                 for c in t_obj.columns:
                     if c.is_blocked or c.is_primary_key or c.is_foreign_key:
                         continue
@@ -792,14 +836,18 @@ class QueryAgent:
                     if c_low in NON_METRIC_COLS or c_low.endswith("_id") or c_low.endswith("_year"):
                         continue
                     score = 0
-                    if any(w in q_low for w in ("salary", "salaries", "compensation", "pay", "wage", "wages")) and any(k in c_low for k in ("salary", "pay", "comp", "wage")):
+                    if any(w in q_low for w in ("salary", "salaries", "compensation", "pay", "wage", "wages", "payroll")) and any(k in c_low for k in ("salary", "pay", "comp", "wage")):
                         score = 100
                     elif any(w in q_low for w in ("revenue", "sales", "turnover")) and any(k in c_low for k in ("revenue", "rev", "sales", "amount")):
                         score = 100
                     elif any(w in q_low for w in ("profit", "margin", "earnings")) and any(k in c_low for k in ("profit", "margin")):
                         score = 100
-                    elif any(w in q_low for w in ("cost", "expense", "spend", "budget")) and any(k in c_low for k in ("cost", "expense", "spend", "budget")):
-                        score = 100
+                    elif any(w in q_low for w in ("cost", "expense", "spend", "budget")) and any(k in c_low for k in ("cost", "expense", "spend", "budget", "salary")):
+                        # Prefer time-stamped operational cost (e.g. faculty.salary with hire_date) over static master budget when querying year-on-year
+                        if "salary" in c_low:
+                            score = 105 if (has_time_intent and tbl_has_date) else 92
+                        else:
+                            score = 95 if (has_time_intent and not tbl_has_date) else 100
                     elif any(w in q_low for w in ("fee", "fees", "tuition", "invoice", "balance")) and any(k in c_low for k in ("fee", "tuition", "amount", "balance", "paid")):
                         score = 100
                     elif any(w in q_low for w in ("mark", "marks", "grade", "grades", "score", "scores", "gpa")) and any(k in c_low for k in ("mark", "score", "grade", "gpa")):
@@ -830,10 +878,20 @@ class QueryAgent:
             ).lower()
 
             if target_dim_name:
-                # Prioritize tables whose name matches target_dim_name so 'college' checks 'colleges' before 'departments'
+                # Prioritize tables whose name matches target_dim_name (including fuzzy typo match like 'deparement' -> 'departments')
+                def _matches_target_dim(tn: str) -> bool:
+                    tl = tn.lower()
+                    ts = tl[:-1] if tl.endswith("s") else tl
+                    return (
+                        target_dim_name in tl
+                        or target_dim_name.rstrip("s") in tl
+                        or cls._fuzzy_matches_word([target_dim_name], tl)
+                        or cls._fuzzy_matches_word([target_dim_name], ts)
+                    )
+
                 ordered_dim_tables = sorted(
                     join_plan.required_tables,
-                    key=lambda tn: 0 if (target_dim_name in tn.lower() or target_dim_name.rstrip("s") in tn.lower()) else 1,
+                    key=lambda tn: 0 if _matches_target_dim(tn) else 1,
                 )
                 for t_name in ordered_dim_tables:
                     t_obj = workspace.get_table(t_name)
@@ -850,8 +908,12 @@ class QueryAgent:
                             continue
                         if c_low in ("first_name", "last_name", "phone", "phone_number", "email"):
                             continue
-                        if target_dim_name == c_low or target_dim_name in c_low or (
-                            target_dim_name.rstrip("s") in t_name.lower() and c_low.endswith("name")
+                        c_stem = c_low.replace("_name", "").replace("_code", "")
+                        if (
+                            target_dim_name == c_low
+                            or target_dim_name in c_low
+                            or cls._fuzzy_matches_word([target_dim_name], c_stem)
+                            or (_matches_target_dim(t_name) and c_low.endswith("name"))
                         ):
                             dim_tbl = t_name
                             dim_col = c.name
@@ -949,13 +1011,14 @@ class QueryAgent:
                             continue
 
                         score = 0
+                        is_birth_col = any(b in c_low for b in ("birth", "dob")) and not any(b in q_low for b in ("birth", "dob", "age"))
                         # 1. Direct whole-word mention in user question (highest precedence)
-                        if any(k in q_low for k in ("trend", "year", "annual", "yearly", "over time")) and any(k in c_low for k in ("hire_year", "payment_year", "hire_date", "order_date", "date")):
+                        if not is_birth_col and any(k in q_low for k in ("trend", "year", "annual", "yearly", "over time", "yoy")) and any(k in c_low for k in ("hire_year", "payment_year", "hire_date", "order_date", "date")):
                             score = 105 if (metric_tbl and t_name == metric_tbl) else 95
                         elif re.search(rf"\b{re.escape(c_low)}\b", q_low):
                             score = 100
                         # 2. Specific demographic/concept mappings explicitly requested in the question
-                        elif any(k in q_low for k in ("trend", "year", "annual", "yearly", "over time")) and "year" in c_low:
+                        elif not is_birth_col and any(k in q_low for k in ("trend", "year", "annual", "yearly", "over time", "yoy")) and "year" in c_low:
                             score = 90 if (metric_tbl and t_name == metric_tbl) else 75
                         elif any(k in q_low for k in ("gender", "sex", "male", "female", "demographic")) and c_low == "gender":
                             score = 100
@@ -1176,7 +1239,8 @@ class QueryAgent:
         NON_METRIC_SINGLE = {
             "year", "hire_year", "birth_year", "established_year", "academic_year", "fiscal_year", "payment_year",
             "date", "month", "day", "rank", "zip", "zip_code", "postal_code", "phone", "phone_number",
-            "id", "code", "current_semester", "semester",
+            "id", "code", "current_semester", "current_semester_num", "semester", "semester_num",
+            "section_number", "credit_hours", "course_level", "is_active",
         }
         cols = [c.name for c in target_tbl.columns if not c.is_blocked]
         num_cols = [
@@ -1189,7 +1253,7 @@ class QueryAgent:
             and not c.name.lower().endswith(("_id", "_year"))
             and c.name.lower() not in NON_METRIC_SINGLE
         ]
-        # Prioritize metric column that matches question (e.g. salary, gpa, fee)
+        # Prioritize metric column that matches question (e.g. salary, gpa, fee, budget/cost)
         matched_num_col = None
         for nc in num_cols:
             nc_low = nc.lower()
@@ -1197,6 +1261,9 @@ class QueryAgent:
                 matched_num_col = nc
                 break
             if any(w in q_low for w in ("salary", "salaries", "compensation", "pay")) and "salary" in nc_low:
+                matched_num_col = nc
+                break
+            if any(w in q_low for w in ("cost", "expense", "spend", "budget")) and any(k in nc_low for k in ("budget", "cost", "expense", "spend", "salary")):
                 matched_num_col = nc
                 break
         active_num_col = matched_num_col or (num_cols[0] if num_cols else None)
@@ -1209,7 +1276,7 @@ class QueryAgent:
             and not c.is_primary_key
             and not c.is_foreign_key
             and not c.name.lower().endswith("_id")
-            and c.name.lower() not in ("first_name", "last_name", "email", "phone", "phone_number", "roll_number")
+            and c.name.lower() not in ("first_name", "last_name", "email", "phone", "phone_number", "roll_number", "date_of_birth")
         ]
         if not cat_cols:
             cat_cols = [
@@ -1218,23 +1285,47 @@ class QueryAgent:
                 if not c.is_blocked and c.name not in num_cols and not c.is_primary_key
             ]
 
-        # Match the user's requested dimension column on single-table queries (e.g., academic_rank, gender, status)
+        # Match the user's requested dimension column on single-table queries (e.g., academic_rank, gender, status, department_name)
         matched_cat_col = None
-        by_single = re.search(r"\b(?:by|per|across|for\s+each|broken\s+down\s+by|break\s+(?:that\s+|it\s+)?down\s+by)\s+([a-z0-9_]+)", q_low)
+        by_single = re.search(r"\b(?:by|per|across|for\s+each|each|broken\s+down\s+by|break\s+(?:that\s+|it\s+)?down\s+by)\s+([a-z0-9_]+)", q_low)
         target_single_dim = by_single.group(1).lower() if by_single else ""
         for cc in cat_cols:
             cc_low = cc.lower()
-            if (target_single_dim and (target_single_dim == cc_low or target_single_dim in cc_low)) or re.search(rf"\b{re.escape(cc_low)}\b", q_low):
+            cc_stem = cc_low.replace("_name", "").replace("_code", "")
+            if (
+                target_single_dim
+                and (
+                    target_single_dim == cc_low
+                    or target_single_dim in cc_low
+                    or cls._fuzzy_matches_word([target_single_dim], cc_stem)
+                )
+            ) or re.search(rf"\b{re.escape(cc_low)}\b", q_low):
                 matched_cat_col = cc
                 break
             if any(w in cc_low for w in q_low.split() if len(w) > 3 and w not in ("show", "total", "average", "count", "trend")):
                 matched_cat_col = cc
                 break
+        if not matched_cat_col:
+            # Prefer *_name column if available
+            matched_cat_col = next((c for c in cat_cols if c.lower().endswith("_name") or c.lower() == "name"), None)
         active_cat_col = matched_cat_col or (cat_cols[0] if cat_cols else None)
         sort_dir = cls._infer_sort_direction(q_low)
 
-        # Check if question is a trend / time-series query
-        date_col = next((c.name for c in target_tbl.columns if not c.is_blocked and any(k in c.name.lower() for k in ("date", "time", "year")) and not c.name.lower().endswith("_id")), None)
+        # Check if question is a trend / time-series query (excluding date_of_birth / birth_date unless birth/age asked)
+        date_col = next(
+            (
+                c.name
+                for c in target_tbl.columns
+                if not c.is_blocked
+                and any(k in c.name.lower() for k in ("date", "time", "year"))
+                and not c.name.lower().endswith("_id")
+                and (
+                    not any(b in c.name.lower() for b in ("birth", "dob"))
+                    or any(b in q_low for b in ("birth", "dob", "age"))
+                )
+            ),
+            None,
+        )
         if date_col and any(w in q_low for w in ("trend", "year", "monthly", "over time", "timeline")):
             agg_fn = cls._infer_agg_function(q_low, active_num_col)
             dim_expr = f'STRFTIME(TRY_CAST("{target_tbl.name}"."{date_col}" AS DATE), \'%Y\')' if "date" in date_col.lower() else f'"{target_tbl.name}"."{date_col}"'
@@ -1906,15 +1997,43 @@ class QueryAgent:
     ) -> tuple[QueryResponse, pd.DataFrame]:
         """Generate a structured, in-words semantic explanation of the workspace dataset."""
         active_tables = workspace.active_tables()
-        # Filter out accidental spreadsheet cover sheets (e.g. tables where >= 60% of columns are Unnamed_*)
+        # Filter out accidental spreadsheet cover sheets (e.g. tables where >= 50% of columns are Unnamed_*)
         analytical_tables = [
             t for t in active_tables
-            if sum(1 for c in t.columns if c.name.lower().startswith("unnamed_")) < max(1, len(t.columns) * 0.6)
+            if sum(1 for c in t.columns if c.name.lower().startswith("unnamed_")) < max(1, len(t.columns) * 0.5)
         ]
-        display_tables = analytical_tables if analytical_tables else active_tables
+        # If there is a coherent multi-table domain graph (>= 4 connected tables), exclude disconnected unrelated tables
+        connected_names = {
+            r.source_table for r in (workspace.relationships or []) if r.status != "rejected"
+        } | {
+            r.target_table for r in (workspace.relationships or []) if r.status != "rejected"
+        }
+        connected_analytical = [t for t in analytical_tables if t.name in connected_names]
+        if len(connected_analytical) >= 4:
+            display_tables = connected_analytical
+        else:
+            display_tables = analytical_tables if analytical_tables else active_tables
 
         total_rows = sum(t.row_count or 0 for t in display_tables)
         total_cols = sum(len(t.columns) for t in display_tables)
+
+        all_table_names = [t.name.lower() for t in display_tables]
+        suggested_clean: list[str] = []
+        if any("college" in n for n in all_table_names):
+            suggested_clean = [
+                "Show average marks for each college",
+                "Show count of students by degree program",
+                "Show total fee due by college",
+                "Show faculty salary trend year on year",
+            ]
+        elif any("order" in n for n in all_table_names):
+            suggested_clean = [
+                "Show net revenue, profit, and gross margin % by product category",
+                "Monthly net revenue trend over time",
+                "Compare net revenue and returns by customer tier",
+            ]
+        else:
+            suggested_clean = ["Show summary statistics and top records"]
 
         # 1. If LLM is configured, ask LLM for an executive natural-language briefing
         if llm_router is not None and llm_router.is_configured():
@@ -1968,6 +2087,7 @@ class QueryAgent:
                             involved_tables=[t.name for t in display_tables[:6]],
                             executive_summary=res.strip(),
                             recommended_chart_type="table",
+                            suggested_follow_ups=suggested_clean[:4],
                         ),
                         df_overview,
                     )
@@ -1978,7 +2098,6 @@ class QueryAgent:
         facts = [t for t in display_tables if t.table_role == TableRole.FACT]
         dims = [t for t in display_tables if t.table_role != TableRole.FACT]
 
-        all_table_names = [t.name.lower() for t in display_tables]
         domain_name = "Enterprise Operations & Analytics"
         domain_desc = "Tracks organizational master records, operational transactions, and business metrics."
         if any("student" in n or "college" in n or "enroll" in n for n in all_table_names):
@@ -1997,37 +2116,24 @@ class QueryAgent:
 
         dim_lines = [
             f"- **`{t.name}`** ({t.row_count:,} records): Master entity catalog with {len(t.columns)} attributes"
-            for t in dims[:6]
+            for t in dims[:8]
         ]
         fact_lines = [
-            f"- **`{t.name}`** ({t.row_count:,} records): Operational facts measuring {', '.join(c.name for c in t.columns if not c.is_blocked and not c.is_primary_key)[:55]}..."
+            f"- **`{t.name}`** ({t.row_count:,} records): Operational facts measuring {', '.join(c.name for c in t.columns if not c.is_blocked and not c.is_primary_key)[:65]}..."
             for t in facts[:6]
         ]
 
         rel_samples = [
             f"`{r.source_table}` → `{r.target_table}`"
-            for r in (workspace.relationships or [])[:5]
+            for r in (workspace.relationships or [])[:6]
             if r.status != "rejected"
         ]
         rel_text = ", ".join(rel_samples) if rel_samples else "Self-contained analytical entities"
 
-        suggested = []
-        if any("college" in n for n in all_table_names):
-            suggested.append('"Show me bar graph of total marks for each college."')
-            suggested.append('"Show count of students by degree program."')
-            suggested.append('"Total tuition fee due, amount paid, and outstanding balance by term."')
-            suggested.append('"Average attendance rate and final exam score by department."')
-        elif any("order" in n for n in all_table_names):
-            suggested.append('"Show net revenue, profit, and gross margin % by product category."')
-            suggested.append('"Monthly net revenue trend over time."')
-            suggested.append('"Compare net revenue and returns by customer tier."')
-        else:
-            suggested.append('"Show summary statistics and top records."')
-
         overview_md = (
             f"### 🌐 Domain Overview: **{domain_name}**\n\n"
             f"{domain_desc}\n\n"
-            f"The database consists of **{len(active_tables)} interconnected tables** comprising **{total_rows:,} total records** and **{total_cols} attributes**.\n\n"
+            f"The database consists of **{len(display_tables)} interconnected tables** comprising **{total_rows:,} total records** and **{total_cols} attributes**.\n\n"
             f"#### 🏛️ Master Entities & Dimensions:\n"
             + ("\n".join(dim_lines) if dim_lines else "- Master entity records across operational areas.")
             + "\n\n"
@@ -2037,7 +2143,7 @@ class QueryAgent:
             f"#### 🔗 Connected Relationship Paths:\n"
             f"Entities are linked across the join graph: {rel_text}.\n\n"
             f"#### 💡 Example Business Questions to Ask:\n"
-            + "\n".join(f"- {s}" for s in suggested[:4])
+            + "\n".join(f'- "{s}"' for s in suggested_clean[:4])
         )
 
         df_overview = pd.DataFrame([
@@ -2048,7 +2154,7 @@ class QueryAgent:
                 "column_count": len(t.columns),
                 "key_columns": ", ".join(c.name for c in t.columns[:4] if not c.is_blocked),
             }
-            for t in active_tables
+            for t in display_tables
         ])
 
         return (
@@ -2057,9 +2163,10 @@ class QueryAgent:
                 success=True,
                 executed_query="/* Semantic Schema Catalog */ SHOW TABLES;",
                 compiled_dax_equivalent="// Overview of Semantic Model",
-                involved_tables=[t.name for t in active_tables[:6]],
+                involved_tables=[t.name for t in display_tables[:6]],
                 executive_summary=overview_md,
                 recommended_chart_type="table",
+                suggested_follow_ups=suggested_clean[:4],
             ),
             df_overview,
         )

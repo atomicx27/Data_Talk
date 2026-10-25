@@ -60,7 +60,13 @@ def _is_candidate_key_column(col: ColumnProfile, table: TableSchema) -> bool:
         return True
     name_low = col.name.lower()
     stem = _normalize_table_stem(table.name)
-    if name_low in ("id", "code", "key", f"{stem}_id", f"{stem}_key", f"{stem}_code", f"{stem}id"):
+    last_part = _singularize(stem.split("_")[-1]) if "_" in stem else stem
+    candidate_names = {
+        "id", "code", "key",
+        f"{stem}_id", f"{stem}_key", f"{stem}_code", f"{stem}id",
+        f"{last_part}_id", f"{last_part}_key", f"{last_part}_code", f"{last_part}id",
+    }
+    if name_low in candidate_names:
         if table.row_count > 0 and col.distinct_count >= int(table.row_count * 0.90):
             return True
         if table.row_count == 0:
@@ -97,6 +103,7 @@ class JoinInferenceEngine:
         # 2. Lexical + Type + Uniqueness discovery across ordered pairs (Fact/Source -> Dim/Target)
         for src_tbl, tgt_tbl in permutations(active_tables, 2):
             tgt_stem = _normalize_table_stem(tgt_tbl.name)
+            tgt_last = _singularize(tgt_stem.split("_")[-1]) if "_" in tgt_stem else tgt_stem
             for tgt_col in tgt_tbl.columns:
                 if tgt_col.is_blocked or not _is_candidate_key_column(tgt_col, tgt_tbl):
                     continue
@@ -110,10 +117,14 @@ class JoinInferenceEngine:
                     # Avoid matching two generic 'id' columns unless table names align
                     lexical_score = 0.0
                     if src_col_low == tgt_col_low and src_col_low not in ("id", "key", "code", "name", "status", "type"):
-                        # e.g., orders.customer_id == customers.customer_id
-                        if tgt_stem in src_col_low or src_col_low.endswith(("_id", "_key", "_code", "id")):
-                            lexical_score = 0.88
-                    elif tgt_col_low in ("id", "key", "code", f"{tgt_stem}_id", f"{tgt_stem}_key", f"{tgt_stem}_code"):
+                        # e.g., orders.customer_id == customers.customer_id or students.program_id == degree_programs.program_id
+                        if tgt_stem in src_col_low or tgt_last in src_col_low or src_col_low.endswith(("_id", "_key", "_code", "id")):
+                            lexical_score = 0.92 if (tgt_stem in src_col_low or tgt_last in src_col_low) else 0.88
+                    elif tgt_col_low in (
+                        "id", "key", "code",
+                        f"{tgt_stem}_id", f"{tgt_stem}_key", f"{tgt_stem}_code",
+                        f"{tgt_last}_id", f"{tgt_last}_key", f"{tgt_last}_code",
+                    ):
                         # e.g., orders.customer_id -> customers.id or orders.cust_id -> customers.cust_id
                         expected_names = {
                             f"{tgt_stem}_id",
@@ -121,6 +132,9 @@ class JoinInferenceEngine:
                             f"{tgt_stem}_key",
                             f"{tgt_stem}_code",
                             f"{tgt_stem[:4]}_id",
+                            f"{tgt_last}_id",
+                            f"{tgt_last}_key",
+                            f"{tgt_last}_code",
                         }
                         if src_col_low in expected_names:
                             lexical_score = 0.86

@@ -539,7 +539,7 @@ tables:
     business_alias: ''
     description: ''
     is_primary_key: false
-    is_foreign_key: false
+    is_foreign_key: true
     is_nullable: true
     is_pii: false
     is_blocked: false
@@ -653,7 +653,7 @@ tables:
 - name: courses
   business_name: ''
   description: ''
-  table_role: FACT
+  table_role: DIMENSION
   row_count: 192
   is_blocked: false
   columns:
@@ -881,7 +881,7 @@ tables:
 - name: departments
   business_name: ''
   description: ''
-  table_role: FACT
+  table_role: DIMENSION
   row_count: 32
   is_blocked: false
   columns:
@@ -1014,7 +1014,7 @@ tables:
 - name: enrollments_marks
   business_name: ''
   description: ''
-  table_role: DIMENSION
+  table_role: FACT
   row_count: 344054
   is_blocked: false
   columns:
@@ -1053,7 +1053,7 @@ tables:
     business_alias: ''
     description: ''
     is_primary_key: false
-    is_foreign_key: false
+    is_foreign_key: true
     is_nullable: true
     is_pii: false
     is_blocked: false
@@ -1241,7 +1241,7 @@ tables:
 - name: faculty
   business_name: ''
   description: ''
-  table_role: FACT
+  table_role: DIMENSION
   row_count: 421
   is_blocked: false
   columns:
@@ -1426,7 +1426,7 @@ tables:
 - name: fee_invoices
   business_name: ''
   description: ''
-  table_role: DIMENSION
+  table_role: FACT
   row_count: 105260
   is_blocked: false
   columns:
@@ -1465,7 +1465,7 @@ tables:
     business_alias: ''
     description: ''
     is_primary_key: false
-    is_foreign_key: false
+    is_foreign_key: true
     is_nullable: true
     is_pii: false
     is_blocked: false
@@ -1826,7 +1826,7 @@ tables:
 - name: students
   business_name: ''
   description: ''
-  table_role: FACT
+  table_role: DIMENSION
   row_count: 12800
   is_blocked: false
   columns:
@@ -1984,7 +1984,7 @@ tables:
     business_alias: ''
     description: ''
     is_primary_key: false
-    is_foreign_key: false
+    is_foreign_key: true
     is_nullable: true
     is_pii: false
     is_blocked: false
@@ -2250,6 +2250,62 @@ relationships:
   is_cross_source: false
   source_source_id: default
   target_source_id: default
+- id: rel_course_sections_term_id_to_academic_terms_term_id
+  source_table: course_sections
+  source_column: term_id
+  target_table: academic_terms
+  target_column: term_id
+  cardinality: N:1
+  join_type: LEFT
+  confidence: 0.92
+  discovery_method: lexical_schema
+  status: approved
+  overlap_ratio: 0.0
+  is_cross_source: false
+  source_source_id: uploaded_files
+  target_source_id: uploaded_files
+- id: rel_enrollments_marks_section_id_to_course_sections_section_id
+  source_table: enrollments_marks
+  source_column: section_id
+  target_table: course_sections
+  target_column: section_id
+  cardinality: N:1
+  join_type: LEFT
+  confidence: 0.92
+  discovery_method: lexical_schema
+  status: approved
+  overlap_ratio: 0.0
+  is_cross_source: false
+  source_source_id: uploaded_files
+  target_source_id: uploaded_files
+- id: rel_fee_invoices_term_id_to_academic_terms_term_id
+  source_table: fee_invoices
+  source_column: term_id
+  target_table: academic_terms
+  target_column: term_id
+  cardinality: N:1
+  join_type: LEFT
+  confidence: 0.92
+  discovery_method: lexical_schema
+  status: approved
+  overlap_ratio: 0.0
+  is_cross_source: false
+  source_source_id: uploaded_files
+  target_source_id: uploaded_files
+- id: rel_students_program_id_to_degree_programs_program_id
+  source_table: students
+  source_column: program_id
+  target_table: degree_programs
+  target_column: program_id
+  cardinality: N:1
+  join_type: LEFT
+  confidence: 0.92
+  discovery_method: lexical_schema
+  status: approved
+  overlap_ratio: 0.0
+  is_cross_source: false
+  source_source_id: uploaded_files
+  target_source_id: uploaded_files
 calculated_columns: []
 measures:
 - id: meas_recognized_net_revenue
@@ -2464,4 +2520,6 @@ interview_questions:
   source_id: uploaded_files
 what_if_parameters: []
 pinned_widgets: []
-updated_at: '2026-10-21T17:42:56.071490+00:00'
+domain_tag: ''
+domain_title: ''
+updated_at: '2026-10-25T18:26:08.294254+00:00'

@@ -97,14 +97,21 @@ class OKFStore:
             return target
 
     def load(self, workspace_id: str) -> OKFWorkspace | None:
-        """Load OKFWorkspace from disk if it exists."""
+        """Load OKFWorkspace from disk if it exists, healing table roles and FK relationships."""
         with self._lock:
             target = self.okf_path(workspace_id)
             if not target.exists():
                 return None
             with open(target, "r", encoding="utf-8") as f:
                 raw = yaml.safe_load(f) or {}
-            return OKFWorkspace.model_validate(raw)
+            ws = OKFWorkspace.model_validate(raw)
+            from src.knowledge.join_inference import JoinInferenceEngine
+
+            ws.relationships = JoinInferenceEngine.infer_relationships(
+                ws.tables, existing_relationships=ws.relationships
+            )
+            self.classify_table_roles(ws)
+            return ws
 
     def list_workspaces(self) -> list[str]:
         if not self.base_dir.exists():
@@ -158,8 +165,6 @@ class OKFStore:
                 in_degree[rel.target_table] += 1
 
         for tbl in workspace.tables:
-            if tbl.table_role != TableRole.UNKNOWN:
-                continue
             name_low = tbl.name.lower()
             if name_low.startswith(("dim_", "d_", "lkp_", "ref_")) or name_low in {
                 "customers",
@@ -176,6 +181,8 @@ class OKFStore:
                 "degree_programs",
                 "programs",
                 "courses",
+                "academic_terms",
+                "terms",
                 "students",
                 "faculty",
                 "instructors",
@@ -201,6 +208,7 @@ class OKFStore:
                     "shipments",
                     "payments",
                     "enrollments",
+                    "course_sections",
                     "marks",
                     "grades",
                     "attendance",
@@ -208,13 +216,13 @@ class OKFStore:
                 )
             ):
                 tbl.table_role = TableRole.FACT
+            elif tbl.table_role != TableRole.UNKNOWN:
+                continue
             elif out_degree.get(tbl.name, 0) >= 1 and in_degree.get(tbl.name, 0) == 0:
                 tbl.table_role = TableRole.FACT
             elif in_degree.get(tbl.name, 0) >= 1 and out_degree.get(tbl.name, 0) == 0:
                 tbl.table_role = TableRole.DIMENSION
             elif out_degree.get(tbl.name, 0) >= 1 and in_degree.get(tbl.name, 0) >= 1:
-                # Intermediate tables in a snowflake hierarchy (referenced as 1-side parent by child tables)
-                # are snowflake DIMENSIONS unless explicitly named as transactional facts.
                 tbl.table_role = TableRole.DIMENSION
             else:
                 tbl.table_role = TableRole.DIMENSION

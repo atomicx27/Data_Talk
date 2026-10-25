@@ -1223,6 +1223,129 @@ def test_multi_persona_audit_fixes_non_additive_summary_and_sql_compiler():
     assert '"first_name"' not in sql_single
 
 
+def test_overview_table_roles_compound_fks_and_fuzzy_typo_compiler():
+    """Verify table role healing, compound FK inference, dataset overview follow-ups, and fuzzy typo handling ('deparement')."""
+    from src.knowledge.okf_models import OKFWorkspace, TableRole
+    from src.knowledge.okf_store import OKFStore
+    from src.knowledge.join_inference import JoinInferenceEngine
+
+    ws = OKFWorkspace(
+        workspace_id="test_uni_typo",
+        workspace_name="University Test",
+        tables=[
+            TableSchema(
+                name="colleges",
+                row_count=8,
+                table_role=TableRole.FACT,  # Stale misclassified role on disk
+                columns=[
+                    ColumnProfile(name="college_id", data_type="VARCHAR", is_primary_key=True, distinct_count=8),
+                    ColumnProfile(name="college_name", data_type="VARCHAR", distinct_count=8),
+                ],
+            ),
+            TableSchema(
+                name="departments",
+                row_count=32,
+                table_role=TableRole.FACT,  # Stale misclassified role on disk
+                columns=[
+                    ColumnProfile(name="department_id", data_type="VARCHAR", is_primary_key=True, distinct_count=32),
+                    ColumnProfile(name="college_id", data_type="VARCHAR", is_foreign_key=True, distinct_count=8),
+                    ColumnProfile(name="department_name", data_type="VARCHAR", distinct_count=32),
+                    ColumnProfile(name="budget_allocated", data_type="BIGINT", distinct_count=32),
+                ],
+            ),
+            TableSchema(
+                name="degree_programs",
+                row_count=64,
+                table_role=TableRole.UNKNOWN,
+                columns=[
+                    ColumnProfile(name="program_id", data_type="VARCHAR", distinct_count=64),
+                    ColumnProfile(name="department_id", data_type="VARCHAR", distinct_count=32),
+                    ColumnProfile(name="program_name", data_type="VARCHAR", distinct_count=64),
+                ],
+            ),
+            TableSchema(
+                name="faculty",
+                row_count=421,
+                table_role=TableRole.FACT,  # Stale misclassified role on disk
+                columns=[
+                    ColumnProfile(name="faculty_id", data_type="VARCHAR", is_primary_key=True, distinct_count=421),
+                    ColumnProfile(name="department_id", data_type="VARCHAR", is_foreign_key=True, distinct_count=32),
+                    ColumnProfile(name="hire_date", data_type="VARCHAR", distinct_count=350),
+                    ColumnProfile(name="salary", data_type="BIGINT", distinct_count=400),
+                ],
+            ),
+            TableSchema(
+                name="students",
+                row_count=12800,
+                table_role=TableRole.FACT,  # Stale misclassified role on disk
+                columns=[
+                    ColumnProfile(name="student_id", data_type="VARCHAR", is_primary_key=True, distinct_count=12800),
+                    ColumnProfile(name="college_id", data_type="VARCHAR", distinct_count=8),
+                    ColumnProfile(name="program_id", data_type="VARCHAR", distinct_count=64),
+                    ColumnProfile(name="date_of_birth", data_type="VARCHAR", distinct_count=3000),
+                    ColumnProfile(name="current_semester_num", data_type="BIGINT", distinct_count=8),
+                ],
+            ),
+            TableSchema(
+                name="enrollments_marks",
+                row_count=344054,
+                table_role=TableRole.DIMENSION,  # Stale misclassified role on disk
+                columns=[
+                    ColumnProfile(name="enrollment_id", data_type="VARCHAR", is_primary_key=True, distinct_count=344054),
+                    ColumnProfile(name="student_id", data_type="VARCHAR", distinct_count=12800),
+                    ColumnProfile(name="total_marks", data_type="DOUBLE", distinct_count=100),
+                ],
+            ),
+            TableSchema(
+                name="fee_invoices",
+                row_count=105260,
+                table_role=TableRole.DIMENSION,  # Stale misclassified role on disk
+                columns=[
+                    ColumnProfile(name="invoice_id", data_type="VARCHAR", is_primary_key=True, distinct_count=105260),
+                    ColumnProfile(name="student_id", data_type="VARCHAR", distinct_count=12800),
+                    ColumnProfile(name="net_amount_due", data_type="BIGINT", distinct_count=500),
+                ],
+            ),
+        ],
+    )
+
+    # 1. Verify compound FK inference (students.program_id -> degree_programs.program_id) and role classification
+    ws.relationships = JoinInferenceEngine.infer_relationships(ws.tables, connector=None)
+    OKFStore.classify_table_roles(ws)
+
+    assert any(
+        r.source_table == "students" and r.target_table == "degree_programs" and r.source_column == "program_id"
+        for r in ws.relationships
+    )
+    assert ws.get_table("enrollments_marks").table_role == TableRole.FACT
+    assert ws.get_table("fee_invoices").table_role == TableRole.FACT
+    assert ws.get_table("colleges").table_role == TableRole.DIMENSION
+    assert ws.get_table("departments").table_role == TableRole.DIMENSION
+    assert ws.get_table("students").table_role == TableRole.DIMENSION
+    assert ws.get_table("faculty").table_role == TableRole.DIMENSION
+
+    # 2. Verify "what is the data about" overview does not suggest "Drill down into enrollments_marks"
+    resp_ov, df_ov = QueryAgent._generate_dataset_overview("what is the data about", ws, None)
+    assert "enrollments_marks" in resp_ov.executive_summary.split("Core Operational Facts & Metrics")[1]
+    assert not any("Drill down into enrollments_marks" in s for s in resp_ov.suggested_follow_ups)
+
+    # 3. Verify typo tolerance: "show me total cost of each deparement year on year"
+    detected = QueryAgent._detect_relevant_tables("show me total cost of each deparement year on year", ws, {})
+    assert "departments" in detected
+    assert "faculty" in detected
+    assert "students" not in detected
+
+    jp = OKFStore().get_join_plan(ws, detected)
+    sql = QueryAgent._deterministic_sql_compiler(
+        "show me total cost of each deparement year on year", ws, jp, []
+    )
+    assert '"departments"."department_name"' in sql
+    assert 'SUM("faculty"."salary")' in sql
+    assert "year_of_birth" not in sql
+    assert "current_semester_num" not in sql
+
+
+
 
 
 

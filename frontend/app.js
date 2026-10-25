@@ -59,7 +59,37 @@ function getWorkspaceStarterPrompts() {
   const tables = (ws.tables || []).filter((t) => !t.is_blocked);
   const tableNames = tables.map((t) => (t.name || '').toLowerCase());
 
-  // Adapt for education/students dataset
+  // Adapt for multi-table university / higher-education dataset (colleges, departments, enrollments_marks, fee_invoices, faculty)
+  if (tableNames.some((n) => n.includes('college') || n.includes('department') || n.includes('faculty'))) {
+    return [
+      {
+        prompt: 'Show student count by College and Gender',
+        title: 'Students by College & Gender',
+        sub: 'Demographic enrollment breakdown across colleges',
+        icon: 'i-bar',
+      },
+      {
+        prompt: 'Show average marks for each College',
+        title: 'Average marks by College',
+        sub: 'Academic assessment score benchmark across colleges',
+        icon: 'i-trend-up',
+      },
+      {
+        prompt: 'Show total fee due by College',
+        title: 'Tuition fees by College',
+        sub: 'Aggregate tuition billing and net fee due per college',
+        icon: 'i-pie',
+      },
+      {
+        prompt: 'Show faculty salary trend year on year',
+        title: 'Faculty salary trend YoY',
+        sub: 'Annual faculty compensation trajectory over time',
+        icon: 'i-schema',
+      },
+    ];
+  }
+
+  // Adapt for single-table education/students dataset
   if (tableNames.some((n) => n.includes('student') || n.includes('academic'))) {
     return [
       {
