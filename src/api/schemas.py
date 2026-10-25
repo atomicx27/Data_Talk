@@ -38,8 +38,29 @@ class PowerBIConnectRequest(BaseModel):
 class ColumnConfigUpdateRequest(BaseModel):
     table_name: str
     column_name: str
+    business_alias: str | None = None
     is_blocked: bool | None = None
     description: str | None = None
+    value_meanings: dict[str, str] | None = None
+
+
+class TableConfigUpdateRequest(BaseModel):
+    table_name: str
+    business_name: str | None = None
+    description: str | None = None
+    table_role: str | None = None
+
+
+class DomainOverrideRequest(BaseModel):
+    domain_title: str
+    domain_tag: str | None = None
+    industry: str | None = None
+
+
+class BusinessRuleUpdateRequest(BaseModel):
+    term: str
+    definition: str
+    sql_filter_hint: str = ""
 
 
 class JoinUpdateItem(BaseModel):

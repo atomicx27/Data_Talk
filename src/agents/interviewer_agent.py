@@ -355,15 +355,17 @@ class InterviewerAgent:
                     if c.sample_values and not c.is_pii
                     else "[]"
                 )
+                alias_str = f" [Alias: {c.business_alias}]" if c.business_alias else ""
                 meanings_str = (
                     f" | Codes: {c.value_meanings}" if c.value_meanings else ""
                 )
                 desc_str = f" ({c.description})" if c.description else ""
                 col_summaries.append(
-                    f"- {c.name} [{c.data_type}]{desc_str}: samples={samples_str}{meanings_str}"
+                    f"- {c.name} [{c.data_type}]{alias_str}{desc_str}: samples={samples_str}{meanings_str}"
                 )
+            bname_str = f" (Business: {tbl.business_name})" if tbl.business_name else ""
             doc_text = (
-                f"Table `{tbl.name}` (Role: {tbl.table_role.value}, Rows: {tbl.row_count:,})\n"
+                f"Table `{tbl.name}`{bname_str} (Role: {tbl.table_role.value}, Rows: {tbl.row_count:,})\n"
                 f"Description: {tbl.description or 'Core data table'}\n"
                 f"Columns:\n" + "\n".join(col_summaries)
             )
@@ -371,7 +373,7 @@ class InterviewerAgent:
                 collection="schema_glossary",
                 doc_id=f"table_{tbl.name}",
                 content=doc_text,
-                metadata={"table_name": tbl.name, "role": tbl.table_role.value},
+                metadata={"table_name": tbl.name, "role": tbl.table_role.value, "business_name": tbl.business_name},
             )
 
     @staticmethod

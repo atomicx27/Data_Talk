@@ -65,6 +65,7 @@
     <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
     <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2M9 2v2M15 20v2M9 20v2M2 15h2M2 9h2M20 15h2M20 9h2"/></symbol>
     <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></symbol>
   </svg>
 
   <div class="app-shell">
@@ -535,8 +536,8 @@
           <div class="page-header">
             <div>
               <span class="eyebrow">Step 3 of 4</span>
-              <h2 class="page-title">Business rules</h2>
-              <p class="page-sub">Answer a few questions so the AI understands your status codes, KPIs and naming conventions.</p>
+              <h2 class="page-title">Business rules &amp; Domain Knowledge</h2>
+              <p class="page-sub">Enrich and refine the AI's understanding of your industry, business rules, cryptic codes, and table semantics.</p>
             </div>
             <div class="header-actions">
               <button id="btnAutoEnrichKnowledge" type="button" class="btn btn-secondary">
@@ -548,12 +549,24 @@
             </div>
           </div>
 
+          <!-- DOMAIN OVERVIEW BANNER -->
+          <div id="domainOverviewBanner" class="domain-banner"></div>
+
           <div id="interviewProgressBanner" class="progress-banner"></div>
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
             <span class="field-label" style="margin:0;font-size:12px;color:var(--text-secondary);">Filter by database:</span>
             <div id="interviewFilterChips" class="chip-group"></div>
           </div>
           <div id="interviewQuestionsContainer" class="interview-cards-grid"></div>
+
+          <!-- ACTIVE BUSINESS RULES & GOVERNANCE -->
+          <div class="subsection-header" style="margin-top:24px; display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <h3 class="subsection-title">Active business rules &amp; governance</h3>
+              <p class="card-subtitle">Rules, status code exclusions, and KPI definitions currently indexed in RAG memory.</p>
+            </div>
+          </div>
+          <div id="activeBusinessRulesContainer" class="rules-card-grid"></div>
 
           <details class="clean-disclosure">
             <summary><svg class="icon"><use href="#i-plus"/></svg> Add a custom glossary rule</summary>
@@ -575,6 +588,15 @@
               </div>
             </form>
           </details>
+
+          <!-- SEMANTIC DOMAIN GLOSSARY (TABLES & COLUMNS) -->
+          <div class="subsection-header" style="margin-top:28px; display:flex; justify-content:space-between; align-items:center;">
+            <div>
+              <h3 class="subsection-title">Semantic domain glossary (Tables &amp; Columns)</h3>
+              <p class="card-subtitle">Human expert business aliases, operational table descriptions, and code decoders. Editable anytime.</p>
+            </div>
+          </div>
+          <div id="semanticGlossaryContainer" class="semantic-glossary-stack"></div>
         </section>
 
         <!-- ==================== VIEW: MEASURES ==================== -->
@@ -869,8 +891,139 @@ ORDER BY net_revenue DESC;</textarea>
           <button type="submit" class="btn btn-primary"><svg class="icon"><use href="#i-play"/></svg> Run query</button>
         </div>
       </form>
-      <div id="scratchpadResultBox" class="scratchpad-result"></div>
+  </dialog>
+
+  <!-- ==================== MODAL: DOMAIN EDIT ==================== -->
+  <dialog id="domainEditDialog" closedby="any" aria-labelledby="domainEditTitle" class="modal-dialog">
+    <div class="modal-header">
+      <div>
+        <h2 id="domainEditTitle" class="modal-title">Business Domain Customization</h2>
+        <p class="modal-subtitle">Define your industry context so the AI uses your organization's business nomenclature.</p>
+      </div>
+      <form method="dialog">
+        <button type="submit" class="btn btn-ghost btn-icon-only" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+      </form>
     </div>
+    <form id="domainEditForm" class="modal-body stack">
+      <div>
+        <label class="field-label" for="domainTitleInput">Domain Title</label>
+        <input id="domainTitleInput" type="text" class="input-text" placeholder="e.g. Retail & E-Commerce, B2B SaaS, Higher Education" required />
+      </div>
+      <div>
+        <label class="field-label" for="domainIndustryInput">Industry / Sector</label>
+        <input id="domainIndustryInput" type="text" class="input-text" placeholder="e.g. Commercial Sales & Retail Operations" />
+      </div>
+      <div>
+        <label class="field-label" for="domainTagInput">Domain Tag / Key <span class="optional">optional</span></label>
+        <input id="domainTagInput" type="text" class="input-text mono" placeholder="e.g. ecommerce, saas, healthcare" />
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">Update Business Domain</button>
+    </form>
+  </dialog>
+
+  <!-- ==================== MODAL: RULE EDIT ==================== -->
+  <dialog id="ruleEditDialog" closedby="any" aria-labelledby="ruleEditTitle" class="modal-dialog">
+    <div class="modal-header">
+      <div>
+        <h2 id="ruleEditTitle" class="modal-title">Edit Business Rule</h2>
+        <p class="modal-subtitle">Refine business definitions, abbreviations, or SQL filter conditions.</p>
+      </div>
+      <form method="dialog">
+        <button type="submit" class="btn btn-ghost btn-icon-only" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+      </form>
+    </div>
+    <form id="ruleEditForm" class="modal-body stack">
+      <input type="hidden" id="editRuleIdInput" />
+      <div>
+        <label class="field-label" for="editRuleTermInput">Term or Acronym</label>
+        <input id="editRuleTermInput" type="text" class="input-text" required />
+      </div>
+      <div>
+        <label class="field-label" for="editRuleDefInput">Definition &amp; Business Meaning</label>
+        <textarea id="editRuleDefInput" class="input-textarea" rows="3" required></textarea>
+      </div>
+      <div>
+        <label class="field-label" for="editRuleSqlHintInput">SQL Filter Hint <span class="optional">optional</span></label>
+        <input id="editRuleSqlHintInput" type="text" class="input-text mono" placeholder="e.g. orders.ord_stat <> 'X'" />
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">Save Rule Changes</button>
+    </form>
+  </dialog>
+
+  <!-- ==================== MODAL: TABLE EDIT ==================== -->
+  <dialog id="tableEditDialog" closedby="any" aria-labelledby="tableEditTitle" class="modal-dialog">
+    <div class="modal-header">
+      <div>
+        <h2 id="tableEditTitle" class="modal-title">Edit Table Business Semantics</h2>
+        <p class="modal-subtitle">Give tables business-friendly titles, operational summaries, and functional roles.</p>
+      </div>
+      <form method="dialog">
+        <button type="submit" class="btn btn-ghost btn-icon-only" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+      </form>
+    </div>
+    <form id="tableEditForm" class="modal-body stack">
+      <div>
+        <label class="field-label" for="editTableNameInput">Physical Table Name</label>
+        <input id="editTableNameInput" type="text" class="input-text mono" readonly />
+      </div>
+      <div>
+        <label class="field-label" for="editTableBusinessNameInput">Business Name</label>
+        <input id="editTableBusinessNameInput" type="text" class="input-text" placeholder="e.g. Customer Orders & Invoices" />
+      </div>
+      <div>
+        <label class="field-label" for="editTableRoleSelect">Table Role</label>
+        <select id="editTableRoleSelect" class="input-select">
+          <option value="fact">Fact (Transactions & Events)</option>
+          <option value="dimension">Dimension (Lookup Entities)</option>
+          <option value="bridge">Bridge (Many-to-Many)</option>
+          <option value="aggregate">Aggregate / Rollup</option>
+          <option value="unknown">Unknown</option>
+        </select>
+      </div>
+      <div>
+        <label class="field-label" for="editTableDescriptionInput">Operational Description</label>
+        <textarea id="editTableDescriptionInput" class="input-textarea" rows="3" placeholder="Explain what business event or master entity this table represents..."></textarea>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">Save Table Semantics</button>
+    </form>
+  </dialog>
+
+  <!-- ==================== MODAL: COLUMN EDIT ==================== -->
+  <dialog id="columnEditDialog" closedby="any" aria-labelledby="columnEditTitle" class="modal-dialog">
+    <div class="modal-header">
+      <div>
+        <h2 id="columnEditTitle" class="modal-title">Edit Column Business Semantics</h2>
+        <p class="modal-subtitle">Map cryptic column names to executive aliases and document status code decoders.</p>
+      </div>
+      <form method="dialog">
+        <button type="submit" class="btn btn-ghost btn-icon-only" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+      </form>
+    </div>
+    <form id="columnEditForm" class="modal-body stack">
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+        <div>
+          <label class="field-label" for="editColTableInput">Table</label>
+          <input id="editColTableInput" type="text" class="input-text mono" readonly />
+        </div>
+        <div>
+          <label class="field-label" for="editColNameInput">Physical Column</label>
+          <input id="editColNameInput" type="text" class="input-text mono" readonly />
+        </div>
+      </div>
+      <div>
+        <label class="field-label" for="editColAliasInput">Business Friendly Alias</label>
+        <input id="editColAliasInput" type="text" class="input-text" placeholder="e.g. Net Revenue (USD), Order Status" />
+      </div>
+      <div>
+        <label class="field-label" for="editColDescInput">Business Description</label>
+        <textarea id="editColDescInput" class="input-textarea" rows="2" placeholder="Explain the business meaning or calculation grain..."></textarea>
+      </div>
+      <div>
+        <label class="field-label" for="editColMeaningsInput">Status Code Decoders (one per line, e.g. C: Completed)</label>
+        <textarea id="editColMeaningsInput" class="input-textarea mono" rows="3" placeholder="C: Completed&#10;P: Pending&#10;X: Cancelled&#10;H: On Hold"></textarea>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">Save Column Semantics</button>
+    </form>
   </dialog>
 
   <script src="/static/app.js?v=2.0.3" defer></script>

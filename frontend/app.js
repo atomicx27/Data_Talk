@@ -628,7 +628,10 @@ function renderConnectView() {
                   ${c.is_blocked ? 'checked' : ''}
                 />
               </td>
-              <td class="mono" style="color:var(--text-primary); font-weight:600;">${escapeHtml(c.name)}</td>
+              <td class="mono" style="color:var(--text-primary); font-weight:600;">
+                ${escapeHtml(c.name)}
+                ${c.business_alias ? `<div style="font-size:11px; color:var(--accent-primary); font-weight:600;">[${escapeHtml(c.business_alias)}]</div>` : ''}
+              </td>
               <td class="mono muted">${escapeHtml(c.data_type)}</td>
               <td>${keyBadge}</td>
               <td>${piiBadge}</td>
@@ -653,6 +656,7 @@ function renderConnectView() {
             <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
               <span class="role-badge role-${escapeHtml(tbl.table_role)}">${escapeHtml(tbl.table_role)}</span>
               <strong class="mono" style="font-size:13.5px; color:var(--text-primary);">${escapeHtml(tbl.name)}</strong>
+              ${tbl.business_name ? `<span style="color:var(--accent-indigo); font-weight:600; font-size:13px;">— ${escapeHtml(tbl.business_name)}</span>` : ''}
               ${
                 tbl.source_name || tbl.source_id
                   ? `<span class="source-badge" title="Source: ${escapeHtml(tbl.source_name || tbl.source_id)}"><svg class="icon" style="width:10px;height:10px;vertical-align:-1px;margin-right:2px;"><use href="#i-database"/></svg>${escapeHtml(tbl.source_name || tbl.source_id)}</span>`
@@ -661,6 +665,9 @@ function renderConnectView() {
               <span class="muted" style="font-size:12px;">${Number(tbl.row_count || 0).toLocaleString()} rows · ${(tbl.columns || []).length} cols</span>
             </div>
             <div style="display:flex; align-items:center; gap:10px;">
+              <button type="button" class="btn btn-secondary btn-xs btn-edit-tbl-connect" data-table="${escapeHtml(tbl.name)}" title="Edit Business Semantics">
+                <svg class="icon" style="width:10px;height:10px;display:inline;vertical-align:-1px;margin-right:2px;"><use href="#i-edit"/></svg>Semantics
+              </button>
               ${
                 piiCount
                   ? `<span class="pii-badge pii-redacted"><svg class="icon" style="width:11px;height:11px"><use href="#i-shield"/></svg>${piiCount} PII shielded</span>`
@@ -695,6 +702,15 @@ function renderConnectView() {
     .join('');
 
   container.innerHTML = summaryHtml + accordionHtml;
+
+  container.querySelectorAll('.btn-edit-tbl-connect').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const t = tables.find((x) => x.name === btn.dataset.table);
+      if (t) openTableEditModal(t);
+    });
+  });
 
   container.querySelectorAll('.col-block-toggle').forEach((chk) => {
     chk.addEventListener('change', async (e) => {
@@ -982,6 +998,34 @@ function renderInterviewView() {
   const answered = qs.filter((q) => q.answered).length;
   const pct = qs.length ? Math.round((answered / qs.length) * 100) : 0;
 
+  // 1. Domain Overview Banner with Human Customization
+  const domainBanner = document.getElementById('domainOverviewBanner');
+  if (domainBanner) {
+    const dInfo = APP_STATE.domain_info || {};
+    const dTitle = ws.domain_title || dInfo.domain_title || 'Enterprise Operations & Analytics';
+    const dIndustry = dInfo.industry || 'General Business';
+    const dSummary = dInfo.summary || 'Operational business dataset';
+    domainBanner.innerHTML = `
+      <div style="display:flex; align-items:center; gap:12px; flex:1; min-width:240px;">
+        <span class="domain-badge-lg">
+          <svg class="icon" style="width:12px;height:12px"><use href="#i-book"/></svg>
+          ${escapeHtml(dTitle)}
+        </span>
+        <div>
+          <div style="font-weight:600; font-size:13px; color:var(--text-primary);">${escapeHtml(dIndustry)}</div>
+          <div style="font-size:11.5px; color:var(--text-muted);">${escapeHtml(dSummary)}</div>
+        </div>
+      </div>
+      <button type="button" id="btnOpenDomainEdit" class="btn btn-secondary btn-sm" style="display:flex;align-items:center;gap:6px;">
+        <svg class="icon" style="width:12px;height:12px"><use href="#i-edit"/></svg> Customize Domain
+      </button>
+    `;
+    document.getElementById('btnOpenDomainEdit')?.addEventListener('click', () => {
+      openDomainEditModal();
+    });
+  }
+
+  // 2. Interview Progress Banner
   const banner = document.getElementById('interviewProgressBanner');
   if (banner) {
     banner.innerHTML = `
@@ -995,7 +1039,7 @@ function renderInterviewView() {
     `;
   }
 
-  // Multi-source question filter chips
+  // 3. Multi-source question filter chips
   const filterChipsEl = document.getElementById('interviewFilterChips');
   if (filterChipsEl) {
     const distinctSources = [...new Set(qs.map((q) => q.source_id).filter(Boolean))];
@@ -1026,93 +1070,300 @@ function renderInterviewView() {
     }
   }
 
+  // 4. Questions container
   const container = document.getElementById('interviewQuestionsContainer');
-  if (!container) return;
+  if (container) {
+    if (!qs.length) {
+      container.innerHTML = `<div class="panel-card" style="text-align:center; padding:18px; color:var(--text-muted); font-size:12.5px;">Connect a dataset in Step 1 to generate schema-tailored business rule questions.</div>`;
+    } else {
+      const filteredQs = qs.filter((q) => {
+        if (!INTERVIEW_SOURCE_FILTER) return true;
+        if (INTERVIEW_SOURCE_FILTER === '__cross__') {
+          return q.id.startsWith('q_cross_link_') || q.category === 'CROSS_DATABASE_LINK';
+        }
+        return (q.source_id || 'default') === INTERVIEW_SOURCE_FILTER;
+      });
 
-  if (!qs.length) {
-    container.innerHTML = `<div class="panel-card">Connect a dataset in Step 1 to generate schema-tailored business rule questions.</div>`;
-    return;
-  }
+      if (!filteredQs.length) {
+        container.innerHTML = `<div class="panel-card" style="text-align:center; padding:18px; color:var(--text-muted); font-size:12.5px;">No questions found matching the selected filter.</div>`;
+      } else {
+        container.innerHTML = filteredQs
+          .map((q) => {
+            const isCross = q.id.startsWith('q_cross_link_') || q.category === 'CROSS_DATABASE_LINK';
+            const sourceTag = isCross
+              ? `<span class="meta-chip meta-chip-cross-db">🌐 Cross-DB Link</span>`
+              : q.source_id && q.source_id !== 'default'
+              ? `<span class="source-badge"><svg class="icon" style="width:10px;height:10px"><use href="#i-database"/></svg>${escapeHtml(q.source_id)}</span>`
+              : '';
 
-  const filteredQs = qs.filter((q) => {
-    if (!INTERVIEW_SOURCE_FILTER) return true;
-    if (INTERVIEW_SOURCE_FILTER === '__cross__') {
-      return q.id.startsWith('q_cross_link_') || q.category === 'CROSS_DATABASE_LINK';
+            const statusBadge = q.answered
+              ? `<span class="pii-badge pii-safe"><svg class="icon" style="width:11px;height:11px"><use href="#i-check"/></svg>Indexed in RAG</span>`
+              : `<span class="meta-chip">Priority P${q.priority} · ${escapeHtml(q.category)}</span>`;
+
+            const sugButtons = (q.suggested_options || [])
+              .map((opt) => {
+                const isSelected = q.answered && q.answer === opt;
+                return `
+                  <button type="button" class="sug-chip ${isSelected ? 'selected' : ''}" data-qid="${escapeHtml(q.id)}" data-opt="${escapeHtml(opt)}">
+                    ${escapeHtml(opt)}
+                  </button>
+                `;
+              })
+              .join('');
+
+            return `
+              <div class="interview-card ${q.answered ? 'answered' : ''}">
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
+                  <div style="display:flex; align-items:center; gap:6px;">
+                    <span class="mono" style="font-size:11px; color:var(--accent-primary); font-weight:600;">${escapeHtml(q.table_name || 'Global')}${q.column_name ? '.' + escapeHtml(q.column_name) : ''}</span>
+                    ${sourceTag}
+                  </div>
+                  ${statusBadge}
+                </div>
+                <div style="font-weight:600; font-size:13.5px; color:var(--text-primary);">${escapeHtml(q.question_text)}</div>
+                <div style="font-size:11.5px; color:var(--text-muted);">${escapeHtml(q.context_hint || '')}</div>
+                ${sugButtons ? `<div class="suggestion-chips">${sugButtons}</div>` : ''}
+                <div class="input-with-btn" style="margin-top:auto; padding-top:4px;">
+                  <input
+                    type="text"
+                    class="input-text interview-ans-input"
+                    id="ans_${escapeHtml(q.id)}"
+                    value="${escapeHtml(q.answer || '')}"
+                    placeholder="Click a recommendation above or type a custom rule…"
+                  />
+                  <button type="button" class="btn btn-primary btn-save-ans" data-qid="${escapeHtml(q.id)}">Save</button>
+                </div>
+              </div>
+            `;
+          })
+          .join('');
+
+        container.querySelectorAll('.sug-chip').forEach((chip) => {
+          chip.addEventListener('click', async () => {
+            await submitInterviewAnswer(chip.dataset.qid, chip.dataset.opt);
+          });
+        });
+
+        container.querySelectorAll('.btn-save-ans').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const qid = btn.dataset.qid;
+            const inputEl = document.getElementById(`ans_${qid}`);
+            if (inputEl && inputEl.value.trim()) {
+              await submitInterviewAnswer(qid, inputEl.value.trim());
+            }
+          });
+        });
+      }
     }
-    return (q.source_id || 'default') === INTERVIEW_SOURCE_FILTER;
-  });
-
-  if (!filteredQs.length) {
-    container.innerHTML = `<div class="panel-card" style="text-align:center; padding:24px; color:var(--text-muted);">No rules or questions found matching the selected database filter.</div>`;
-    return;
   }
 
-  container.innerHTML = filteredQs
-    .map((q) => {
-      const isCross = q.id.startsWith('q_cross_link_') || q.category === 'CROSS_DATABASE_LINK';
-      const sourceTag = isCross
-        ? `<span class="meta-chip meta-chip-cross-db">🌐 Cross-DB Link</span>`
-        : q.source_id && q.source_id !== 'default'
-        ? `<span class="source-badge"><svg class="icon" style="width:10px;height:10px"><use href="#i-database"/></svg>${escapeHtml(q.source_id)}</span>`
-        : '';
-
-      const statusBadge = q.answered
-        ? `<span class="pii-badge pii-safe"><svg class="icon" style="width:11px;height:11px"><use href="#i-check"/></svg>Indexed in RAG</span>`
-        : `<span class="meta-chip">Priority P${q.priority} · ${escapeHtml(q.category)}</span>`;
-
-      const sugButtons = (q.suggested_options || [])
-        .map((opt) => {
-          const isSelected = q.answered && q.answer === opt;
+  // 5. Active Business Rules & Governance Container
+  const rulesContainer = document.getElementById('activeBusinessRulesContainer');
+  if (rulesContainer) {
+    const rules = ws.business_rules || [];
+    if (!rules.length) {
+      rulesContainer.innerHTML = `
+        <div class="panel-card" style="grid-column: 1 / -1; text-align:center; padding:18px; color:var(--text-muted); font-size:12.5px;">
+          No business rules indexed yet. Answer questions above or add custom rules below.
+        </div>
+      `;
+    } else {
+      rulesContainer.innerHTML = rules
+        .map((r) => {
+          const sourceLabel = r.source === 'manual' ? 'Custom' : r.source === 'enriched' ? '✨ Auto-Enriched' : 'Interview';
+          const filterHtml = r.sql_filter_hint ? `<div class="rule-item-sql">SQL: ${escapeHtml(r.sql_filter_hint)}</div>` : '';
           return `
-            <button type="button" class="sug-chip ${isSelected ? 'selected' : ''}" data-qid="${escapeHtml(q.id)}" data-opt="${escapeHtml(opt)}">
-              ${escapeHtml(opt)}
-            </button>
+            <div class="rule-item-card">
+              <div class="rule-item-header">
+                <div class="rule-item-term">${escapeHtml(r.term)}</div>
+                <div style="display:flex; align-items:center; gap:6px;">
+                  <span class="meta-chip">${escapeHtml(sourceLabel)}</span>
+                  <button type="button" class="btn btn-ghost btn-icon-only btn-edit-rule" data-rid="${escapeHtml(r.id)}" title="Edit rule" style="width:26px;height:26px;">
+                    <svg class="icon" style="width:12px;height:12px"><use href="#i-edit"/></svg>
+                  </button>
+                  <button type="button" class="btn btn-ghost btn-icon-only btn-del-rule" data-rid="${escapeHtml(r.id)}" title="Delete rule" style="width:26px;height:26px;color:var(--accent-rose);">
+                    <svg class="icon" style="width:12px;height:12px"><use href="#i-trash"/></svg>
+                  </button>
+                </div>
+              </div>
+              <div class="rule-item-def">${escapeHtml(r.definition)}</div>
+              ${filterHtml}
+            </div>
           `;
         })
         .join('');
 
-      return `
-        <div class="interview-card ${q.answered ? 'answered' : ''}">
-          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
-            <div style="display:flex; align-items:center; gap:6px;">
-              <span class="mono" style="font-size:11px; color:var(--accent-primary); font-weight:600;">${escapeHtml(q.table_name || 'Global')}${q.column_name ? '.' + escapeHtml(q.column_name) : ''}</span>
-              ${sourceTag}
+      rulesContainer.querySelectorAll('.btn-edit-rule').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const r = rules.find((x) => x.id === btn.dataset.rid);
+          if (r) openRuleEditModal(r);
+        });
+      });
+
+      rulesContainer.querySelectorAll('.btn-del-rule').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const r = rules.find((x) => x.id === btn.dataset.rid);
+          if (!r) return;
+          if (confirm(`Delete rule "${r.term}" from knowledge base?`)) {
+            try {
+              APP_STATE = await apiRequest(`/api/interview/rule/${encodeURIComponent(r.id)}`, { method: 'DELETE' });
+              renderAllViews();
+              showToast(`Deleted rule "${r.term}"`);
+            } catch (err) {
+              showToast(`Delete failed: ${err.message}`);
+            }
+          }
+        });
+      });
+    }
+  }
+
+  // 6. Semantic Domain Glossary (Tables & Columns)
+  const glossaryContainer = document.getElementById('semanticGlossaryContainer');
+  if (glossaryContainer) {
+    const tables = (ws.tables || []).filter((t) => !t.is_blocked);
+    if (!tables.length) {
+      glossaryContainer.innerHTML = `<div class="panel-card" style="text-align:center; padding:18px; color:var(--text-muted); font-size:12.5px;">No tables available. Ingest data in Step 1.</div>`;
+    } else {
+      glossaryContainer.innerHTML = tables
+        .map((tbl) => {
+          const colRows = (tbl.columns || [])
+            .filter((c) => !c.is_blocked)
+            .map((c) => {
+              let meaningsHtml = '—';
+              if (c.value_meanings && Object.keys(c.value_meanings).length > 0) {
+                meaningsHtml = Object.entries(c.value_meanings)
+                  .map(([k, v]) => `<span class="value-meaning-pill"><strong>${escapeHtml(k)}</strong>: ${escapeHtml(v)}</span>`)
+                  .join(' ');
+              }
+              return `
+                <tr>
+                  <td class="mono" style="font-weight:600; color:var(--text-primary);">${escapeHtml(c.name)}</td>
+                  <td style="color:var(--accent-primary); font-weight:600;">${escapeHtml(c.business_alias || '—')}</td>
+                  <td style="font-size:12px; color:var(--text-secondary); max-width:280px;">${escapeHtml(c.description || '—')}</td>
+                  <td style="max-width:240px;">${meaningsHtml}</td>
+                  <td style="text-align:right;">
+                    <button type="button" class="btn btn-secondary btn-xs btn-edit-col" data-table="${escapeHtml(tbl.name)}" data-col="${escapeHtml(c.name)}">
+                      <svg class="icon" style="width:10px;height:10px;display:inline;vertical-align:-1px;margin-right:2px;"><use href="#i-edit"/></svg>Edit
+                    </button>
+                  </td>
+                </tr>
+              `;
+            })
+            .join('');
+
+          return `
+            <div class="semantic-glossary-card">
+              <div class="semantic-glossary-header">
+                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                  <span class="role-badge role-${escapeHtml(tbl.table_role)}">${escapeHtml(tbl.table_role)}</span>
+                  <strong class="mono" style="font-size:13.5px; color:var(--text-primary);">${escapeHtml(tbl.name)}</strong>
+                  ${tbl.business_name ? `<span style="color:var(--accent-indigo); font-weight:600; font-size:13px;">— ${escapeHtml(tbl.business_name)}</span>` : ''}
+                  <span class="muted" style="font-size:11.5px;">(${Number(tbl.row_count || 0).toLocaleString()} rows)</span>
+                </div>
+                <button type="button" class="btn btn-secondary btn-xs btn-edit-tbl" data-table="${escapeHtml(tbl.name)}">
+                  <svg class="icon" style="width:11px;height:11px;display:inline;vertical-align:-1px;margin-right:3px;"><use href="#i-edit"/></svg>Edit Table Semantics
+                </button>
+              </div>
+              <div class="semantic-glossary-body">
+                <p style="font-size:12.5px; color:var(--text-secondary); margin-bottom:12px;">
+                  ${escapeHtml(tbl.description || 'No operational description provided yet.')}
+                </p>
+                <div class="table-responsive">
+                  <table class="data-table">
+                    <thead>
+                      <tr>
+                        <th>Physical Column</th>
+                        <th>Business Alias</th>
+                        <th>Operational Meaning</th>
+                        <th>Status Code Decoders</th>
+                        <th style="text-align:right;">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>${colRows}</tbody>
+                  </table>
+                </div>
+              </div>
             </div>
-            ${statusBadge}
-          </div>
-          <div style="font-weight:600; font-size:13.5px; color:var(--text-primary);">${escapeHtml(q.question_text)}</div>
-          <div style="font-size:11.5px; color:var(--text-muted);">${escapeHtml(q.context_hint || '')}</div>
-          ${sugButtons ? `<div class="suggestion-chips">${sugButtons}</div>` : ''}
-          <div class="input-with-btn" style="margin-top:auto; padding-top:4px;">
-            <input
-              type="text"
-              class="input-text interview-ans-input"
-              id="ans_${escapeHtml(q.id)}"
-              value="${escapeHtml(q.answer || '')}"
-              placeholder="Click a recommendation above or type a custom rule…"
-            />
-            <button type="button" class="btn btn-primary btn-save-ans" data-qid="${escapeHtml(q.id)}">Save</button>
-          </div>
-        </div>
-      `;
-    })
-    .join('');
+          `;
+        })
+        .join('');
 
-  container.querySelectorAll('.sug-chip').forEach((chip) => {
-    chip.addEventListener('click', async () => {
-      await submitInterviewAnswer(chip.dataset.qid, chip.dataset.opt);
-    });
-  });
+      glossaryContainer.querySelectorAll('.btn-edit-tbl').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const t = tables.find((x) => x.name === btn.dataset.table);
+          if (t) openTableEditModal(t);
+        });
+      });
 
-  container.querySelectorAll('.btn-save-ans').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const qid = btn.dataset.qid;
-      const inputEl = document.getElementById(`ans_${qid}`);
-      if (inputEl && inputEl.value.trim()) {
-        await submitInterviewAnswer(qid, inputEl.value.trim());
-      }
-    });
-  });
+      glossaryContainer.querySelectorAll('.btn-edit-col').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const t = tables.find((x) => x.name === btn.dataset.table);
+          if (!t) return;
+          const c = (t.columns || []).find((x) => x.name === btn.dataset.col);
+          if (c) openColumnEditModal(t.name, c);
+        });
+      });
+    }
+  }
+}
+
+function openDomainEditModal() {
+  const ws = APP_STATE.workspace || {};
+  const dInfo = APP_STATE.domain_info || {};
+  const titleInput = document.getElementById('domainTitleInput');
+  const indInput = document.getElementById('domainIndustryInput');
+  const tagInput = document.getElementById('domainTagInput');
+  if (titleInput) titleInput.value = ws.domain_title || dInfo.domain_title || '';
+  if (indInput) indInput.value = dInfo.industry || '';
+  if (tagInput) tagInput.value = ws.domain_tag || dInfo.domain_key || '';
+  document.getElementById('domainEditDialog')?.showModal();
+}
+
+function openRuleEditModal(rule) {
+  const idInput = document.getElementById('editRuleIdInput');
+  const termInput = document.getElementById('editRuleTermInput');
+  const defInput = document.getElementById('editRuleDefInput');
+  const hintInput = document.getElementById('editRuleSqlHintInput');
+  if (idInput) idInput.value = rule.id || '';
+  if (termInput) termInput.value = rule.term || '';
+  if (defInput) defInput.value = rule.definition || '';
+  if (hintInput) hintInput.value = rule.sql_filter_hint || '';
+  document.getElementById('ruleEditDialog')?.showModal();
+}
+
+function openTableEditModal(table) {
+  const nameInput = document.getElementById('editTableNameInput');
+  const bnameInput = document.getElementById('editTableBusinessNameInput');
+  const roleSelect = document.getElementById('editTableRoleSelect');
+  const descInput = document.getElementById('editTableDescriptionInput');
+  if (nameInput) nameInput.value = table.name || '';
+  if (bnameInput) bnameInput.value = table.business_name || '';
+  if (roleSelect) roleSelect.value = (table.table_role || 'unknown').toLowerCase();
+  if (descInput) descInput.value = table.description || '';
+  document.getElementById('tableEditDialog')?.showModal();
+}
+
+function openColumnEditModal(tableName, col) {
+  const tblInput = document.getElementById('editColTableInput');
+  const colInput = document.getElementById('editColNameInput');
+  const aliasInput = document.getElementById('editColAliasInput');
+  const descInput = document.getElementById('editColDescInput');
+  const meaningsInput = document.getElementById('editColMeaningsInput');
+  if (tblInput) tblInput.value = tableName || '';
+  if (colInput) colInput.value = col.name || '';
+  if (aliasInput) aliasInput.value = col.business_alias || '';
+  if (descInput) descInput.value = col.description || '';
+  if (meaningsInput) {
+    if (col.value_meanings && Object.keys(col.value_meanings).length > 0) {
+      meaningsInput.value = Object.entries(col.value_meanings)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join('\n');
+    } else {
+      meaningsInput.value = '';
+    }
+  }
+  document.getElementById('columnEditDialog')?.showModal();
 }
 
 async function submitInterviewAnswer(question_id, answer) {
@@ -2273,6 +2524,102 @@ document.addEventListener('DOMContentLoaded', async () => {
         btn.disabled = false;
         btn.innerHTML = `<svg class="icon"><use href="#i-sparkles"/></svg> Auto-Enrich Knowledge`;
       }
+    }
+  });
+
+  // Human-in-the-Loop Business Knowledge Customization Listeners
+  document.getElementById('domainEditForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      APP_STATE = await apiRequest('/api/interview/domain-override', {
+        method: 'POST',
+        body: JSON.stringify({
+          domain_title: document.getElementById('domainTitleInput').value.trim(),
+          industry: document.getElementById('domainIndustryInput').value.trim(),
+          domain_tag: document.getElementById('domainTagInput').value.trim(),
+        }),
+      });
+      document.getElementById('domainEditDialog')?.close();
+      renderAllViews();
+      showToast('Updated business domain & re-indexed knowledge');
+    } catch (err) {
+      showToast(`Domain update failed: ${err.message}`);
+    }
+  });
+
+  document.getElementById('ruleEditForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const ruleId = document.getElementById('editRuleIdInput').value;
+    try {
+      APP_STATE = await apiRequest(`/api/interview/rule/${encodeURIComponent(ruleId)}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          term: document.getElementById('editRuleTermInput').value.trim(),
+          definition: document.getElementById('editRuleDefInput').value.trim(),
+          sql_filter_hint: document.getElementById('editRuleSqlHintInput').value.trim(),
+        }),
+      });
+      document.getElementById('ruleEditDialog')?.close();
+      renderAllViews();
+      showToast('Updated business rule & RAG memory');
+    } catch (err) {
+      showToast(`Rule update failed: ${err.message}`);
+    }
+  });
+
+  document.getElementById('tableEditForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const tableName = document.getElementById('editTableNameInput').value;
+    try {
+      APP_STATE = await apiRequest('/api/schema/table-config', {
+        method: 'POST',
+        body: JSON.stringify({
+          table_name: tableName,
+          business_name: document.getElementById('editTableBusinessNameInput').value.trim(),
+          description: document.getElementById('editTableDescriptionInput').value.trim(),
+          table_role: document.getElementById('editTableRoleSelect').value,
+        }),
+      });
+      document.getElementById('tableEditDialog')?.close();
+      renderAllViews();
+      showToast(`Updated semantics for table "${tableName}"`);
+    } catch (err) {
+      showToast(`Table update failed: ${err.message}`);
+    }
+  });
+
+  document.getElementById('columnEditForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const tableName = document.getElementById('editColTableInput').value;
+    const colName = document.getElementById('editColNameInput').value;
+    const rawMeanings = document.getElementById('editColMeaningsInput').value.trim();
+    const valueMeanings = {};
+    if (rawMeanings) {
+      rawMeanings.split('\n').forEach((line) => {
+        const parts = line.split(/[:=]/);
+        if (parts.length >= 2) {
+          const k = parts[0].trim();
+          const v = parts.slice(1).join(':').trim();
+          if (k) valueMeanings[k] = v;
+        }
+      });
+    }
+    try {
+      APP_STATE = await apiRequest('/api/schema/column-config', {
+        method: 'POST',
+        body: JSON.stringify({
+          table_name: tableName,
+          column_name: colName,
+          business_alias: document.getElementById('editColAliasInput').value.trim(),
+          description: document.getElementById('editColDescInput').value.trim(),
+          value_meanings: valueMeanings,
+        }),
+      });
+      document.getElementById('columnEditDialog')?.close();
+      renderAllViews();
+      showToast(`Updated semantics for column "${colName}"`);
+    } catch (err) {
+      showToast(`Column update failed: ${err.message}`);
     }
   });
 

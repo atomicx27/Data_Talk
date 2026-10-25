@@ -218,3 +218,117 @@ def test_api_auto_enrich_and_domain_routes(test_client: TestClient):
     entry2 = q2_res.json()["entry"]
     assert entry2["response"]["is_follow_up"] is True
     assert "region_code = 'NA'" in entry2["response"]["executed_query"] or "region_code = 'US'" in entry2["response"]["executed_query"]
+
+
+def test_human_domain_override_and_rag_sync(test_client: TestClient):
+    """Business owner can alter domain classification and taxonomy."""
+    test_client.post("/api/connect/demo")
+
+    # 1. Custom Domain Override
+    override_res = test_client.post(
+        "/api/interview/domain-override",
+        json={
+            "domain_title": "Enterprise Cloud & Cyber Security",
+            "domain_tag": "cybersec",
+            "industry": "Information Security & SaaS",
+        },
+    )
+    assert override_res.status_code == 200
+    state = override_res.json()
+    assert state["workspace"]["domain_title"] == "Enterprise Cloud & Cyber Security"
+    assert state["workspace"]["domain_tag"] == "cybersec"
+
+    # 2. Verify domain route respects human override
+    domain_res = test_client.get("/api/interview/domain")
+    assert domain_res.status_code == 200
+    d_data = domain_res.json()
+    assert d_data["domain_title"] == "Enterprise Cloud & Cyber Security"
+    assert d_data["domain_key"] == "cybersec"
+
+
+def test_human_table_and_column_semantics_customization(test_client: TestClient):
+    """Business owner can alter table names, descriptions, column aliases, and code decoders."""
+    test_client.post("/api/connect/demo")
+
+    # 1. Update Table Semantics
+    t_res = test_client.post(
+        "/api/schema/table-config",
+        json={
+            "table_name": "orders",
+            "business_name": "Global Bookings & Invoicing Ledger",
+            "description": "Master transaction record for all booked software contracts.",
+            "table_role": "fact",
+        },
+    )
+    assert t_res.status_code == 200
+    state = t_res.json()
+    orders_tbl = next((t for t in state["workspace"]["tables"] if t["name"] == "orders"), None)
+    assert orders_tbl is not None
+    assert orders_tbl["business_name"] == "Global Bookings & Invoicing Ledger"
+    assert "software contracts" in orders_tbl["description"]
+
+    # 2. Update Column Semantics (alias + status code decoders)
+    c_res = test_client.post(
+        "/api/schema/column-config",
+        json={
+            "table_name": "orders",
+            "column_name": "ord_stat",
+            "business_alias": "Fulfillment State",
+            "description": "Lifecycle state of the booking",
+            "value_meanings": {
+                "C": "Closed Won",
+                "X": "Closed Lost",
+                "P": "Pending Review",
+            },
+        },
+    )
+    assert c_res.status_code == 200
+    state2 = c_res.json()
+    orders_tbl2 = next((t for t in state2["workspace"]["tables"] if t["name"] == "orders"), None)
+    ord_stat_col = next((c for c in orders_tbl2["columns"] if c["name"] == "ord_stat"), None)
+    assert ord_stat_col is not None
+    assert ord_stat_col["business_alias"] == "Fulfillment State"
+    assert ord_stat_col["value_meanings"]["C"] == "Closed Won"
+    assert ord_stat_col["value_meanings"]["X"] == "Closed Lost"
+
+
+def test_human_business_rule_edit_and_delete(test_client: TestClient):
+    """Business owner can add, edit, and delete business governance rules."""
+    test_client.post("/api/connect/demo")
+
+    # 1. Add Custom Rule
+    add_res = test_client.post(
+        "/api/interview/add-rule",
+        json={
+            "term": "Enterprise High Value",
+            "definition": "Transactions exceeding $50k in recognized net revenue",
+            "sql_filter_hint": "orders.rev_net_usd > 50000",
+        },
+    )
+    assert add_res.status_code == 200
+    rules = add_res.json()["workspace"]["business_rules"]
+    target_rule = next((r for r in rules if r["term"] == "Enterprise High Value"), None)
+    assert target_rule is not None
+    rule_id = target_rule["id"]
+
+    # 2. Edit the Rule
+    edit_res = test_client.put(
+        f"/api/interview/rule/{rule_id}",
+        json={
+            "term": "Strategic Tier Transactions",
+            "definition": "Key strategic accounts exceeding $75k",
+            "sql_filter_hint": "orders.rev_net_usd > 75000",
+        },
+    )
+    assert edit_res.status_code == 200
+    updated_rules = edit_res.json()["workspace"]["business_rules"]
+    updated_rule = next((r for r in updated_rules if r["id"] == rule_id), None)
+    assert updated_rule is not None
+    assert updated_rule["term"] == "Strategic Tier Transactions"
+    assert "75000" in updated_rule["sql_filter_hint"]
+
+    # 3. Delete the Rule
+    del_res = test_client.delete(f"/api/interview/rule/{rule_id}")
+    assert del_res.status_code == 200
+    final_rules = del_res.json()["workspace"]["business_rules"]
+    assert not any(r["id"] == rule_id for r in final_rules)

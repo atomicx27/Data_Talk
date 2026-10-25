@@ -169,6 +169,24 @@ class RAGStore:
                 conn.close()
             self._cache.pop(collection, None)
 
+    def delete(self, collection: str, doc_id: str) -> bool:
+        """Delete a document by collection and doc_id."""
+        if collection not in self.COLLECTIONS:
+            raise ValueError(f"Unknown RAG collection: {collection}")
+        with self._lock:
+            conn = self._connect()
+            try:
+                cur = conn.execute(
+                    "DELETE FROM rag_documents WHERE collection = ? AND doc_id = ?",
+                    (collection, doc_id),
+                )
+                conn.commit()
+                deleted = cur.rowcount > 0
+            finally:
+                conn.close()
+            self._cache.pop(collection, None)
+            return deleted
+
     def _get_index(self, collection: str) -> _CollectionIndex | None:
         with self._lock:
             cached = self._cache.get(collection)

@@ -255,6 +255,17 @@ class BusinessKnowledgeEnricher:
     @classmethod
     def detect_domain(cls, workspace: OKFWorkspace) -> dict[str, Any]:
         """Detect the primary business domain based on table names, column names, and sample values."""
+        if workspace.domain_title:
+            return {
+                "domain_key": workspace.domain_tag or "custom",
+                "domain_title": workspace.domain_title,
+                "industry": workspace.domain_title,
+                "confidence": 1.0,
+                "matched_terms": [],
+                "summary": f"Configured business domain: {workspace.domain_title}.",
+                "is_user_override": True,
+            }
+
         active_tables = workspace.active_tables()
         if not active_tables:
             return {
