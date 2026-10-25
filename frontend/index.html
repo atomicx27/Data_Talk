@@ -188,6 +188,7 @@
           <div class="topbar-meta">
             <span id="activeDialectBadge" class="meta-chip">—</span>
             <span id="ragStatsBadge" class="meta-chip meta-chip-accent">—</span>
+            <span id="headerDomainBadge" class="meta-chip meta-chip-accent" style="display:none;">—</span>
           </div>
         </div>
 
@@ -538,6 +539,9 @@
               <p class="page-sub">Answer a few questions so the AI understands your status codes, KPIs and naming conventions.</p>
             </div>
             <div class="header-actions">
+              <button id="btnAutoEnrichKnowledge" type="button" class="btn btn-secondary">
+                <svg class="icon"><use href="#i-sparkles"/></svg> Auto-Enrich Knowledge
+              </button>
               <button class="btn btn-primary" data-goto="measures">
                 Next: Measures <svg class="icon"><use href="#i-arrow-right"/></svg>
               </button>

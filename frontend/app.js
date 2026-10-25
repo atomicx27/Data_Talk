@@ -375,6 +375,16 @@ function renderGlobalTelemetry() {
     const ruleCount = (rag.business_rules || 0) + (rag.few_shot_queries || 0);
     ragBadge.textContent = `${ruleCount} rules active`;
   }
+  const domainBadge = document.getElementById('headerDomainBadge');
+  if (domainBadge) {
+    const domainTitle = APP_STATE.domain_info?.domain_title || ws.domain_title;
+    if (domainTitle) {
+      domainBadge.style.display = 'inline-flex';
+      domainBadge.innerHTML = `<svg class="icon" style="width:12px;height:12px"><use href="#i-sparkles"/></svg> ${escapeHtml(domainTitle)}`;
+    } else {
+      domainBadge.style.display = 'none';
+    }
+  }
 
   // Segmented AI Readiness Card
   const score = readiness.score || 0;
@@ -1361,6 +1371,33 @@ function renderChatView() {
         ? `<span class="pii-badge pii-safe" title="Pre-aggregated CTEs prevented multi-fact fan trap"><svg class="icon" style="width:11px;height:11px"><use href="#i-shield"/></svg>Multi-fact CTE</span>`
         : '';
 
+      const followUpBadge = resp.is_follow_up
+        ? `<span class="meta-chip meta-chip-accent" title="${escapeHtml(resp.follow_up_context || 'Refined from prior context')}"><svg class="icon" style="width:11px;height:11px"><use href="#i-arrow-right"/></svg> Refined Follow-Up</span>`
+        : '';
+
+      const drillDownBtn = (resp.drill_down_dimensions || []).length
+        ? `
+          <div class="drilldown-dropdown-wrap">
+            <button type="button" class="btn btn-secondary btn-xs btn-drilldown-toggle" data-idx="${idx}" title="Drill down into this result">
+              <svg class="icon" style="width:13px;height:13px"><use href="#i-cpu"/></svg> Drill Down
+            </button>
+            <div class="drilldown-menu" id="drilldown_menu_${idx}">
+              <div style="padding:6px 12px; font-size:11px; font-weight:700; color:var(--text-muted); border-bottom:1px solid var(--border-color);">DRILL DOWN BY</div>
+              ${resp.drill_down_dimensions
+                .map(
+                  (d) => `
+                <button type="button" class="drilldown-opt-btn" data-idx="${idx}" data-dim="${escapeHtml(d.dimension)}" data-label="${escapeHtml(d.label)}">
+                  <svg class="icon" style="width:12px;height:12px;color:var(--primary-color)"><use href="#i-arrow-right"/></svg>
+                  ${escapeHtml(d.label)}
+                </button>
+              `
+                )
+                .join('')}
+            </div>
+          </div>
+        `
+        : '';
+
       const tablePreviewRows = (entry.rows || []).slice(0, 10);
       const cols = entry.columns || [];
       const totalRowsCount = entry.row_count || (entry.rows || []).length;
@@ -1373,15 +1410,18 @@ function renderChatView() {
         cols.length && tablePreviewRows.length
           ? `
           <div class="result-table-wrapper" style="margin-top:14px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; gap:8px; flex-wrap:wrap;">
               <span style="font-size:12px; font-weight:600; color:var(--text-secondary); display:flex; align-items:center; gap:6px;">
                 <svg class="icon" style="width:14px;height:14px"><use href="#i-table"/></svg>
-                ${isTableChart ? 'Schema & Table Catalog' : 'Result Table'} (${totalRowsCount} ${totalRowsCount === 1 ? 'row' : 'rows'})
+                ${isTableChart ? 'Schema & Table Catalog' : 'Result Table'} (<span class="table-total-count">${totalRowsCount}</span> ${totalRowsCount === 1 ? 'row' : 'rows'})
               </span>
-              <span style="font-size:11px; color:var(--text-muted)">Showing ${tablePreviewRows.length} ${tablePreviewRows.length === 1 ? 'row' : 'rows'}</span>
+              <div style="display:flex; align-items:center; gap:8px;">
+                <input type="text" class="table-filter-input" data-idx="${idx}" placeholder="🔍 Search table..." />
+                <span class="table-showing-count" style="font-size:11px; color:var(--text-muted)">Showing ${tablePreviewRows.length} ${tablePreviewRows.length === 1 ? 'row' : 'rows'}</span>
+              </div>
             </div>
             <div class="table-responsive" style="max-height:320px; border:1px solid var(--border-color); border-radius:var(--radius-md); overflow:auto;">
-              <table class="data-table">
+              <table class="data-table" data-idx="${idx}">
                 <thead>
                   <tr>${cols.map((c) => `<th>${escapeHtml(c.replace(/_/g, ' ').toUpperCase())}</th>`).join('')}</tr>
                 </thead>
@@ -1401,6 +1441,29 @@ function renderChatView() {
         `
           : '';
 
+      const suggestionsHtml = (resp.suggested_follow_ups || []).length
+        ? `
+          <div class="chat-suggestions-box">
+            <div style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); display:flex; align-items:center; gap:6px; margin-bottom:8px;">
+              <svg class="icon" style="width:13px;height:13px;color:var(--primary-color)"><use href="#i-sparkles"/></svg>
+              Suggested Follow-ups & Deep Analysis
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              ${resp.suggested_follow_ups
+                .map(
+                  (q) => `
+                <button type="button" class="btn-suggestion-chip" data-query="${escapeHtml(q)}">
+                  <svg class="icon" style="width:11px;height:11px;color:var(--primary-color)"><use href="#i-arrow-right"/></svg>
+                  <span>${escapeHtml(q)}</span>
+                </button>
+              `
+                )
+                .join('')}
+            </div>
+          </div>
+        `
+        : '';
+
       const tablesUsed = (resp.involved_tables || []).length ? resp.involved_tables : ['orders'];
 
       return `
@@ -1412,6 +1475,8 @@ function renderChatView() {
             </div>
             <div class="chat-q-actions">
               ${fanTrapBadge}
+              ${followUpBadge}
+              ${drillDownBtn}
               <button type="button" class="btn btn-secondary btn-xs btn-copy-sql" data-idx="${idx}" title="Copy compiled SQL">
                 <svg class="icon" style="width:13px;height:13px"><use href="#i-copy"/></svg> SQL
               </button>
@@ -1442,6 +1507,7 @@ function renderChatView() {
 
           ${chartBoxHtml}
           ${miniTableHtml}
+          ${suggestionsHtml}
         </article>
       `;
     })
@@ -1457,6 +1523,51 @@ function renderChatView() {
           responsive: true,
           displayModeBar: false,
         });
+
+        if (typeof plotEl.on === 'function') {
+          plotEl.removeAllListeners?.('plotly_click');
+          plotEl.on('plotly_click', (data) => {
+            if (!data || !data.points || !data.points.length) return;
+            const pt = data.points[0];
+            const clickedVal = (pt.x !== undefined && typeof pt.x === 'string') ? pt.x : (pt.label || (typeof pt.y === 'string' ? pt.y : ''));
+            if (!clickedVal) return;
+
+            let bannerEl = document.getElementById(`plotly_click_banner_${idx}`);
+            if (!bannerEl) {
+              bannerEl = document.createElement('div');
+              bannerEl.id = `plotly_click_banner_${idx}`;
+              bannerEl.className = 'plotly-click-banner';
+              plotEl.insertAdjacentElement('beforebegin', bannerEl);
+            }
+            bannerEl.style.display = 'flex';
+            bannerEl.innerHTML = `
+              <span>📌 Selected: <strong>${escapeHtml(clickedVal)}</strong></span>
+              <div style="display:flex; gap:6px; align-items:center;">
+                <button type="button" class="btn btn-primary btn-xs btn-click-drill-region" style="border-radius:14px;">
+                  🔍 Drill by Region
+                </button>
+                <button type="button" class="btn btn-secondary btn-xs btn-click-trend" style="border-radius:14px;">
+                  📈 Monthly Trend
+                </button>
+                <button type="button" class="btn btn-ghost btn-xs" onclick="this.closest('.plotly-click-banner').style.display='none'">✕</button>
+              </div>
+            `;
+            bannerEl.querySelector('.btn-click-drill-region')?.addEventListener('click', () => {
+              const chatInput = document.getElementById('chatInput');
+              if (chatInput) {
+                chatInput.value = `Drill down into ${clickedVal} by region`;
+                handleChatSubmit();
+              }
+            });
+            bannerEl.querySelector('.btn-click-trend')?.addEventListener('click', () => {
+              const chatInput = document.getElementById('chatInput');
+              if (chatInput) {
+                chatInput.value = `Monthly trend for ${clickedVal}`;
+                handleChatSubmit();
+              }
+            });
+          });
+        }
       } catch (plotErr) {
         console.warn(`Plotly render failed for chat #${idx}:`, plotErr);
         plotEl.innerHTML = `<div style="padding:12px; color:var(--text-muted); font-size:12px;">Visual chart temporarily unavailable.</div>`;
@@ -1552,6 +1663,73 @@ function renderChatView() {
         showToast('Pinned chart to Pinboard');
       } catch (err) {
         showToast(`Error: ${err.message}`);
+      }
+    });
+  });
+
+  // 1. Suggestion chips 1-click execution
+  stream.querySelectorAll('.btn-suggestion-chip').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      const q = e.currentTarget.dataset.query;
+      if (q) {
+        const chatInput = document.getElementById('chatInput');
+        if (chatInput) {
+          chatInput.value = q;
+          handleChatSubmit();
+        }
+      }
+    });
+  });
+
+  // 2. Interactive drill-down dropdown toggles & option selection
+  stream.querySelectorAll('.btn-drilldown-toggle').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const idx = btn.dataset.idx;
+      const menu = document.getElementById(`drilldown_menu_${idx}`);
+      document.querySelectorAll('.drilldown-menu').forEach((m) => {
+        if (m !== menu) m.classList.remove('open');
+      });
+      if (menu) menu.classList.toggle('open');
+    });
+  });
+
+  stream.querySelectorAll('.drilldown-opt-btn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      const idx = Number(btn.dataset.idx);
+      const dimLabel = btn.dataset.label;
+      const entry = history[idx];
+      const qTitle = entry?.response?.user_question || 'this result';
+      const menu = btn.closest('.drilldown-menu');
+      if (menu) menu.classList.remove('open');
+      const chatInput = document.getElementById('chatInput');
+      if (chatInput) {
+        chatInput.value = `Drill down into ${qTitle} broken down by ${dimLabel}`;
+        handleChatSubmit();
+      }
+    });
+  });
+
+  // 3. Real-time client-side table filter
+  stream.querySelectorAll('.table-filter-input').forEach((input) => {
+    input.addEventListener('input', (e) => {
+      const searchVal = e.target.value.toLowerCase().trim();
+      const card = input.closest('.chat-card');
+      if (!card) return;
+      const rows = card.querySelectorAll('table.data-table tbody tr');
+      let visibleCount = 0;
+      rows.forEach((tr) => {
+        const text = tr.innerText.toLowerCase();
+        if (!searchVal || text.includes(searchVal)) {
+          tr.style.display = '';
+          visibleCount++;
+        } else {
+          tr.style.display = 'none';
+        }
+      });
+      const showingEl = card.querySelector('.table-showing-count');
+      if (showingEl) {
+        showingEl.textContent = `Showing ${visibleCount} ${visibleCount === 1 ? 'row' : 'rows'}`;
       }
     });
   });
@@ -2072,6 +2250,35 @@ document.addEventListener('DOMContentLoaded', async () => {
     e.target.reset();
     renderAllViews();
     showToast('Added glossary rule to OKF & RAG');
+  });
+
+  // Auto-Enrich Business Knowledge
+  document.getElementById('btnAutoEnrichKnowledge')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btnAutoEnrichKnowledge');
+    try {
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<svg class="icon spin" style="width:14px;height:14px"><use href="#i-refresh"/></svg> Enriching...`;
+      }
+      const res = await apiRequest('/api/interview/auto-enrich', { method: 'POST' });
+      APP_STATE = res.state;
+      renderAllViews();
+      const rep = res.report || {};
+      const dTitle = rep.domain?.domain_title || 'Enterprise Operations';
+      showToast(`✨ Domain detected: ${dTitle}. Enriched ${rep.tables_enriched || 0} tables & ${rep.columns_enriched || 0} columns with business semantics.`);
+    } catch (err) {
+      showToast(`Enrichment failed: ${err.message}`);
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<svg class="icon"><use href="#i-sparkles"/></svg> Auto-Enrich Knowledge`;
+      }
+    }
+  });
+
+  // Global click dismiss for drill-down menus
+  document.addEventListener('click', () => {
+    document.querySelectorAll('.drilldown-menu.open').forEach((m) => m.classList.remove('open'));
   });
 
   // Measure & Calculated Column Creation

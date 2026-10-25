@@ -52,6 +52,10 @@ class QueryResponse(BaseModel):
     executive_summary: str = ""
     error_message: str = ""
     recommended_chart_type: str = "bar"
+    is_follow_up: bool = False
+    follow_up_context: str | None = None
+    suggested_follow_ups: list[str] = Field(default_factory=list)
+    drill_down_dimensions: list[dict[str, str]] = Field(default_factory=list)
 
 
 class QueryAgent:
@@ -69,23 +73,38 @@ class QueryAgent:
         connector: "BaseConnector",
         llm_router: LLMRouter | None = None,
         what_if_overrides: dict[str, float] | None = None,
+        conversation_history: list[dict[str, Any]] | None = None,
     ) -> tuple[QueryResponse, pd.DataFrame]:
         """Execute a natural language analytical query with hybrid OKF+RAG retrieval and 3x self-healing."""
         q_clean = question.strip()
 
+        # Resolve Conversational Follow-Up Intent & Inherited Context
+        resolved_q, is_follow_up, follow_up_ctx, inherited_tables = cls._resolve_follow_up_context(
+            q_clean, conversation_history, workspace, llm_router
+        )
+
         # 0. Check if the user is asking an exploratory overview question about the entire dataset
-        if cls._is_dataset_overview_question(q_clean):
-            return cls._generate_dataset_overview(q_clean, workspace, llm_router)
+        if cls._is_dataset_overview_question(resolved_q):
+            resp_ov, df_ov = cls._generate_dataset_overview(resolved_q, workspace, llm_router)
+            resp_ov.is_follow_up = is_follow_up
+            resp_ov.follow_up_context = follow_up_ctx
+            resp_ov.suggested_follow_ups = cls._generate_suggested_follow_ups(df_ov, resolved_q, workspace, JoinPlan([], [], False, ""))
+            resp_ov.drill_down_dimensions = cls._generate_drill_down_options(df_ov, workspace)
+            return resp_ov, df_ov
 
         # 1. Retrieve Hybrid RAG Context (Glossary, Business Rules, Few-Shot DAX/SQL)
-        rag_bundle = rag_store.retrieve_context_bundle(q_clean, top_k_per_collection=5)
+        rag_bundle = rag_store.retrieve_context_bundle(resolved_q, top_k_per_collection=5)
 
         # 2. Identify Candidate Tables & Resolve OKF Steiner Join Path
-        target_tables = cls._detect_relevant_tables(q_clean, workspace, rag_bundle)
+        target_tables = cls._detect_relevant_tables(resolved_q, workspace, rag_bundle)
+        if is_follow_up:
+            for t_inh in inherited_tables:
+                if t_inh not in target_tables and workspace.get_table(t_inh):
+                    target_tables.append(t_inh)
         join_plan: JoinPlan = okf_store.get_join_plan(workspace, target_tables)
 
         # 3. Identify Matching Semantic Measures & Business Rules
-        matched_measures = cls._match_measures(q_clean, workspace)
+        matched_measures = cls._match_measures(resolved_q, workspace)
         for m in matched_measures:
             for mt in m.involved_tables:
                 if mt not in target_tables and workspace.get_table(mt):
@@ -99,7 +118,7 @@ class QueryAgent:
         ]
 
         # Check if there is an unverified status filter or unknown term for Just-in-Time Learning hint
-        clarification_hint = cls._check_just_in_time_clarification(q_clean, workspace)
+        clarification_hint = cls._check_just_in_time_clarification(resolved_q, workspace)
 
         # 4. Generate Initial Query (via LiteLLM if configured, else deterministic semantic compiler)
         is_dax_target = connector.dialect == "dax"
@@ -111,7 +130,7 @@ class QueryAgent:
         for attempt in range(1, cls.MAX_RETRIES + 1):
             if attempt == 1:
                 current_query, dax_equiv = cls._generate_query(
-                    question=q_clean,
+                    question=resolved_q,
                     workspace=workspace,
                     join_plan=join_plan,
                     matched_measures=matched_measures,
@@ -125,7 +144,7 @@ class QueryAgent:
                     f"Attempt {attempt - 1} failed with error: `{last_error}`. Self-healing query against OKF schema..."
                 )
                 current_query = cls._repair_query(
-                    question=q_clean,
+                    question=resolved_q,
                     failed_query=current_query,
                     error_msg=last_error,
                     workspace=workspace,
@@ -147,14 +166,17 @@ class QueryAgent:
                 # Index successful Question -> Query pair into RAG few_shot_queries
                 rag_store.upsert(
                     collection="few_shot_queries",
-                    doc_id=f"chat_q_{abs(hash(q_clean)) % 100000}",
-                    content=f"User Question: {q_clean}\nVerified Query ({connector.dialect}):\n{current_query}\nDAX Equivalent:\n{dax_equiv}",
-                    metadata={"question": q_clean, "dialect": connector.dialect},
+                    doc_id=f"chat_q_{abs(hash(resolved_q)) % 100000}",
+                    content=f"User Question: {resolved_q}\nVerified Query ({connector.dialect}):\n{current_query}\nDAX Equivalent:\n{dax_equiv}",
+                    metadata={"question": resolved_q, "dialect": connector.dialect},
                 )
 
                 summary_text = cls._build_executive_summary(
-                    q_clean, df, matched_measures, applied_rules, llm_router
+                    resolved_q, df, matched_measures, applied_rules, llm_router, workspace
                 )
+                follow_ups = cls._generate_suggested_follow_ups(df, resolved_q, workspace, join_plan)
+                drill_downs = cls._generate_drill_down_options(df, workspace)
+
                 resp = QueryResponse(
                     user_question=q_clean,
                     success=True,
@@ -170,6 +192,10 @@ class QueryAgent:
                     business_rules_applied=applied_rules[:5],
                     clarification_suggestion=clarification_hint,
                     executive_summary=summary_text,
+                    is_follow_up=is_follow_up,
+                    follow_up_context=follow_up_ctx,
+                    suggested_follow_ups=follow_ups,
+                    drill_down_dimensions=drill_downs,
                 )
                 return resp, df
 
@@ -194,6 +220,12 @@ class QueryAgent:
                 business_rules_applied=applied_rules[:5],
                 clarification_suggestion=clarification_hint,
                 error_message=PrivacyFirewall.redact_text(last_error),
+                is_follow_up=is_follow_up,
+                follow_up_context=follow_up_ctx,
+                suggested_follow_ups=[
+                    "Show dataset overview and active tables",
+                    "What are the top KPIs?",
+                ],
             ),
             pd.DataFrame(),
         )
@@ -416,7 +448,25 @@ class QueryAgent:
         need_customers = False
         need_products = False
 
-        if any(w in q_low for w in ("month", "monthly", "trend", "over time", "timeline")):
+        by_match = re.search(r"\bby\s+([a-z0-9_]+)", q_low)
+        by_dim = by_match.group(1).lower() if by_match else ""
+
+        if ("region" in by_dim or "country" in by_dim) and workspace.get_table("customers"):
+            group_col = "customers.region_code"
+            group_alias = "region"
+            need_customers = True
+        elif ("tier" in by_dim or "segment" in by_dim) and workspace.get_table("customers"):
+            group_col = "customers.cust_tier"
+            group_alias = "customer_tier"
+            need_customers = True
+        elif ("category" in by_dim or "categories" in by_dim) and workspace.get_table("products"):
+            group_col = "products.category"
+            group_alias = "category"
+            need_products = True
+        elif ("month" in by_dim or "trend" in by_dim or "timeline" in by_dim):
+            group_col = "SUBSTR(CAST(orders.order_date AS VARCHAR), 1, 7)"
+            group_alias = "order_month"
+        elif any(w in q_low for w in ("month", "monthly", "trend", "over time", "timeline")):
             group_col = "SUBSTR(CAST(orders.order_date AS VARCHAR), 1, 7)"
             group_alias = "order_month"
         elif any(w in q_low for w in ("category", "categories")) and workspace.get_table("products"):
@@ -488,13 +538,53 @@ class QueryAgent:
         # Case B: Standard Enterprise Demo Orders + Dimensions Query
         orders_demo = workspace.get_table("orders")
         if orders_demo and orders_demo.get_column("rev_net_usd") and orders_demo.get_column("cogs_usd"):
+            # Specific filters detected in query (e.g. from follow-up, refinement, or drill-down)
+            extra_filters: list[str] = []
+            if orders_filter and "ord_stat" not in (group_col or ""):
+                extra_filters.append(orders_filter)
+
+            # Region filter (if not already the grouping dimension)
+            if group_alias != "region" and workspace.get_table("customers"):
+                if any(r in q_low for r in ("region na", "region us", "in us", "to us", "for us", "north america")):
+                    need_customers = True
+                    extra_filters.append("(customers.region_code = 'NA' OR customers.region_code = 'US')")
+                elif any(r in q_low for r in ("region emea", "in emea", "to emea", "for emea", "europe")):
+                    need_customers = True
+                    extra_filters.append("customers.region_code = 'EMEA'")
+                elif any(r in q_low for r in ("region apac", "in apac", "to apac", "for apac", "asia")):
+                    need_customers = True
+                    extra_filters.append("customers.region_code = 'APAC'")
+                elif any(r in q_low for r in ("region latam", "in latam", "to latam", "for latam")):
+                    need_customers = True
+                    extra_filters.append("customers.region_code = 'LATAM'")
+
+            # Customer tier filter (if not already the grouping dimension)
+            if group_alias != "customer_tier" and workspace.get_table("customers"):
+                if any(t in q_low for t in ("enterprise", "tier ent", "ent tier")):
+                    need_customers = True
+                    extra_filters.append("customers.cust_tier = 'ENT'")
+                elif any(t in q_low for t in ("mid-market", "mid market", "tier mid")):
+                    need_customers = True
+                    extra_filters.append("customers.cust_tier = 'MID'")
+                elif any(t in q_low for t in ("smb", "small business", "tier smb")):
+                    need_customers = True
+                    extra_filters.append("customers.cust_tier = 'SMB'")
+
+            # Product category filter (if not already the grouping dimension)
+            if group_alias != "category" and workspace.get_table("products"):
+                for cat in ("cloud", "security", "analytics", "hardware", "technology", "edge", "furniture", "office supplies"):
+                    if cat in q_low:
+                        need_products = True
+                        extra_filters.append(f"LOWER(products.category) LIKE '%{cat}%'")
+                        break
+
             joins: list[str] = []
             if need_customers:
                 joins.append("LEFT JOIN customers ON orders.customer_id = customers.customer_id")
             if need_products:
                 joins.append("LEFT JOIN products ON orders.product_id = products.product_id")
             join_str = ("\n" + "\n".join(joins)) if joins else ""
-            where_str = f"\nWHERE {orders_filter}" if orders_filter and "ord_stat" not in (group_col or "") else ""
+            where_str = ("\nWHERE " + " AND ".join(extra_filters)) if extra_filters else ""
 
             rev_expr = f"SUM(orders.rev_net_usd * {rev_mult:.4f})"
             profit_expr = f"SUM((orders.rev_net_usd * {rev_mult:.4f}) - (orders.cogs_usd * {cost_mult:.4f}))"
@@ -508,7 +598,7 @@ class QueryAgent:
                     extra_measure_select = f",\n       ROUND({m.sql_expression}, 2) AS {safe_alias}"
                     break
 
-            top_match = re.search(r"\btop\s+(\d+)\b", q_low)
+            top_match = re.search(r"\b(?:top|bottom|limit)\s+(\d+)\b", q_low)
             limit_clause = f"\nLIMIT {int(top_match.group(1))}" if top_match else "\nLIMIT 50"
 
             if group_col and group_alias:
@@ -777,6 +867,7 @@ class QueryAgent:
         matched_measures: list[SemanticMeasure],
         applied_rules: list[str],
         llm_router: LLMRouter | None,
+        workspace: OKFWorkspace | None = None,
     ) -> str:
         if df.empty:
             return "Query executed cleanly and returned 0 matching rows."
@@ -785,23 +876,253 @@ class QueryAgent:
         non_num_cols = [c for c in df.columns if c not in num_cols]
 
         if len(df) == 1 and num_cols:
-            parts = [f"**{col}**: `{df[col].iloc[0]:,.2f}`" for col in num_cols[:4]]
-            return "KPI Summary — " + " | ".join(parts)
+            parts = [f"**{col.replace('_', ' ').title()}**: `{df[col].iloc[0]:,.2f}`" for col in num_cols[:4]]
+            kpi_line = " | ".join(parts)
+            insight = ""
+            if "gross_margin_pct" in df.columns:
+                gm = float(df["gross_margin_pct"].iloc[0])
+                if gm >= 40.0:
+                    insight = f"\n- 💡 **Profitability Health**: Strong gross margin performance at **{gm:.1f}%**."
+                elif gm < 20.0:
+                    insight = f"\n- ⚠️ **Margin Watch**: Gross margin is relatively low at **{gm:.1f}%**."
+            return f"**KPI Summary**\n{kpi_line}{insight}"
 
         if non_num_cols and num_cols:
             dim_col = non_num_cols[0]
             metric_col = num_cols[0]
-            top_row = df.sort_values(by=metric_col, ascending=False).iloc[0]
+            sorted_df = df.sort_values(by=metric_col, ascending=False)
+            top_row = sorted_df.iloc[0]
+            bot_row = sorted_df.iloc[-1]
             total_val = float(df[metric_col].sum())
             top_val = float(top_row[metric_col])
+            bot_val = float(bot_row[metric_col])
             share = (top_val / total_val * 100.0) if total_val else 0.0
-            return (
-                f"Analyzed **{len(df):,}** groups across `{dim_col}`. "
-                f"Top performer is **{top_row[dim_col]}** with `{metric_col}` = **{top_val:,.2f}** "
-                f"({share:.1f}% of total **{total_val:,.2f}**)."
-            )
+
+            dim_title = dim_col.replace('_', ' ').title()
+            metric_title = metric_col.replace('_', ' ').title()
+
+            summary_lines = [
+                f"Analyzed **{len(df):,}** groups across `{dim_title}` for `{metric_title}`.",
+                f"- 🏆 **Top Performer**: **{top_row[dim_col]}** with `{top_val:,.2f}` (**{share:.1f}%** of total `{total_val:,.2f}`).",
+            ]
+            if len(df) > 1 and str(bot_row[dim_col]) != str(top_row[dim_col]):
+                summary_lines.append(
+                    f"- 📉 **Lowest Group**: **{bot_row[dim_col]}** at `{bot_val:,.2f}`."
+                )
+
+            if len(df) >= 3:
+                top_2_sum = float(sorted_df.head(2)[metric_col].sum())
+                top_2_share = (top_2_sum / (total_val or 1.0)) * 100.0
+                if top_2_share >= 60.0:
+                    summary_lines.append(
+                        f"- ⚖️ **Concentration Alert**: Top 2 segments represent **{top_2_share:.1f}%** of aggregate volume."
+                    )
+
+            return "\n".join(summary_lines)
 
         return f"Returned **{len(df):,}** rows across {len(df.columns)} columns."
+
+    @classmethod
+    def _resolve_follow_up_context(
+        cls,
+        question: str,
+        conversation_history: list[dict[str, Any]] | None,
+        workspace: OKFWorkspace,
+        llm_router: LLMRouter | None,
+    ) -> tuple[str, bool, str | None, list[str]]:
+        """Identify if a question is a conversational refinement on a prior query, resolving its full intent."""
+        if not conversation_history:
+            return question, False, None, []
+
+        last_turn = None
+        for item in reversed(conversation_history):
+            resp = item.get("response", {})
+            if resp.get("success") and resp.get("executed_query"):
+                last_turn = item
+                break
+
+        if not last_turn:
+            return question, False, None, []
+
+        last_resp = last_turn.get("response", {})
+        prior_q = last_resp.get("user_question", "")
+        prior_tables = last_resp.get("involved_tables", [])
+        q_low = question.lower().strip()
+
+        follow_up_regex = re.compile(
+            r"^(filter\s+(that\s+|it\s+)?(by|to|for|where|only)|only\s+(in|for)|just\s+(in|for)|where\b|exclude\b|excluding\b|"
+            r"break\s+(that\s+|it\s+)?down\s+by|split\s+(that\s+|it\s+)?by|by\s+[a-z0-9_]+$|group(ed)?\s+by|"
+            r"now\s+show|now\s+break|and\s+for|what\s+about|how\s+about|"
+            r"(show\s+)?(top|bottom)\s+\d+|sort\s+by|order\s+by|highest|lowest|"
+            r"drill\s+down(\s+into)?|drill\s+into|zoom\s+in\s+on|"
+            r"show\s+only|show\s+more|show\s+trend|monthly\s+trend)",
+            re.IGNORECASE,
+        )
+        has_pronoun = any(re.search(rf"\b{p}\b", q_low) for p in ("that", "those", "it", "them", "these", "this"))
+        is_short_fragment = len(q_low.split()) <= 4 and not any(
+            t in q_low for t in ("show tables", "tell", "what", "compare", "list", "select", "explain", "how many", "overview")
+        )
+
+        is_follow_up = bool(follow_up_regex.search(q_low) or has_pronoun or is_short_fragment)
+        if not is_follow_up:
+            return question, False, None, []
+
+        follow_up_ctx = f"Refined from: '{prior_q}'"
+
+        # LLM resolution if available
+        if llm_router and llm_router.is_configured():
+            try:
+                sys_prompt = (
+                    "You are Data_Talk's Conversational Context Resolver. "
+                    "The user is asking a follow-up refinement query to a prior analytical query.\n"
+                    "Rewrite the follow-up into a single clear, self-contained analytical question "
+                    "that retains the previous metrics and tables while applying the new filter, breakdown, or ranking.\n"
+                    "Return JSON: {\"resolved_question\": \"...\"}"
+                )
+                usr_prompt = f"Prior Question: {prior_q}\nFollow-Up Query: {question}"
+                res = llm_router.complete_json("resolve_follow_up", sys_prompt, usr_prompt)
+                resolved = res.get("resolved_question")
+                if resolved and len(resolved.strip()) > 5:
+                    return resolved.strip(), True, follow_up_ctx, prior_tables
+            except Exception:
+                pass
+
+        # Deterministic contextual synthesis
+        cleaned_sub = re.sub(
+            r"^(filter\s+(that\s+|it\s+)?(by|to|for|where|only)|only\s+(in|for)|just\s+(in|for)|where|and\s+for|what\s+about|now\s+show\s+only)\s*",
+            "",
+            q_low,
+            flags=re.IGNORECASE,
+        ).strip()
+
+        if re.search(r"\b(break\s+(that\s+|it\s+)?down\s+by|split\s+(that\s+|it\s+)?by|by)\b", q_low):
+            dim_match = re.search(r"\b(?:break\s+(?:that\s+|it\s+)?down\s+by|split\s+(?:that\s+|it\s+)?by|by)\s+([a-z0-9_ ]+)", q_low)
+            dim_name = dim_match.group(1).strip() if dim_match else "category"
+            resolved_q = f"{prior_q} broken down by {dim_name}"
+        elif re.search(r"\b(?:show\s+)?(top|bottom)\s+(\d+)\b", q_low):
+            tb_match = re.search(r"\b(?:show\s+)?(top|bottom)\s+(\d+)\b", q_low)
+            resolved_q = f"{tb_match.group(1).title()} {tb_match.group(2)} {prior_q}"
+        elif any(w in q_low for w in ("month", "monthly", "trend")):
+            resolved_q = f"Monthly trend of {prior_q}"
+        elif re.search(r"\bdrill\s+(?:down\s+)?(?:into\s+)?([a-z0-9_ ]+)\s+by\s+([a-z0-9_ ]+)", q_low):
+            drill_match = re.search(r"\bdrill\s+(?:down\s+)?(?:into\s+)?([a-z0-9_ ]+)\s+by\s+([a-z0-9_ ]+)", q_low)
+            seg = drill_match.group(1).strip()
+            dim = drill_match.group(2).strip()
+            resolved_q = f"{prior_q} for {seg} broken down by {dim}"
+        elif cleaned_sub:
+            resolved_q = f"{prior_q} filtered by {cleaned_sub}"
+        else:
+            resolved_q = f"{prior_q} ({question})"
+
+        return resolved_q, True, follow_up_ctx, prior_tables
+
+    @classmethod
+    def _generate_suggested_follow_ups(
+        cls,
+        df: pd.DataFrame,
+        question: str,
+        workspace: OKFWorkspace,
+        join_plan: JoinPlan,
+    ) -> list[str]:
+        """Proactively suggests the 3 best follow-up questions for the current result."""
+        if df.empty:
+            return [
+                "Show dataset overview and active tables",
+                "What are the top KPIs in this dataset?",
+                "Show sample records from active tables",
+            ]
+
+        num_cols = list(df.select_dtypes(include=["number"]).columns)
+        non_num_cols = [c for c in df.columns if c not in num_cols]
+
+        # Single KPI Result
+        if len(df) == 1:
+            if workspace.get_table("products"):
+                return [
+                    "Break down revenue by product category",
+                    "Show monthly revenue trend over time",
+                    "Compare performance across geographic regions",
+                ]
+            if workspace.get_table("colleges") or workspace.get_table("students"):
+                return [
+                    "Break down student count by college",
+                    "Show gender ratio across departments",
+                    "Compare average marks by college",
+                ]
+            return [
+                "Break this down by primary category",
+                "Show trend over time",
+                "View top 5 contributors",
+            ]
+
+        # Categorical Breakdown
+        if non_num_cols and num_cols:
+            dim_col = non_num_cols[0]
+            sorted_df = df.sort_values(by=num_cols[0], ascending=False)
+            top_seg = str(sorted_df.iloc[0][dim_col])
+
+            if any(k in dim_col.lower() for k in ("category", "product", "sku")):
+                return [
+                    f"Drill down into {top_seg} by region",
+                    f"Show monthly trend for {top_seg}",
+                    "Why did revenue change? Period-over-period variance",
+                ]
+            if any(k in dim_col.lower() for k in ("region", "country", "geo")):
+                return [
+                    f"Break down {top_seg} by product category",
+                    f"Compare customer tiers in {top_seg}",
+                    "Show monthly trend for top region",
+                ]
+            if any(k in dim_col.lower() for k in ("month", "date", "year")):
+                return [
+                    "Why did it change? Period-over-period variance analysis",
+                    "Break down this trend by product category",
+                    "Show top contributing drivers for peak month",
+                ]
+            return [
+                f"Drill down into {top_seg}",
+                "Show monthly trend for this breakdown",
+                "Compare against prior year / waterfall analysis",
+            ]
+
+        return [
+            "Break down by category",
+            "Show monthly trend",
+            "Filter to top 5",
+        ]
+
+    @classmethod
+    def _generate_drill_down_options(
+        cls,
+        df: pd.DataFrame,
+        workspace: OKFWorkspace,
+    ) -> list[dict[str, str]]:
+        """Identify available dimensions to drill into from the current result."""
+        if df.empty:
+            return []
+
+        non_num_cols = [c.lower() for c in df.columns if c not in df.select_dtypes(include=["number"]).columns]
+        current_dim = non_num_cols[0] if non_num_cols else ""
+
+        candidates = [
+            ("category", "Product Category", "products"),
+            ("region", "Geographic Region", "customers"),
+            ("customer_tier", "Customer Tier", "customers"),
+            ("sales_channel", "Sales Channel", "orders"),
+            ("order_month", "Monthly Trend", "orders"),
+            ("college_name", "College", "colleges"),
+            ("department_name", "Department", "departments"),
+            ("gender", "Gender", "students"),
+        ]
+
+        options = []
+        for dim_key, label, tbl_name in candidates:
+            if dim_key in current_dim:
+                continue
+            if workspace.get_table(tbl_name):
+                options.append({"dimension": dim_key, "label": label, "table": tbl_name})
+
+        return options[:4]
 
     @classmethod
     def _is_dataset_overview_question(cls, question: str) -> bool:

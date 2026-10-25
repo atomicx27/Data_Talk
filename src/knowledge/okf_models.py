@@ -221,6 +221,8 @@ class OKFWorkspace(BaseModel):
     interview_questions: list[InterviewQuestion] = Field(default_factory=list)
     what_if_parameters: list[WhatIfParameter] = Field(default_factory=list)
     pinned_widgets: list[PinnedWidget] = Field(default_factory=list)
+    domain_tag: str = ""
+    domain_title: str = ""
     updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def get_table(self, table_name: str) -> TableSchema | None:

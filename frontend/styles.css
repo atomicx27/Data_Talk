@@ -2457,3 +2457,112 @@ dialog.modal-dialog::backdrop {
     grid-template-columns: 1fr;
   }
 }
+
+/* ==================== INTERACTIVE SUGGESTIONS & DRILL-DOWN STYLES ==================== */
+.chat-suggestions-box {
+  margin-top: 14px;
+  padding: 10px 14px;
+  background: var(--bg-subtle);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+}
+
+.chat-suggestions-box:hover {
+  border-color: var(--primary-color);
+}
+
+.btn-suggestion-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-suggestion-chip:hover {
+  background: rgba(59, 130, 246, 0.08);
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+  transform: translateY(-1px);
+}
+
+.drilldown-dropdown-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.drilldown-menu {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: 100%;
+  margin-top: 4px;
+  z-index: 120;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  min-width: 190px;
+  padding: 4px 0;
+}
+
+.drilldown-menu.open {
+  display: block;
+}
+
+.drilldown-opt-btn {
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 12px;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: background var(--transition-fast);
+}
+
+.drilldown-opt-btn:hover {
+  background: var(--bg-hover);
+  color: var(--primary-color);
+}
+
+.plotly-click-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--primary-color);
+  border-radius: var(--radius-md);
+  margin-bottom: 8px;
+  font-size: 12px;
+  animation: fadeIn 0.2s ease-in;
+}
+
+.table-filter-input {
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  font-size: 11px;
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.table-filter-input:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}

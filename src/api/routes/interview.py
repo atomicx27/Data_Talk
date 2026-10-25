@@ -7,6 +7,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends
 
 from src.agents.interviewer_agent import InterviewerAgent
+from src.agents.knowledge_enricher import BusinessKnowledgeEnricher
 from src.api.deps import get_runtime, get_session
 from src.api.runtime import AppRuntime, SessionState
 from src.api.schemas import BusinessRuleCreateRequest, InterviewAnswerRequest
@@ -57,3 +58,32 @@ def add_business_rule(
         )
         runtime.okf_store.save(ws)
     return runtime.serialize_state(session)
+
+
+@router.post("/auto-enrich")
+def auto_enrich_knowledge(
+    runtime: Annotated[AppRuntime, Depends(get_runtime)],
+    session: Annotated[SessionState, Depends(get_session)],
+) -> dict[str, Any]:
+    ws_id = session.active_workspace_id
+    with runtime.workspace_lock(ws_id):
+        ws = runtime.get_workspace(ws_id)
+        rag = runtime.get_rag_store(ws.workspace_id)
+        report = BusinessKnowledgeEnricher.auto_enrich_workspace(
+            ws, llm_router=session.llm_router, rag_store=rag
+        )
+        InterviewerAgent.sync_schema_to_rag(ws, rag)
+        runtime.okf_store.save(ws)
+    return {
+        "report": report,
+        "state": runtime.serialize_state(session),
+    }
+
+
+@router.get("/domain")
+def get_domain_info(
+    runtime: Annotated[AppRuntime, Depends(get_runtime)],
+    session: Annotated[SessionState, Depends(get_session)],
+) -> dict[str, Any]:
+    ws = runtime.get_workspace(session.active_workspace_id)
+    return BusinessKnowledgeEnricher.detect_domain(ws)

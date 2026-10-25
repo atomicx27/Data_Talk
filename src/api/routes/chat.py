@@ -35,6 +35,8 @@ def run_chat_query(
     }
     session.what_if_overrides[ws_id] = overrides
 
+    history = session.chat_history.setdefault(ws_id, [])
+
     resp, df = QueryAgent.answer_question(
         question=req.question.strip(),
         workspace=ws,
@@ -43,6 +45,7 @@ def run_chat_query(
         connector=conn,
         llm_router=session.llm_router,
         what_if_overrides=overrides,
+        conversation_history=history,
     )
     if resp.recommended_chart_type and resp.recommended_chart_type in ("table", "kpi", "none"):
         rec_chart = resp.recommended_chart_type
@@ -54,7 +57,6 @@ def run_chat_query(
     rows = df.head(250).to_dict(orient="records") if not df.empty else []
     columns = [str(c) for c in df.columns]
 
-    history = session.chat_history.setdefault(ws_id, [])
     chat_entry = {
         "id": f"msg_{len(history) + 1}",
         "response": resp.model_dump(mode="json"),

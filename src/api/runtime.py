@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from src.agents.interviewer_agent import InterviewerAgent
+from src.agents.knowledge_enricher import BusinessKnowledgeEnricher
 from src.agents.llm_router import LLMRouter
 from src.agents.measure_compiler import MeasureCompiler
 from src.connectors.base import BaseConnector
@@ -188,6 +189,7 @@ class AppRuntime:
                     workspace.measures.append(im)
 
         self.okf_store.classify_table_roles(workspace)
+        BusinessKnowledgeEnricher.auto_enrich_workspace(workspace, llm_router=llm_router, rag_store=rag_store)
         InterviewerAgent.sync_schema_to_rag(workspace, rag_store)
         InterviewerAgent.generate_prioritized_questions(workspace, llm_router=llm_router)
         self.okf_store.save(workspace)
@@ -198,11 +200,13 @@ class AppRuntime:
         ws = self.get_workspace(ws_id)
         rag = self.get_rag_store(ws_id)
         readiness = InterviewerAgent.compute_readiness_score(ws)
+        domain_info = BusinessKnowledgeEnricher.detect_domain(ws)
         router = session.llm_router
         return {
             "active_workspace_id": ws_id,
             "workspaces": self.list_workspaces(extra=ws_id),
             "workspace": ws.model_dump(mode="json"),
+            "domain_info": domain_info,
             "readiness": readiness,
             "rag_counts": rag.count_by_collection(),
             "privacy_mode": router.firewall.privacy_mode.value,
