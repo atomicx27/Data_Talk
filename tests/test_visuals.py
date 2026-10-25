@@ -204,4 +204,64 @@ def test_automargin_and_transparent_canvas():
     assert fig.layout.yaxis.automargin is True
 
 
+def test_trend_line_chart_plots_fee_due_not_row_count():
+    """Verify Screenshot 1 issue: trend query with payment_year, total_fee_due, and row_count
+    plots total_fee_due on the Y-axis rather than the row_count metadata.
+    """
+    df_trend = pd.DataFrame({
+        "payment_year": [2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025],
+        "total_fee_due": [6780000.0, 12500000.0, 24000000.0, 45000000.0, 62000000.0, 78000000.0, 89000000.0, 98240000.0],
+        "row_count": [1200, 2400, 4800, 8900, 12400, 15600, 17800, 19600],
+    })
+
+    rec = ChartRecommender.recommend_chart_type(df_trend, "show me trend of total fees")
+    assert rec == "line"
+
+    fig = ChartRecommender.build_figure(df_trend, chart_type=rec, title="Trend of Total Fees")
+    assert fig is not None
+    assert len(fig.data) >= 1
+    # Trace must plot total_fee_due (values in millions), NOT row_count (values in thousands)
+    trace = fig.data[0]
+    assert trace.y[0] > 1000000.0  # Fees are 6.7M+, row_count is 1200
+    assert "total_fee_due" in str(trace.name).lower() or "fees" in str(fig.layout.yaxis.title.text or "").lower() or trace.y[0] == 6780000.0
+
+
+def test_two_dimension_drill_down_50_rows_recommends_stacked_bar_not_table():
+    """Verify Screenshot 2 issue: 2D drill-down with 50 rows (8 colleges x 7 years)
+    recommends stacked_horizontal_bar / stacked_bar and renders an interactive figure,
+    NOT defaulting to 'table' / None.
+    """
+    colleges = [
+        "College of Architecture & Built Environment",
+        "College of Computing & Software",
+        "College of Engineering & Technology",
+        "College of Arts & Sciences",
+        "College of Business",
+        "College of Health Sciences",
+        "College of Law",
+        "College of Education",
+    ]
+    years = [2019, 2020, 2021, 2022, 2023, 2024, 2025]
+    records = []
+    for c in colleges:
+        for y in years:
+            records.append({
+                "college_name": c,
+                "payment_year": y,
+                "total_fee_due": 1200000.0 * (y - 2018),
+                "payment_year_count": 2400,
+            })
+    df_drill = pd.DataFrame(records[:50])  # 50 rows, exactly as in screenshot
+    assert len(df_drill) == 50
+
+    rec = ChartRecommender.recommend_chart_type(df_drill, "Break that down by College")
+    assert rec in ("stacked_horizontal_bar", "stacked_bar")
+    assert rec != "table"
+
+    fig = ChartRecommender.build_figure(df_drill, chart_type=rec, title="Fees by College and Payment Year")
+    assert fig is not None
+    assert fig.layout.barmode == "stack"
+
+
+
 

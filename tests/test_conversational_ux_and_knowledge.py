@@ -12,8 +12,8 @@ from src.api.runtime import AppRuntime
 from src.connectors.duckdb_connector import DuckDBConnector
 from src.connectors.profiler import StatisticalProfiler
 from src.knowledge.join_inference import JoinInferenceEngine
-from src.knowledge.okf_models import OKFWorkspace, TableRole
-from src.knowledge.okf_store import OKFStore
+from src.knowledge.okf_models import OKFWorkspace, TableRole, TableSchema, ColumnProfile
+from src.knowledge.okf_store import OKFStore, JoinPlan
 from src.knowledge.rag_store import RAGStore
 
 
@@ -1019,6 +1019,68 @@ def test_drill_down_break_trend_by_college_no_irrelevant_table():
     assert len(df) == 2
     assert "college_name" in df.columns
     assert "avg_salary" in df.columns
+
+
+def test_fee_trend_and_drill_down_executive_summary_and_follow_ups():
+    """Verify Screenshot 1 & 2 fixes:
+    1. No duplicate 'total_total_fee_due' alias prefix.
+    2. Suggested follow-ups suggest College/Department on University workspace, not product category.
+    3. Executive summary on 2D drill-down analyzes Total Fee Due, not Payment Year Count.
+    """
+    ws = OKFWorkspace(
+        workspace_id="test_uni_fees",
+        workspace_name="University Workspace",
+        tables=[
+            TableSchema(name="colleges", columns=[ColumnProfile(name="college_id", data_type="BIGINT", is_primary_key=True), ColumnProfile(name="college_name", data_type="VARCHAR")]),
+            TableSchema(name="departments", columns=[ColumnProfile(name="department_id", data_type="BIGINT", is_primary_key=True), ColumnProfile(name="department_name", data_type="VARCHAR"), ColumnProfile(name="college_id", data_type="BIGINT")]),
+            TableSchema(name="students", columns=[ColumnProfile(name="student_id", data_type="BIGINT", is_primary_key=True), ColumnProfile(name="department_id", data_type="BIGINT"), ColumnProfile(name="payment_year", data_type="BIGINT"), ColumnProfile(name="total_fee_due", data_type="DOUBLE")]),
+        ]
+    )
+
+    # 1. Alias clean test: no 'total_total_fee_due'
+    clean_tot = QueryAgent._clean_agg_alias("total_fee_due", "SUM")
+    assert clean_tot == "total_fee_due"
+    clean_avg = QueryAgent._clean_agg_alias("total_fee_due", "AVG")
+    assert clean_avg == "avg_fee_due"
+
+    # Single-table trend query SQL alias verification
+    plan_students = JoinPlan(
+        required_tables=["students"],
+        bridge_tables=[],
+        join_edges=[],
+        sql_join_clauses=[],
+        has_fan_trap=False,
+        fact_tables_involved=["students"],
+        shared_dimensions=[],
+        fan_trap_guidance="",
+    )
+    trend_sql = QueryAgent._deterministic_sql_compiler("show me trend of total fees", ws, plan_students, [])
+    assert "total_total_fee_due" not in trend_sql
+    assert "total_fee_due" in trend_sql
+
+    # 2. Suggested follow-ups on University workspace
+    df_trend = pd.DataFrame({
+        "payment_year": [2023, 2024, 2025],
+        "total_fee_due": [78000000.0, 89000000.0, 98000000.0],
+        "row_count": [15000, 17000, 19000],
+    })
+    follow_ups = QueryAgent._generate_suggested_follow_ups(df_trend, "show me trend of total fees", ws, plan_students)
+    assert not any("product category" in f.lower() for f in follow_ups)
+    assert any("college" in f.lower() or "department" in f.lower() for f in follow_ups)
+
+    # 3. Executive summary on 2D drill-down
+    df_drill = pd.DataFrame({
+        "college_name": ["College of Architecture & Built Environment", "College of Engineering & Technology"],
+        "payment_year": [2025, 2025],
+        "total_fee_due": [98240000.0, 85000000.0],
+        "payment_year_count": [2483, 2100],
+    })
+    summary = QueryAgent._build_executive_summary("Break that down by College", df_drill, [], [], None, ws)
+    assert "Total Fee Due" in summary
+    assert "Payment Year Count" not in summary
+    assert "College of Architecture & Built Environment" in summary
+    assert "98,240,000.00" in summary or "98,240,000" in summary
+
 
 
 

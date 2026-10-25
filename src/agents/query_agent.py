@@ -480,6 +480,24 @@ class QueryAgent:
             return dax_q, dax_q
         return sql_q, dax_q
 
+    @staticmethod
+    def _clean_agg_alias(col_name: str, agg_fn: str) -> str:
+        clean = re.sub(r"[^a-z0-9_]+", "_", col_name.lower()).strip("_")
+        prefix = agg_fn.lower()
+        if prefix in ("sum", "total"):
+            if clean.startswith("total_") or clean.startswith("sum_"):
+                return clean
+            return f"total_{clean}"
+        elif prefix in ("avg", "average", "mean"):
+            if clean.startswith("avg_"):
+                return clean
+            if clean.startswith("total_"):
+                return clean.replace("total_", "avg_", 1)
+            if clean.startswith("sum_"):
+                return clean.replace("sum_", "avg_", 1)
+            return f"avg_{clean}"
+        return f"{prefix}_{clean}"
+
     @classmethod
     def _deterministic_sql_compiler(
         cls,
@@ -974,8 +992,7 @@ class QueryAgent:
                 if metric_tbl and metric_col:
                     m_clean = re.sub(r"[^a-z0-9_]+", "_", metric_col.lower()).strip("_")
                     agg_fn = "AVG" if any(w in q_low for w in ("avg", "average", "mean", "salary", "salaries", "compensation", "rate", "gpa", "score")) else "SUM"
-                    avg_alias = m_clean.replace("total_", "avg_") if m_clean.startswith("total_") else f"avg_{m_clean}"
-                    tot_alias = m_clean if m_clean.startswith("total_") else f"total_{m_clean}"
+                    metric_alias = cls._clean_agg_alias(metric_col, agg_fn)
                     ratio_alias = (m_clean.replace("total_", "") + "_ratio_pct").lstrip("_")
                     ratio_select = ""
                     if is_ratio_query:
@@ -985,8 +1002,8 @@ class QueryAgent:
                     return (
                         f"SELECT {d1_ref} AS {d1_alias},\n"
                         f"       {d2_ref} AS {d2_alias},\n"
-                        f"       COUNT(*) AS {d2_alias}_count,\n"
-                        f"       ROUND({agg_fn}(\"{metric_tbl}\".\"{metric_col}\"), 2) AS {avg_alias if agg_fn == 'AVG' else tot_alias}{ratio_select}\n"
+                        f"       ROUND({agg_fn}(\"{metric_tbl}\".\"{metric_col}\"), 2) AS {metric_alias},\n"
+                        f"       COUNT(*) AS {d2_alias}_count{ratio_select}\n"
                         f'FROM "{base_tbl_name}"{join_str}{where_clause}\n'
                         f"GROUP BY {d1_ref}, {d2_ref}\n"
                         f"ORDER BY {d1_ref}, {d2_ref} ASC\n"
@@ -1011,18 +1028,18 @@ class QueryAgent:
                 if metric_tbl and metric_col:
                     agg_fn = "AVG" if any(w in q_low for w in ("avg", "average", "mean")) else "SUM"
                     metric_ref = f'ROUND({agg_fn}("{metric_tbl}"."{metric_col}"), 2)'
-                    metric_alias = f"total_{metric_col}" if agg_fn == "SUM" else f"avg_{metric_col}"
+                    metric_alias = cls._clean_agg_alias(metric_col, agg_fn)
                     ratio_select = (
                         f",\n       ROUND(100.0 * COUNT(*) / NULLIF(SUM(COUNT(*)) OVER (), 0), 2) AS ratio_pct"
                         if is_ratio_query else ""
                     )
                     return (
                         f"SELECT {dim_ref} AS {dim_alias},\n"
-                        f"       COUNT(*) AS total_count,\n"
-                        f"       {metric_ref} AS {metric_alias}{ratio_select}\n"
+                        f"       {metric_ref} AS {metric_alias},\n"
+                        f"       COUNT(*) AS total_count{ratio_select}\n"
                         f'FROM "{base_tbl_name}"{join_str}{where_clause}\n'
                         f"GROUP BY {dim_ref}\n"
-                        f"ORDER BY total_count DESC\n"
+                        f"ORDER BY {metric_alias} DESC\n"
                         f"LIMIT 25"
                     )
                 else:
@@ -1095,7 +1112,7 @@ class QueryAgent:
             dim_expr = f'STRFTIME(TRY_CAST("{target_tbl.name}"."{date_col}" AS DATE), \'%Y\')' if "date" in date_col.lower() else f'"{target_tbl.name}"."{date_col}"'
             dim_alias = date_col.lower().replace("date", "year") if "date" in date_col.lower() else date_col.lower()
             if active_num_col:
-                alias = f"avg_{active_num_col}" if agg_fn == "AVG" else f"total_{active_num_col}"
+                alias = cls._clean_agg_alias(active_num_col, agg_fn)
                 return (
                     f'SELECT {dim_expr} AS {dim_alias},\n'
                     f'       ROUND({agg_fn}("{target_tbl.name}"."{active_num_col}"), 2) AS {alias},\n'
@@ -1109,7 +1126,7 @@ class QueryAgent:
 
         if cat_cols and active_num_col:
             agg_fn = "AVG" if any(w in q_low for w in ("avg", "average", "mean", "salary", "salaries", "compensation", "rate", "gpa", "score")) else "SUM"
-            alias = f"avg_{active_num_col}" if agg_fn == "AVG" else f"total_{active_num_col}"
+            alias = cls._clean_agg_alias(active_num_col, agg_fn)
             return (
                 f'SELECT "{cat_cols[0]}", ROUND({agg_fn}("{target_tbl.name}"."{active_num_col}"), 2) AS {alias}, COUNT(*) AS row_count '
                 f'FROM "{target_tbl.name}" GROUP BY "{cat_cols[0]}" ORDER BY {alias} DESC LIMIT 25'
@@ -1214,6 +1231,15 @@ class QueryAgent:
         num_cols = list(df.select_dtypes(include=["number"]).columns)
         non_num_cols = [c for c in df.columns if c not in num_cols]
 
+        calendar_id_dims = [
+            c for c in num_cols
+            if str(c).lower().endswith(("_year", "_id", "_code", "_tier", "_quarter", "_month", "_day"))
+            or str(c).lower() in ("year", "payment_year", "hire_year", "academic_year", "calendar_year", "birth_year", "fiscal_year", "id", "code", "quarter", "month", "day")
+        ]
+        if calendar_id_dims:
+            num_cols = [c for c in num_cols if c not in calendar_id_dims]
+            non_num_cols = [c for c in non_num_cols if c not in calendar_id_dims] + calendar_id_dims
+
         if len(df) == 1 and num_cols:
             parts = [f"**{col.replace('_', ' ').title()}**: `{df[col].iloc[0]:,.2f}`" for col in num_cols[:4]]
             kpi_line = " | ".join(parts)
@@ -1229,7 +1255,17 @@ class QueryAgent:
         if non_num_cols and num_cols:
             dim_col = non_num_cols[0]
             second_dim_col = non_num_cols[1] if len(non_num_cols) >= 2 else None
-            metric_col = num_cols[0]
+
+            # Prioritize business metrics (revenue, fee, salary, amount, profit, etc.) over count columns
+            business_metrics = [
+                c for c in num_cols
+                if not any(k in str(c).lower() for k in ("row_count", "total_count", "_count", "count"))
+            ]
+            matched_metrics = [
+                c for c in num_cols
+                if any(k in str(c).lower() for k in question.lower().split() if len(k) > 2)
+            ]
+            metric_col = matched_metrics[0] if matched_metrics else (business_metrics[0] if business_metrics else num_cols[0])
             sorted_df = df.sort_values(by=metric_col, ascending=False)
             top_row = sorted_df.iloc[0]
             bot_row = sorted_df.iloc[-1]
@@ -1486,6 +1522,14 @@ class QueryAgent:
 
         num_cols = list(df.select_dtypes(include=["number"]).columns)
         non_num_cols = [c for c in df.columns if c not in num_cols]
+        calendar_id_dims = [
+            c for c in num_cols
+            if str(c).lower().endswith(("_year", "_id", "_code", "_tier", "_quarter", "_month", "_day"))
+            or str(c).lower() in ("year", "payment_year", "hire_year", "academic_year", "calendar_year", "birth_year", "fiscal_year", "id", "code", "quarter", "month", "day")
+        ]
+        if calendar_id_dims:
+            num_cols = [c for c in num_cols if c not in calendar_id_dims]
+            non_num_cols = [c for c in non_num_cols if c not in calendar_id_dims] + calendar_id_dims
 
         # Single KPI Result
         if len(df) == 1:
@@ -1520,16 +1564,26 @@ class QueryAgent:
                     "Why did revenue change? Period-over-period variance",
                 ]
             if any(k in dim_col.lower() for k in ("region", "country", "geo")):
+                drill_opts = cls._generate_drill_down_options(df, workspace)
+                breakdown_target = drill_opts[0]["label"] if drill_opts else ("product category" if workspace.get_table("products") else "category")
                 return [
-                    f"Break down {top_seg} by product category",
+                    f"Break down {top_seg} by {breakdown_target}",
                     f"Compare customer tiers in {top_seg}",
                     "Show monthly trend for top region",
                 ]
             if any(k in dim_col.lower() for k in ("month", "date", "year")):
+                drill_opts = cls._generate_drill_down_options(df, workspace)
+                breakdown_target = drill_opts[0]["label"] if drill_opts else (
+                    "College" if workspace.get_table("colleges") else (
+                        "Department" if workspace.get_table("departments") else (
+                            "product category" if workspace.get_table("products") else "category"
+                        )
+                    )
+                )
                 return [
                     "Why did it change? Period-over-period variance analysis",
-                    "Break down this trend by product category",
-                    "Show top contributing drivers for peak month",
+                    f"Break down this trend by {breakdown_target}",
+                    "Show top contributing drivers for peak period",
                 ]
             return [
                 f"Drill down into {top_seg}",
@@ -1553,7 +1607,13 @@ class QueryAgent:
         if df.empty:
             return []
 
-        non_num_cols = [c.lower() for c in df.columns if c not in df.select_dtypes(include=["number"]).columns]
+        num_cols = list(df.select_dtypes(include=["number"]).columns)
+        calendar_id_dims = [
+            c for c in num_cols
+            if str(c).lower().endswith(("_year", "_id", "_code", "_tier", "_quarter", "_month", "_day"))
+            or str(c).lower() in ("year", "payment_year", "hire_year", "academic_year", "calendar_year", "birth_year", "fiscal_year", "id", "code", "quarter", "month", "day")
+        ]
+        non_num_cols = [c.lower() for c in df.columns if c not in num_cols or c in calendar_id_dims]
         current_dim = non_num_cols[0] if non_num_cols else ""
 
         candidates = [

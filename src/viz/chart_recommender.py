@@ -94,20 +94,35 @@ class ChartRecommender:
         num_cols = list(df.select_dtypes(include=["number"]).columns)
         dim_cols = [c for c in df.columns if c not in num_cols]
 
-        if dim_cols:
+        # Identify calendar/id columns that pandas loaded as numeric but are semantically dimensions
+        calendar_id_dims = [
+            c for c in num_cols
+            if str(c).lower().endswith(("_year", "_id", "_code", "_tier", "_quarter", "_month", "_day"))
+            or str(c).lower() in ("year", "payment_year", "hire_year", "academic_year", "calendar_year", "birth_year", "fiscal_year", "id", "code", "quarter", "month", "day")
+        ]
+        if calendar_id_dims:
+            num_cols = [c for c in num_cols if c not in calendar_id_dims]
+            dim_cols = [c for c in dim_cols if c not in calendar_id_dims] + calendar_id_dims
+
+        if len(dim_cols) == 1:
             first_dim = str(dim_cols[0]).lower()
             if any(k in first_dim for k in ("date", "month", "year", "quarter", "week", "day", "time")):
                 return "area" if "area" in q_low else "line"
 
         # High cardinality guard: categorical charts with > 40 items become illegible walls of bars.
         # Fallback to interactive paginated table to preserve readability.
-        if len(df) > 40:
+        # For 2-dimension breakdowns, cardinality applies to the primary X-axis dimension, not total rows.
+        primary_dim = dim_cols[0] if dim_cols else None
+        primary_categories = df[primary_dim].nunique() if (primary_dim and primary_dim in df.columns) else len(df)
+        is_primary_time = any(k in str(primary_dim).lower() for k in ("date", "month", "year", "quarter", "week", "day", "time")) if primary_dim else False
+
+        if primary_categories > 40 and not is_primary_time:
             return "table"
 
         # Multi-metric breakdown / composition check (e.g. Male/Female/Other or New/Returning/Churned)
         total_cols = [
             c for c in num_cols
-            if any(k in str(c).lower() for k in ("total", "sum", "overall", "all_students", "grand_total"))
+            if any(k in str(c).lower() for k in ("total_count", "grand_total", "all_students", "total_students"))
         ]
         non_total_num = [c for c in num_cols if c not in total_cols]
         pct_breakdowns = [
@@ -135,12 +150,13 @@ class ChartRecommender:
         ):
             return "stacked_bar"
 
-        # If 2 categorical dimensions exist (e.g. COLLEGE NAME and GENDER), multi-series stacked chart is ideal
+        # If 2 categorical dimensions exist (e.g. COLLEGE NAME and GENDER/YEAR), multi-series stacked chart is ideal
         if len(dim_cols) >= 2:
-            if is_breakdown_intent or any(k in q_low for k in ("by", "breakdown", "per", "across", "wise", "student", "college", "grade")):
-                if len(df[dim_cols[0]].unique()) > 5 or len(df) > 8:
+            if is_breakdown_intent or any(k in q_low for k in ("by", "breakdown", "per", "across", "wise", "student", "college", "grade", "trend")):
+                if df[dim_cols[0]].nunique() > 5 or len(df) > 8:
                     return "stacked_horizontal_bar"
                 return "stacked_bar"
+            return "stacked_bar"
 
         # Dual-Axis Combo chart: ONLY when exactly 1 volume metric + 1 rate/percentage metric exist,
         # and NOT a multi-category demographic/composition breakdown
@@ -184,28 +200,37 @@ class ChartRecommender:
         num_cols = list(df.select_dtypes(include=["number"]).columns)
         dim_cols = [c for c in df.columns if c not in num_cols]
 
+        calendar_id_dims = [
+            c for c in num_cols
+            if str(c).lower().endswith(("_year", "_id", "_code", "_tier", "_quarter", "_month", "_day"))
+            or str(c).lower() in ("year", "payment_year", "hire_year", "academic_year", "calendar_year", "birth_year", "fiscal_year", "id", "code", "quarter", "month", "day")
+        ]
+        if calendar_id_dims:
+            num_cols = [c for c in num_cols if c not in calendar_id_dims]
+            dim_cols = [c for c in dim_cols if c not in calendar_id_dims] + calendar_id_dims
+
         if not num_cols:
             return None
 
         # High cardinality guard in visual generation: categorical charts with > 40 items become illegible walls of bars.
         if chosen_type in ("bar", "horizontal_bar", "stacked_bar", "stacked_bar_100", "stacked_horizontal_bar", "pie", "donut", "radar", "funnel"):
-            if len(df) > 40:
-                first_dim = str(dim_cols[0]).lower() if dim_cols else ""
-                is_time = any(k in first_dim for k in ("date", "month", "year", "quarter", "week", "day", "time"))
-                if not is_time:
-                    # If raw entity data (e.g. 10,000 raw students), refuse to render an unreadable blob
-                    if len(df) > 100:
-                        return None
-                    # Otherwise, gracefully truncate to Top 25
-                    p_sort = num_cols[0] if num_cols else df.columns[0]
-                    df = df.sort_values(by=p_sort, ascending=False).head(25)
+            primary_dim = dim_cols[0] if dim_cols else None
+            primary_categories = df[primary_dim].nunique() if (primary_dim and primary_dim in df.columns) else len(df)
+            is_time = any(k in str(primary_dim).lower() for k in ("date", "month", "year", "quarter", "week", "day", "time")) if primary_dim else False
+            if primary_categories > 40 and not is_time:
+                # If raw entity data (e.g. 10,000 raw students), refuse to render an unreadable blob
+                if primary_categories > 100:
+                    return None
+                # Otherwise, gracefully truncate to Top 25
+                p_sort = num_cols[0] if num_cols else df.columns[0]
+                df = df.sort_values(by=p_sort, ascending=False).head(25)
 
         x = x_col or (dim_cols[0] if dim_cols else df.columns[0])
 
         # Detect multi-metric breakdown candidates (e.g., Male/Female/Other) excluding grand totals
         total_cols = [
             c for c in num_cols
-            if any(k in str(c).lower() for k in ("total", "sum", "overall", "all_students", "grand_total"))
+            if any(k in str(c).lower() for k in ("total_count", "grand_total", "all_students", "total_students"))
         ]
         non_total_num = [c for c in num_cols if c not in total_cols and c != x]
         pct_breakdowns = [
@@ -214,18 +239,29 @@ class ChartRecommender:
         ]
         count_breakdowns = [c for c in non_total_num if c not in pct_breakdowns]
 
+        # Prioritize business measures (revenue, fee, salary, amount, profit, etc.) over row counts
+        business_metrics = [
+            c for c in num_cols
+            if not any(k in str(c).lower() for k in ("row_count", "total_count", "_count"))
+        ]
+        matched_metrics = [
+            c for c in num_cols
+            if any(k in str(c).lower() for k in title.lower().split() if len(k) > 2)
+        ]
+        preferred_single_metric = matched_metrics[0] if matched_metrics else (business_metrics[0] if business_metrics else num_cols[0])
+
         if chosen_type in ("stacked_bar_100", "percent_stacked_bar") and len(pct_breakdowns) >= 2:
             breakdown_ys = pct_breakdowns
-        elif len(count_breakdowns) >= 2:
+        elif len(count_breakdowns) >= 2 and chosen_type in ("stacked_bar", "stacked_horizontal_bar"):
             breakdown_ys = count_breakdowns
         elif len(pct_breakdowns) >= 2:
             breakdown_ys = pct_breakdowns
         else:
-            breakdown_ys = non_total_num if non_total_num else [num_cols[0]]
+            breakdown_ys = [preferred_single_metric]
 
         ys = y_cols or breakdown_ys
         if not ys:
-            ys = [num_cols[0]]
+            ys = [preferred_single_metric]
 
         primary_y = ys[0]
 
