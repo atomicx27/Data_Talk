@@ -115,6 +115,34 @@ class QueryAgent:
             for mt in m.involved_tables:
                 if mt not in target_tables and workspace.get_table(mt):
                     target_tables.append(mt)
+
+        # Out-of-Domain Guard: If no tables, columns, or measures in this workspace match the query,
+        # fail gracefully with a helpful advisory message instead of running arbitrary SQL on random tables.
+        if not target_tables and not matched_measures and workspace.active_tables():
+            active_names = [t.name for t in workspace.active_tables()]
+            resp = QueryResponse(
+                success=False,
+                user_question=q_clean,
+                executed_query="-- No matching tables found in active workspace",
+                query_dialect=workspace.dialect,
+                involved_tables=[],
+                join_clauses_used=[],
+                measures_applied=[],
+                executive_summary=(
+                    f"⚠️ **Requested Data Not Found in Workspace**\n\n"
+                    f"The active workspace (`{workspace.workspace_name}`) does not contain tables, columns, or measures relating to **\"{q_clean}\"**.\n\n"
+                    f"**Available tables in this workspace:**\n"
+                    + "\n".join(f"- `{t}`" for t in active_names[:10])
+                    + (f"\n- ...and {len(active_names) - 10} more tables" if len(active_names) > 10 else "")
+                    + "\n\n💡 *Tip: Upload a CSV/Excel file or connect another database from the 'Connect Data' tab to query this information.*"
+                ),
+                recommended_chart_type="table",
+                error_message=f"No matching tables found in workspace for query: '{q_clean}'",
+                is_follow_up=is_follow_up,
+                follow_up_context=follow_up_ctx,
+            )
+            return resp, pd.DataFrame()
+
         if len(target_tables) > len(join_plan.required_tables):
             join_plan = okf_store.get_join_plan(workspace, target_tables)
 
@@ -256,7 +284,12 @@ class QueryAgent:
             t_norm = re.sub(r"[_\s]+", " ", t_low)
             singular = t_low[:-1] if t_low.endswith("s") else t_low
             singular_norm = singular.replace("_", " ")
-            if t_low in q_low or singular in q_low or t_norm in q_norm or singular_norm in q_norm:
+            if (
+                re.search(rf"\b{re.escape(t_low)}\b", q_low)
+                or re.search(rf"\b{re.escape(singular)}\b", q_low)
+                or re.search(rf"\b{re.escape(t_norm)}\b", q_norm)
+                or re.search(rf"\b{re.escape(singular_norm)}\b", q_norm)
+            ):
                 found.append(tbl.name)
                 continue
             for col in tbl.columns:
@@ -264,42 +297,40 @@ class QueryAgent:
                     continue
                 c_low = col.name.lower()
                 c_norm = re.sub(r"[_\s]+", " ", c_low)
-                if c_low in q_low or c_norm in q_norm:
+                if re.search(rf"\b{re.escape(c_low)}\b", q_low) or re.search(rf"\b{re.escape(c_norm)}\b", q_norm):
                     found.append(tbl.name)
                     break
                 col_words = [w for w in c_norm.split() if len(w) > 3]
-                if len(col_words) >= 2 and all(w in q_norm for w in col_words):
+                if len(col_words) >= 2 and all(re.search(rf"\b{re.escape(w)}\b", q_norm) for w in col_words):
                     found.append(tbl.name)
                     break
 
-        # Domain keyword mapping for common dimensions/facts
+        # Domain keyword mapping for common dimensions/facts (with word boundary protection)
         keyword_table_hints = {
-            "customers": ("customer", "client", "tier", "region", "company", "ent", "smb"),
-            "products": ("product", "sku", "category", "categories", "hardware", "cloud", "suite"),
-            "orders": ("order", "revenue", "sales", "profit", "margin", "discount", "channel", "qty", "month", "year", "top"),
-            "returns": ("return", "refund", "defective", "reason"),
+            "customers": ("customer", "customers", "client", "clients", "tier", "region", "company", "ent", "smb"),
+            "products": ("product", "products", "sku", "category", "categories", "hardware", "cloud", "suite"),
+            "orders": ("order", "orders", "revenue", "sales", "profit", "margin", "discount", "channel", "qty", "month", "year", "top"),
+            "returns": ("return", "returns", "refund", "refunds", "defective", "reason"),
             "enrollments_marks": ("grade", "grades", "mark", "marks", "score", "scores", "gpa", "exam", "assessment", "attendance", "enrollment", "enrol"),
             "students": ("student", "students", "gender", "dob", "birth", "admission", "semester"),
             "colleges": ("college", "colleges", "campus", "dean"),
-            "courses": ("course", "courses", "credit", "syllabus"),
+            "courses": ("course", "courses", "credit", "credits", "syllabus"),
             "degree_programs": ("program", "degree", "major"),
             "departments": ("department", "departments", "dept", "budget"),
-            "fee_invoices": ("fee", "fees", "invoice", "tuition", "paid", "balance", "due", "payment"),
-            "faculty": ("faculty", "professor", "teacher", "instructor", "salary", "rank"),
+            "fee_invoices": ("fee", "fees", "invoice", "invoices", "tuition", "paid", "balance", "due", "payment"),
+            "faculty": ("faculty", "professor", "professors", "teacher", "instructor", "salary", "rank"),
         }
         for t_name, kw_tuple in keyword_table_hints.items():
-            if workspace.get_table(t_name) and any(k in q_low for k in kw_tuple):
+            if workspace.get_table(t_name) and any(re.search(rf"\b{re.escape(k)}\b", q_low) for k in kw_tuple):
                 if t_name not in found:
                     found.append(t_name)
 
         if not found:
             for item in rag_bundle.get("schema_glossary", [])[:2]:
-                t_meta = item.get("metadata", {}).get("table_name")
-                if t_meta and workspace.get_table(t_meta) and t_meta not in found:
-                    found.append(t_meta)
-
-        if not found and workspace.active_tables():
-            found.append(workspace.active_tables()[0].name)
+                if item.get("bm25", 0.0) >= 0.5 or item.get("cosine", 0.0) >= 0.35:
+                    t_meta = item.get("metadata", {}).get("table_name")
+                    if t_meta and workspace.get_table(t_meta) and t_meta not in found:
+                        found.append(t_meta)
 
         return found
 
@@ -308,9 +339,12 @@ class QueryAgent:
         q_low = question.lower()
         matched: list[SemanticMeasure] = []
         for m in workspace.measures:
-            if m.name.lower() in q_low or any(s.lower() in q_low for s in m.synonyms):
+            m_low = m.name.lower()
+            if re.search(rf"\b{re.escape(m_low)}\b", q_low) or any(
+                re.search(rf"\b{re.escape(s.lower())}\b", q_low) for s in m.synonyms
+            ):
                 matched.append(m)
-            elif any(tok in q_low for tok in m.name.lower().split() if len(tok) > 4):
+            elif any(re.search(rf"\b{re.escape(tok)}\b", q_low) for tok in m_low.split() if len(tok) > 4):
                 matched.append(m)
         return matched
 

@@ -621,4 +621,29 @@ def test_do_same_for_faculty_entity_substitution_and_no_dummy_gender(enriched_de
     assert "students" not in sql.lower()
 
 
+def test_out_of_domain_query_graceful_advisory(enriched_demo_workspace):
+    """Verify that when the user asks for data completely absent from the workspace
+    (e.g. 'Show patient heart rates and surgical procedures'), the agent does NOT
+    force an arbitrary SQL query onto a random table, but returns a clear advisory notice.
+    """
+    from src.agents.query_agent import QueryAgent
+
+    ws, okf_store, rag_store, conn, report = enriched_demo_workspace
+
+    resp, df = QueryAgent.answer_question(
+        question="Show patient hospital visits and surgical procedures",
+        workspace=ws,
+        okf_store=okf_store,
+        rag_store=rag_store,
+        connector=conn,
+    )
+
+    assert resp.success is False
+    assert df.empty
+    assert "Requested Data Not Found in Workspace" in resp.executive_summary
+    assert "Available tables in this workspace" in resp.executive_summary
+    assert resp.executed_query.startswith("-- No matching tables")
+
+
+
 
