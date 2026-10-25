@@ -645,5 +645,88 @@ def test_out_of_domain_query_graceful_advisory(enriched_demo_workspace):
     assert resp.executed_query.startswith("-- No matching tables")
 
 
+def test_multi_table_marks_by_gender_and_college_query(enriched_demo_workspace):
+    """Verify that when the user asks for 'students marks ratio based on there gender for each college',
+    the agent accurately selects students.gender (rather than completion_status) and enrollments_marks.total_marks,
+    performing multi-hop joins across colleges, students, and enrollments_marks without bogus domain notices.
+    """
+    from src.agents.query_agent import QueryAgent
+    from src.knowledge.okf_models import OKFWorkspace, TableSchema, ColumnProfile, TableRole, RelationshipEdge
+    from src.knowledge.okf_store import OKFStore
+
+    # Construct schema with colleges, students, and enrollments_marks
+    colleges_tbl = TableSchema(
+        name="colleges",
+        table_role=TableRole.DIMENSION,
+        columns=[
+            ColumnProfile(name="college_id", data_type="BIGINT", is_primary_key=True),
+            ColumnProfile(name="college_code", data_type="VARCHAR"),
+        ],
+    )
+    students_tbl = TableSchema(
+        name="students",
+        table_role=TableRole.DIMENSION,
+        columns=[
+            ColumnProfile(name="student_id", data_type="BIGINT", is_primary_key=True),
+            ColumnProfile(name="college_id", data_type="BIGINT", is_foreign_key=True),
+            ColumnProfile(name="gender", data_type="VARCHAR"),
+            ColumnProfile(name="academic_status", data_type="VARCHAR"),
+        ],
+    )
+    enrollments_tbl = TableSchema(
+        name="enrollments_marks",
+        table_role=TableRole.FACT,
+        columns=[
+            ColumnProfile(name="enrollment_id", data_type="BIGINT", is_primary_key=True),
+            ColumnProfile(name="student_id", data_type="BIGINT", is_foreign_key=True),
+            ColumnProfile(name="total_marks", data_type="DOUBLE"),
+            ColumnProfile(name="completion_status", data_type="VARCHAR"),
+        ],
+    )
+
+    ws = OKFWorkspace(
+        workspace_id="test_univ_schema",
+        workspace_name="University BI",
+        source_type="duckdb",
+        dialect="duckdb",
+        tables=[colleges_tbl, students_tbl, enrollments_tbl],
+        relationships=[
+            RelationshipEdge(id="rel_stud_col", source_table="students", source_column="college_id", target_table="colleges", target_column="college_id"),
+            RelationshipEdge(id="rel_enr_stud", source_table="enrollments_marks", source_column="student_id", target_table="students", target_column="student_id"),
+        ],
+    )
+
+    q = "show me students marks ratio based on there gender for each college"
+    okf_store_inst = OKFStore()
+    join_plan = okf_store_inst.get_join_plan(ws, ["colleges", "enrollments_marks", "students"])
+
+    sql = QueryAgent._deterministic_sql_compiler(
+        question=q,
+        workspace=ws,
+        join_plan=join_plan,
+        matched_measures=[],
+    )
+
+    assert sql is not None
+    sql_low = sql.lower()
+
+    # 1. Must group by college_code and gender
+    assert "college_code" in sql_low
+    assert "gender" in sql_low
+
+    # 2. Must NOT mistakenly choose completion_status
+    assert "completion_status" not in sql_low
+
+    # 3. Must aggregate total_marks
+    assert "total_marks" in sql_low
+    assert "marks_ratio_pct" in sql_low
+
+    # 4. Must join across all three tables
+    assert "students" in sql_low
+    assert "colleges" in sql_low
+    assert "enrollments_marks" in sql_low
+
+
+
 
 

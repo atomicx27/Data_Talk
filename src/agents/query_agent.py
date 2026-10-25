@@ -692,19 +692,35 @@ class QueryAgent:
             # Look for metric (numeric column mentioned or present in required tables)
             # Check domain-specific synonyms first (e.g. grades/marks/gpa -> total_marks, fee -> tuition)
             if any(g in q_low for g in ("grade", "grades", "mark", "marks", "score", "scores", "gpa")):
+                metric_candidates: list[tuple[int, str, str]] = []
                 for t_name in join_plan.required_tables:
                     t_obj = workspace.get_table(t_name)
                     if not t_obj:
                         continue
                     for c in t_obj.columns:
-                        if any(k in c.name.lower() for k in ("mark", "grade", "score", "gpa")) and any(
-                            ty in c.data_type.upper() for ty in ("INT", "FLOAT", "DOUBLE", "NUMERIC", "DECIMAL")
-                        ):
-                            metric_tbl = t_name
-                            metric_col = c.name
-                            break
-                    if metric_tbl:
-                        break
+                        if c.is_blocked or c.is_primary_key or c.is_foreign_key:
+                            continue
+                        if not any(ty in c.data_type.upper() for ty in ("INT", "FLOAT", "DOUBLE", "NUMERIC", "DECIMAL")):
+                            continue
+                        c_low = c.name.lower()
+                        score = 0
+                        if any(w in q_low for w in ("mark", "marks")) and "mark" in c_low:
+                            score = 100
+                        elif any(w in q_low for w in ("score", "scores")) and "score" in c_low:
+                            score = 90
+                        elif any(w in q_low for w in ("grade", "grades", "gpa")) and any(k in c_low for k in ("grade", "gpa", "mark")):
+                            score = 80
+                        elif any(k in c_low for k in ("mark", "grade", "score", "gpa")):
+                            score = 60
+
+                        if score > 0:
+                            if "total" in c_low:
+                                score += 10
+                            metric_candidates.append((score, t_name, c.name))
+
+                if metric_candidates:
+                    metric_candidates.sort(key=lambda x: -x[0])
+                    _, metric_tbl, metric_col = metric_candidates[0]
 
             if not metric_tbl:
                 for t_name in join_plan.required_tables:
@@ -811,6 +827,7 @@ class QueryAgent:
             second_dim_tbl = None
             second_dim_col = None
             if dim_tbl and dim_col and any(k in q_low for k in ("ratio", "ritio", "rio", "gender", "rank", "status", "breakdown", "by", "across", "distribution")):
+                candidates: list[tuple[int, str, str]] = []
                 for t_name in join_plan.required_tables:
                     t_obj = workspace.get_table(t_name)
                     if not t_obj:
@@ -820,15 +837,46 @@ class QueryAgent:
                             continue
                         if t_name == dim_tbl and c.name == dim_col:
                             continue
+                        if metric_tbl and t_name == metric_tbl and c.name == metric_col:
+                            continue
                         c_low = c.name.lower()
-                        if any(k in c_low for k in ("gender", "status", "category", "type", "rank")) and any(
-                            k in q_low for k in (c_low, "gender", "category", "rank", "status", "faculty", "breakdown", "distribution")
-                        ):
-                            second_dim_tbl = t_name
-                            second_dim_col = c.name
-                            break
-                    if second_dim_tbl:
-                        break
+                        if c_low in ("first_name", "last_name", "phone", "phone_number", "email", "address", "remarks", "syllabus_summary"):
+                            continue
+
+                        score = 0
+                        # 1. Direct whole-word mention in user question (highest precedence)
+                        if re.search(rf"\b{re.escape(c_low)}\b", q_low):
+                            score = 100
+                        # 2. Specific demographic/concept mappings
+                        elif any(k in q_low for k in ("gender", "sex", "male", "female", "demographic")) and c_low == "gender":
+                            score = 100
+                        elif any(k in q_low for k in ("rank", "title", "professor")) and "rank" in c_low:
+                            score = 95
+                        elif any(k in q_low for k in ("tier", "segment", "commercial")) and ("tier" in c_low or "segment" in c_low):
+                            score = 95
+                        elif any(k in q_low for k in ("category", "type", "class")) and "category" in c_low:
+                            score = 90
+                        elif "status" in q_low and "status" in c_low:
+                            score = 90
+                        # 3. Fallback when user asks for general breakdown/ratio without naming a second dimension
+                        elif any(k in q_low for k in ("ratio", "breakdown", "distribution", "across")):
+                            if c_low == "gender":
+                                score = 50
+                            elif "rank" in c_low:
+                                score = 40
+                            elif "tier" in c_low:
+                                score = 35
+                            elif "category" in c_low:
+                                score = 30
+                            elif "status" in c_low:
+                                score = 20
+
+                        if score > 0:
+                            candidates.append((score, t_name, c.name))
+
+                if candidates:
+                    candidates.sort(key=lambda x: -x[0])
+                    _, second_dim_tbl, second_dim_col = candidates[0]
 
             first_edge = join_plan.join_edges[0]
             base_tbl_name = metric_tbl or first_edge.source_table
@@ -871,6 +919,29 @@ class QueryAgent:
                 d2_ref = f'"{second_dim_tbl}"."{second_dim_col}"'
                 d1_alias = re.sub(r"[^a-z0-9_]+", "_", dim_col.lower()).strip("_")
                 d2_alias = re.sub(r"[^a-z0-9_]+", "_", second_dim_col.lower()).strip("_")
+
+                if metric_tbl and metric_col:
+                    m_clean = re.sub(r"[^a-z0-9_]+", "_", metric_col.lower()).strip("_")
+                    avg_alias = m_clean.replace("total_", "avg_") if m_clean.startswith("total_") else f"avg_{m_clean}"
+                    tot_alias = m_clean if m_clean.startswith("total_") else f"total_{m_clean}"
+                    ratio_alias = (m_clean.replace("total_", "") + "_ratio_pct").lstrip("_")
+                    ratio_select = ""
+                    if is_ratio_query:
+                        ratio_select = (
+                            f",\n       ROUND(100.0 * SUM(\"{metric_tbl}\".\"{metric_col}\") / NULLIF(SUM(SUM(\"{metric_tbl}\".\"{metric_col}\")) OVER (PARTITION BY {d1_ref}), 0), 2) AS {ratio_alias}"
+                        )
+                    return (
+                        f"SELECT {d1_ref} AS {d1_alias},\n"
+                        f"       {d2_ref} AS {d2_alias},\n"
+                        f"       COUNT(*) AS {d2_alias}_count,\n"
+                        f"       ROUND(AVG(\"{metric_tbl}\".\"{metric_col}\"), 2) AS {avg_alias},\n"
+                        f"       ROUND(SUM(\"{metric_tbl}\".\"{metric_col}\"), 2) AS {tot_alias}{ratio_select}\n"
+                        f'FROM "{base_tbl_name}"{join_str}\n'
+                        f"GROUP BY {d1_ref}, {d2_ref}\n"
+                        f"ORDER BY {d1_ref}, {d2_alias}_count DESC\n"
+                        f"LIMIT 50"
+                    )
+
                 return (
                     f"SELECT {d1_ref} AS {d1_alias},\n"
                     f"       {d2_ref} AS {d2_alias},\n"

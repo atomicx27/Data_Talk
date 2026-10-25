@@ -97,6 +97,8 @@ class LLMRouter:
 
     def is_configured(self) -> bool:
         """Return True if an API key is configured for the active/fallback provider or Ollama is selected."""
+        if os.environ.get("DATA_TALK_OFFLINE_MODE", "").lower() in ("1", "true", "yes"):
+            return False
         if self.model.startswith("ollama/"):
             return True
         if self.api_key and len(self.api_key.strip()) > 5:

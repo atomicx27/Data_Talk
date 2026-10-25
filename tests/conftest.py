@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
 from pathlib import Path
 from typing import Generator
+
+# Force deterministic offline mode during pytest suites to prevent network latency and LLM rate-limit flakes
+os.environ["DATA_TALK_OFFLINE_MODE"] = "1"
 
 import pytest
 from fastapi.testclient import TestClient
