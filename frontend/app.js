@@ -1942,18 +1942,16 @@ function renderChatView() {
               </div>
             `;
             bannerEl.querySelector('.btn-click-drill-region')?.addEventListener('click', () => {
-              const chatInput = document.getElementById('chatInput');
-              if (chatInput) {
-                chatInput.value = `Drill down into ${clickedVal} by region`;
-                handleChatSubmit();
-              }
+              const q = `Drill down into ${clickedVal} by region`;
+              const inputEl = document.getElementById('chatQuestionInput');
+              if (inputEl) inputEl.value = q;
+              submitChatQuestion(q);
             });
             bannerEl.querySelector('.btn-click-trend')?.addEventListener('click', () => {
-              const chatInput = document.getElementById('chatInput');
-              if (chatInput) {
-                chatInput.value = `Monthly trend for ${clickedVal}`;
-                handleChatSubmit();
-              }
+              const q = `Monthly trend for ${clickedVal}`;
+              const inputEl = document.getElementById('chatQuestionInput');
+              if (inputEl) inputEl.value = q;
+              submitChatQuestion(q);
             });
           });
         }
@@ -2061,11 +2059,9 @@ function renderChatView() {
     btn.addEventListener('click', (e) => {
       const q = e.currentTarget.dataset.query;
       if (q) {
-        const chatInput = document.getElementById('chatInput');
-        if (chatInput) {
-          chatInput.value = q;
-          handleChatSubmit();
-        }
+        const inputEl = document.getElementById('chatQuestionInput');
+        if (inputEl) inputEl.value = q;
+        submitChatQuestion(q);
       }
     });
   });
@@ -2085,17 +2081,13 @@ function renderChatView() {
 
   stream.querySelectorAll('.drilldown-opt-btn').forEach((btn) => {
     btn.addEventListener('click', (e) => {
-      const idx = Number(btn.dataset.idx);
       const dimLabel = btn.dataset.label;
-      const entry = history[idx];
-      const qTitle = entry?.response?.user_question || 'this result';
       const menu = btn.closest('.drilldown-menu');
       if (menu) menu.classList.remove('open');
-      const chatInput = document.getElementById('chatInput');
-      if (chatInput) {
-        chatInput.value = `Drill down into ${qTitle} broken down by ${dimLabel}`;
-        handleChatSubmit();
-      }
+      const drillQuery = `Break that down by ${dimLabel}`;
+      const inputEl = document.getElementById('chatQuestionInput');
+      if (inputEl) inputEl.value = drillQuery;
+      submitChatQuestion(drillQuery);
     });
   });
 

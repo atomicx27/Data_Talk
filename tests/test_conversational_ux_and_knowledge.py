@@ -727,6 +727,184 @@ def test_multi_table_marks_by_gender_and_college_query(enriched_demo_workspace):
     assert "enrollments_marks" in sql_low
 
 
+def test_drill_down_into_specific_college_and_department_breakdown():
+    """Verify that clicking suggestion chip 'Drill down into College of Engineering & Computing'
+    resolves context to filter to the college and break down by department,
+    compiling clean SQL without duplicate table alias joins."""
+    from src.knowledge.okf_models import OKFWorkspace, TableSchema, ColumnProfile, RelationshipEdge
+    from src.knowledge.okf_store import OKFStore
+    from src.agents.query_agent import QueryAgent
+
+    colleges_tbl = TableSchema(
+        name="colleges",
+        columns=[
+            ColumnProfile(name="college_id", data_type="BIGINT", is_primary_key=True),
+            ColumnProfile(name="college_name", data_type="VARCHAR"),
+        ],
+    )
+    departments_tbl = TableSchema(
+        name="departments",
+        columns=[
+            ColumnProfile(name="department_id", data_type="BIGINT", is_primary_key=True),
+            ColumnProfile(name="department_name", data_type="VARCHAR"),
+            ColumnProfile(name="college_id", data_type="BIGINT", is_foreign_key=True),
+        ],
+    )
+    students_tbl = TableSchema(
+        name="students",
+        columns=[
+            ColumnProfile(name="student_id", data_type="BIGINT", is_primary_key=True),
+            ColumnProfile(name="gender", data_type="VARCHAR"),
+            ColumnProfile(name="department_id", data_type="BIGINT", is_foreign_key=True),
+            ColumnProfile(name="college_id", data_type="BIGINT", is_foreign_key=True),
+        ],
+    )
+    enrollments_tbl = TableSchema(
+        name="enrollments_marks",
+        columns=[
+            ColumnProfile(name="enrollment_id", data_type="BIGINT", is_primary_key=True),
+            ColumnProfile(name="student_id", data_type="BIGINT", is_foreign_key=True),
+            ColumnProfile(name="total_score", data_type="DOUBLE"),
+        ],
+    )
+
+    ws = OKFWorkspace(
+        workspace_id="test_univ_drilldown",
+        workspace_name="University BI Drilldown",
+        source_type="duckdb",
+        dialect="duckdb",
+        tables=[colleges_tbl, departments_tbl, students_tbl, enrollments_tbl],
+        relationships=[
+            RelationshipEdge(id="r1", source_table="students", source_column="college_id", target_table="colleges", target_column="college_id"),
+            RelationshipEdge(id="r2", source_table="students", source_column="department_id", target_table="departments", target_column="department_id"),
+            RelationshipEdge(id="r3", source_table="departments", source_column="college_id", target_table="colleges", target_column="college_id"),
+            RelationshipEdge(id="r4", source_table="enrollments_marks", source_column="student_id", target_table="students", target_column="student_id"),
+        ],
+    )
+
+    history = [
+        {
+            "response": {
+                "success": True,
+                "executed_query": "SELECT college_name, COUNT(*) FROM students GROUP BY college_name",
+                "user_question": "show student enrollments by college",
+                "involved_tables": ["colleges", "students", "enrollments_marks"],
+            }
+        }
+    ]
+
+    # 1. Test conversational resolution
+    chip_query = "Drill down into College of Engineering & Computing"
+    resolved_q, is_follow_up, ctx, tables = QueryAgent._resolve_follow_up_context(
+        question=chip_query,
+        conversation_history=history,
+        workspace=ws,
+        llm_router=None,
+    )
+
+    assert is_follow_up is True
+    assert "college of engineering & computing" in resolved_q.lower()
+    assert "broken down by department" in resolved_q.lower()
+
+    # 2. Test deterministic SQL compilation
+    okf_store = OKFStore()
+    join_plan = okf_store.get_join_plan(ws, ["colleges", "departments", "students", "enrollments_marks"])
+    sql = QueryAgent._deterministic_sql_compiler(
+        question=resolved_q,
+        workspace=ws,
+        join_plan=join_plan,
+        matched_measures=[],
+    )
+
+    assert sql is not None
+    # Must NOT contain duplicate JOIN clauses
+    assert sql.count('LEFT JOIN "colleges"') <= 1
+    # Must filter for the specific college
+    assert "engineering" in sql.lower()
+    # Must group by department_name
+    assert "department_name" in sql.lower()
+
+
+def test_drill_down_dropdown_break_that_down_by_department():
+    """Verify that clicking the drilldown dropdown option 'Break that down by Department'
+    resolves context and produces a valid multi-table breakdown query."""
+    from src.knowledge.okf_models import OKFWorkspace, TableSchema, ColumnProfile, RelationshipEdge
+    from src.knowledge.okf_store import OKFStore
+    from src.agents.query_agent import QueryAgent
+
+    colleges_tbl = TableSchema(
+        name="colleges",
+        columns=[
+            ColumnProfile(name="college_id", data_type="BIGINT", is_primary_key=True),
+            ColumnProfile(name="college_name", data_type="VARCHAR"),
+        ],
+    )
+    departments_tbl = TableSchema(
+        name="departments",
+        columns=[
+            ColumnProfile(name="department_id", data_type="BIGINT", is_primary_key=True),
+            ColumnProfile(name="department_name", data_type="VARCHAR"),
+            ColumnProfile(name="college_id", data_type="BIGINT", is_foreign_key=True),
+        ],
+    )
+    students_tbl = TableSchema(
+        name="students",
+        columns=[
+            ColumnProfile(name="student_id", data_type="BIGINT", is_primary_key=True),
+            ColumnProfile(name="gender", data_type="VARCHAR"),
+            ColumnProfile(name="department_id", data_type="BIGINT", is_foreign_key=True),
+        ],
+    )
+
+    ws = OKFWorkspace(
+        workspace_id="test_univ_dd",
+        workspace_name="University BI DD",
+        source_type="duckdb",
+        dialect="duckdb",
+        tables=[colleges_tbl, departments_tbl, students_tbl],
+        relationships=[
+            RelationshipEdge(id="r1", source_table="students", source_column="department_id", target_table="departments", target_column="department_id"),
+            RelationshipEdge(id="r2", source_table="departments", source_column="college_id", target_table="colleges", target_column="college_id"),
+        ],
+    )
+
+    history = [
+        {
+            "response": {
+                "success": True,
+                "executed_query": "SELECT college_name, COUNT(*) FROM students GROUP BY college_name",
+                "user_question": "show students by college",
+                "involved_tables": ["colleges", "students"],
+            }
+        }
+    ]
+
+    dropdown_query = "Break that down by Department"
+    resolved_q, is_follow_up, ctx, tables = QueryAgent._resolve_follow_up_context(
+        question=dropdown_query,
+        conversation_history=history,
+        workspace=ws,
+        llm_router=None,
+    )
+
+    assert is_follow_up is True
+    assert "broken down by department" in resolved_q.lower()
+
+    okf_store = OKFStore()
+    join_plan = okf_store.get_join_plan(ws, ["colleges", "departments", "students"])
+    sql = QueryAgent._deterministic_sql_compiler(
+        question=resolved_q,
+        workspace=ws,
+        join_plan=join_plan,
+        matched_measures=[],
+    )
+
+    assert sql is not None
+    assert "department_name" in sql.lower()
+    assert sql.count('LEFT JOIN "colleges"') <= 1
+
+
+
 
 
 

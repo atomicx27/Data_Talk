@@ -740,10 +740,15 @@ class QueryAgent:
                         break
 
             # Look for dimension (text/categorical column representing the group)
-            # Check if a specific column is explicitly requested as the dimension (e.g. "gender wise", "by college", "for each college")
+            # Check if a specific column is explicitly requested as the dimension (e.g. "gender wise", "by college", "for each college", "broken down by department")
             wise_match = re.search(r"\b([a-z0-9_]+)\s+wise\b", q_low)
+            break_match = re.search(r"\b(?:break\s+(?:that\s+|it\s+)?down\s+by|broken\s+down\s+by|drill\s+down\s+by|split\s+(?:that\s+|it\s+)?by)\s+([a-z0-9_]+)", q_low)
             by_match = re.search(r"\b(?:by|per|across|for\s+each|for\s+every|each)\s+([a-z0-9_]+)", q_low)
-            target_dim_name = (wise_match.group(1) if wise_match else (by_match.group(1) if by_match else "")).lower()
+            target_dim_name = (
+                break_match.group(1)
+                if break_match
+                else (wise_match.group(1) if wise_match else (by_match.group(1) if by_match else ""))
+            ).lower()
 
             if target_dim_name:
                 for t_name in join_plan.required_tables:
@@ -901,14 +906,40 @@ class QueryAgent:
                         joined_tables.add(edge.source_table)
                         edges_to_process.remove(edge)
                         progress = True
+                    elif edge.source_table in joined_tables and edge.target_table in joined_tables:
+                        edges_to_process.remove(edge)
+                        progress = True
                 if not progress:
-                    edge = edges_to_process.pop(0)
-                    join_clauses.append(
-                        f"{edge.join_type} JOIN {edge.target_table} ON {edge.source_table}.{edge.source_column} = {edge.target_table}.{edge.target_column}"
-                    )
-                    joined_tables.add(edge.target_table)
+                    break
 
             join_str = ("\n" + "\n".join(join_clauses)) if join_clauses else ""
+
+            # Check for segment filter (e.g. "for 'College of Engineering & Computing'" or "into College of ...")
+            where_filters: list[str] = []
+            filter_seg_match = re.search(r"\b(?:for|into|filtered\s+to|filtered\s+by)\s+['\"]?([a-z0-9_ &]+?)['\"]?(?:\s+broken\s+down|\s+break\s+down|\s*$)", q_low)
+            if filter_seg_match:
+                raw_seg = filter_seg_match.group(1).strip()
+                for t_name in joined_tables:
+                    t_obj = workspace.get_table(t_name)
+                    if not t_obj:
+                        continue
+                    for c in t_obj.columns:
+                        if c.is_blocked:
+                            continue
+                        if any(ty in c.data_type.upper() for ty in ("CHAR", "TEXT", "VARCHAR", "STRING")):
+                            c_low = c.name.lower()
+                            if any(k in c_low for k in ("name", "code", "title", "desc", "category", "region")):
+                                seg_words = [w for w in raw_seg.split() if len(w) > 3 and w not in ("drill", "down", "into", "this", "result", "college", "colleges", "department", "departments")]
+                                if not seg_words:
+                                    seg_words = [w for w in raw_seg.split() if len(w) > 2 and w not in ("drill", "down", "into", "this", "result")]
+                                if seg_words:
+                                    pattern = "%" + "%".join(seg_words[:3]) + "%"
+                                    where_filters.append(f'LOWER("{t_name}"."{c.name}") LIKE \'{pattern}\'')
+                                    break
+                    if where_filters:
+                        break
+
+            where_clause = ("\nWHERE " + " AND ".join(where_filters)) if where_filters else ""
 
             # Check if user asked for ratio / percentage / share
             is_ratio_query = any(k in q_low for k in ("ratio", "raio", "ritio", "rio", "pct", "percent", "share", "proportion"))
@@ -936,7 +967,7 @@ class QueryAgent:
                         f"       COUNT(*) AS {d2_alias}_count,\n"
                         f"       ROUND(AVG(\"{metric_tbl}\".\"{metric_col}\"), 2) AS {avg_alias},\n"
                         f"       ROUND(SUM(\"{metric_tbl}\".\"{metric_col}\"), 2) AS {tot_alias}{ratio_select}\n"
-                        f'FROM "{base_tbl_name}"{join_str}\n'
+                        f'FROM "{base_tbl_name}"{join_str}{where_clause}\n'
                         f"GROUP BY {d1_ref}, {d2_ref}\n"
                         f"ORDER BY {d1_ref}, {d2_alias}_count DESC\n"
                         f"LIMIT 50"
@@ -947,7 +978,7 @@ class QueryAgent:
                     f"       {d2_ref} AS {d2_alias},\n"
                     f"       COUNT(*) AS {d2_alias}_count,\n"
                     f"       ROUND(100.0 * COUNT(*) / NULLIF(SUM(COUNT(*)) OVER (PARTITION BY {d1_ref}), 0), 2) AS {d2_alias}_ratio_pct\n"
-                    f'FROM "{base_tbl_name}"{join_str}\n'
+                    f'FROM "{base_tbl_name}"{join_str}{where_clause}\n'
                     f"GROUP BY {d1_ref}, {d2_ref}\n"
                     f"ORDER BY {d1_ref}, {d2_alias}_count DESC\n"
                     f"LIMIT 50"
@@ -969,7 +1000,7 @@ class QueryAgent:
                         f"SELECT {dim_ref} AS {dim_alias},\n"
                         f"       COUNT(*) AS total_count,\n"
                         f"       {metric_ref} AS {metric_alias}{ratio_select}\n"
-                        f'FROM "{base_tbl_name}"{join_str}\n'
+                        f'FROM "{base_tbl_name}"{join_str}{where_clause}\n'
                         f"GROUP BY {dim_ref}\n"
                         f"ORDER BY total_count DESC\n"
                         f"LIMIT 25"
@@ -982,7 +1013,7 @@ class QueryAgent:
                     return (
                         f"SELECT {dim_ref} AS {dim_alias},\n"
                         f"       COUNT(*) AS row_count{ratio_select}\n"
-                        f'FROM "{base_tbl_name}"{join_str}\n'
+                        f'FROM "{base_tbl_name}"{join_str}{where_clause}\n'
                         f"GROUP BY {dim_ref}\n"
                         f"ORDER BY row_count DESC\n"
                         f"LIMIT 25"
@@ -1000,7 +1031,7 @@ class QueryAgent:
                     if len(select_cols) >= 8:
                         break
             if select_cols:
-                return f'SELECT {", ".join(select_cols)} FROM "{base_tbl_name}"{join_str} LIMIT 50'
+                return f'SELECT {", ".join(select_cols)} FROM "{base_tbl_name}"{join_str}{where_clause} LIMIT 50'
 
         # Fallback for arbitrary user-uploaded single or multi-table schema
         first_tbl = workspace.active_tables()[0]
@@ -1353,11 +1384,20 @@ class QueryAgent:
             resolved_q = f"{tb_match.group(1).title()} {tb_match.group(2)} {prior_q}"
         elif any(w in q_low for w in ("month", "monthly", "trend")):
             resolved_q = f"Monthly trend of {prior_q}"
-        elif re.search(r"\bdrill\s+(?:down\s+)?(?:into\s+)?([a-z0-9_ ]+)\s+by\s+([a-z0-9_ ]+)", q_low):
-            drill_match = re.search(r"\bdrill\s+(?:down\s+)?(?:into\s+)?([a-z0-9_ ]+)\s+by\s+([a-z0-9_ ]+)", q_low)
+        elif re.search(r"\bdrill\s+(?:down\s+)?(?:into\s+)?([a-z0-9_ &]+)\s+by\s+([a-z0-9_ ]+)", q_low):
+            drill_match = re.search(r"\bdrill\s+(?:down\s+)?(?:into\s+)?([a-z0-9_ &]+)\s+by\s+([a-z0-9_ ]+)", q_low)
             seg = drill_match.group(1).strip()
             dim = drill_match.group(2).strip()
-            resolved_q = f"{prior_q} for {seg} broken down by {dim}"
+            resolved_q = f"{prior_q} for '{seg}' broken down by {dim}"
+        elif re.search(r"\bdrill\s+(?:down\s+)?(?:into\s+)?([a-z0-9_ &]+)", q_low):
+            drill_match = re.search(r"\bdrill\s+(?:down\s+)?(?:into\s+)?([a-z0-9_ &]+)", q_low)
+            seg = drill_match.group(1).strip()
+            if workspace.get_table("departments") and any(w in prior_q.lower() for w in ("college", "colleges")):
+                resolved_q = f"{prior_q} for '{seg}' broken down by department"
+            elif workspace.get_table("customers") and any(w in prior_q.lower() for w in ("product", "category")):
+                resolved_q = f"{prior_q} for '{seg}' broken down by region"
+            else:
+                resolved_q = f"{prior_q} for '{seg}'"
         elif any(k in q_low for k in ("not show", "aren't show", "didn't show", "only show", "other", "where are", "why isn't", "include all")):
             resolved_q = f"{prior_q} including all categories and complete breakdown"
         elif cleaned_sub:
