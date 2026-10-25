@@ -989,7 +989,7 @@ class QueryAgent:
                     d2_alias = re.sub(r"[^a-z0-9_]+", "_", second_dim_col.lower()).strip("_")
                 d1_alias = re.sub(r"[^a-z0-9_]+", "_", dim_col.lower()).strip("_")
                 top_match = re.search(r"\b(?:top|bottom|limit)\s+(\d+)\b", q_low)
-                limit_clause = f"LIMIT {int(top_match.group(1))}" if top_match else "LIMIT 500"
+                limit_clause = f"\nLIMIT {int(top_match.group(1))}" if top_match else ""
 
                 if metric_tbl and metric_col:
                     m_clean = re.sub(r"[^a-z0-9_]+", "_", metric_col.lower()).strip("_")
@@ -1008,7 +1008,7 @@ class QueryAgent:
                         f"       COUNT(*) AS {d2_alias}_count{ratio_select}\n"
                         f'FROM "{base_tbl_name}"{join_str}{where_clause}\n'
                         f"GROUP BY {d1_ref}, {d2_ref}\n"
-                        f"ORDER BY {d1_ref}, {d2_ref} ASC\n"
+                        f"ORDER BY {d1_ref}, {d2_ref} ASC"
                         f"{limit_clause}"
                     )
 
@@ -1019,7 +1019,7 @@ class QueryAgent:
                     f"       ROUND(100.0 * COUNT(*) / NULLIF(SUM(COUNT(*)) OVER (PARTITION BY {d1_ref}), 0), 2) AS {d2_alias}_ratio_pct\n"
                     f'FROM "{base_tbl_name}"{join_str}{where_clause}\n'
                     f"GROUP BY {d1_ref}, {d2_ref}\n"
-                    f"ORDER BY {d1_ref}, {d2_alias}_count DESC\n"
+                    f"ORDER BY {d1_ref}, {d2_alias}_count DESC"
                     f"{limit_clause}"
                 )
 
@@ -1027,6 +1027,8 @@ class QueryAgent:
             if dim_tbl and dim_col:
                 dim_ref = f'"{dim_tbl}"."{dim_col}"'
                 dim_alias = re.sub(r"[^a-z0-9_]+", "_", dim_col.lower()).strip("_")
+                top_match = re.search(r"\b(?:top|bottom|limit)\s+(\d+)\b", q_low)
+                limit_clause = f"\nLIMIT {int(top_match.group(1))}" if top_match else ""
                 if metric_tbl and metric_col:
                     agg_fn = "AVG" if any(w in q_low for w in ("avg", "average", "mean")) else "SUM"
                     metric_ref = f'ROUND({agg_fn}("{metric_tbl}"."{metric_col}"), 2)'
@@ -1041,8 +1043,8 @@ class QueryAgent:
                         f"       COUNT(*) AS total_count{ratio_select}\n"
                         f'FROM "{base_tbl_name}"{join_str}{where_clause}\n'
                         f"GROUP BY {dim_ref}\n"
-                        f"ORDER BY {metric_alias} DESC\n"
-                        f"LIMIT 25"
+                        f"ORDER BY {metric_alias} DESC"
+                        f"{limit_clause}"
                     )
                 else:
                     ratio_select = (
@@ -1054,8 +1056,8 @@ class QueryAgent:
                         f"       COUNT(*) AS row_count{ratio_select}\n"
                         f'FROM "{base_tbl_name}"{join_str}{where_clause}\n'
                         f"GROUP BY {dim_ref}\n"
-                        f"ORDER BY row_count DESC\n"
-                        f"LIMIT 25"
+                        f"ORDER BY row_count DESC"
+                        f"{limit_clause}"
                     )
 
             select_cols: list[str] = []
@@ -1113,6 +1115,8 @@ class QueryAgent:
             agg_fn = "AVG" if any(w in q_low for w in ("avg", "average", "mean", "salary", "salaries", "compensation", "rate", "gpa", "score")) else "SUM"
             dim_expr = f'STRFTIME(TRY_CAST("{target_tbl.name}"."{date_col}" AS DATE), \'%Y\')' if "date" in date_col.lower() else f'"{target_tbl.name}"."{date_col}"'
             dim_alias = date_col.lower().replace("date", "year") if "date" in date_col.lower() else date_col.lower()
+            top_match = re.search(r"\b(?:top|bottom|limit)\s+(\d+)\b", q_low)
+            limit_clause = f"\nLIMIT {int(top_match.group(1))}" if top_match else ""
             if active_num_col:
                 alias = cls._clean_agg_alias(active_num_col, agg_fn)
                 return (
@@ -1122,16 +1126,18 @@ class QueryAgent:
                     f'FROM "{target_tbl.name}"\n'
                     f'WHERE "{target_tbl.name}"."{date_col}" IS NOT NULL\n'
                     f'GROUP BY {dim_alias}\n'
-                    f'ORDER BY {dim_alias} ASC\n'
-                    f'LIMIT 50'
+                    f'ORDER BY {dim_alias} ASC'
+                    f'{limit_clause}'
                 )
 
         if cat_cols and active_num_col:
             agg_fn = "AVG" if any(w in q_low for w in ("avg", "average", "mean", "salary", "salaries", "compensation", "rate", "gpa", "score")) else "SUM"
             alias = cls._clean_agg_alias(active_num_col, agg_fn)
+            top_match = re.search(r"\b(?:top|bottom|limit)\s+(\d+)\b", q_low)
+            limit_clause = f" LIMIT {int(top_match.group(1))}" if top_match else ""
             return (
                 f'SELECT "{cat_cols[0]}", ROUND({agg_fn}("{target_tbl.name}"."{active_num_col}"), 2) AS {alias}, COUNT(*) AS row_count '
-                f'FROM "{target_tbl.name}" GROUP BY "{cat_cols[0]}" ORDER BY {alias} DESC LIMIT 25'
+                f'FROM "{target_tbl.name}" GROUP BY "{cat_cols[0]}" ORDER BY {alias} DESC{limit_clause}'
             )
         return f'SELECT {", ".join(f"{c}" for c in cols[:8])} FROM "{target_tbl.name}" LIMIT 50'
 

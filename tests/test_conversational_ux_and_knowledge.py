@@ -1099,7 +1099,12 @@ def test_fee_trend_and_drill_down_executive_summary_and_follow_ups():
         fan_trap_guidance="",
     )
     sql_2d = QueryAgent._deterministic_sql_compiler("show me fee trend of students year on year broken down by college", ws, plan_2d, [])
-    assert sql_2d.strip().endswith("LIMIT 500")
+    # No artificial LIMIT should truncate grouped analytical results
+    assert "LIMIT" not in sql_2d
+
+    # But explicit user limit (e.g. top 3) must be honored
+    sql_top = QueryAgent._deterministic_sql_compiler("show me top 3 fee trend of students year on year broken down by college", ws, plan_2d, [])
+    assert "LIMIT 3" in sql_top
 
 
 
