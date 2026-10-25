@@ -150,3 +150,28 @@ def test_high_cardinality_guard_prevents_unreadable_stacked_bar():
     fig = ChartRecommender.build_figure(df_large, chart_type="stacked_bar", title="Students")
     assert fig is None
 
+
+def test_long_format_two_dimensions_colored_by_category():
+    """Verify that when long-format data has 2 dimensions (e.g. College Name and Gender),
+    both stacked_horizontal_bar and horizontal_bar color by the second dimension (Gender)
+    and produce distinct category traces/legends rather than monochrome solid blue bars.
+    """
+    df_long = pd.DataFrame({
+        "College Name": ["Architecture", "Architecture", "Architecture", "Business", "Business", "Business"],
+        "Gender": ["Female", "Male", "Non-Binary", "Female", "Male", "Non-Binary"],
+        "Gender Count": [555, 566, 537, 516, 503, 512],
+        "Gender Ratio": [0.335, 0.341, 0.324, 0.337, 0.329, 0.334],
+    })
+
+    # Recommendation for breakdown/ratio should be stacked_horizontal_bar or stacked_bar
+    rec = ChartRecommender.recommend_chart_type(df_long, "show students gender ritio for each college")
+    assert rec in ("stacked_horizontal_bar", "stacked_bar")
+
+    # Building horizontal_bar directly must also color by Gender and have multiple traces/categories
+    fig_h = ChartRecommender.build_figure(df_long, chart_type="horizontal_bar", title="Gender by College")
+    assert fig_h is not None
+    assert len(fig_h.data) == 3
+    trace_labels = [t.name for t in fig_h.data]
+    assert "Female" in trace_labels and "Male" in trace_labels and "Non-Binary" in trace_labels
+
+

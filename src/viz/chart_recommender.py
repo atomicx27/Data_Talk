@@ -119,8 +119,8 @@ class ChartRecommender:
         is_breakdown_intent = any(
             k in q_low
             for k in (
-                "ratio", "raio", "gender", "breakdown", "demographic", "split",
-                "proportion", "share", "composition", "distribution", "other"
+                "ratio", "raio", "ritio", "rio", "gender", "breakdown", "demographic", "split",
+                "proportion", "share", "composition", "distribution", "other", "wise"
             )
         )
 
@@ -131,13 +131,16 @@ class ChartRecommender:
         # If 2+ count/volume breakdown columns exist (e.g., Male Count, Female Count, Other Count)
         if len(count_breakdowns) >= 2 and (
             is_breakdown_intent
-            or any(k in q_low for k in ("by", "across", "per", "category", "status", "student", "college"))
+            or any(k in q_low for k in ("by", "across", "per", "category", "status", "student", "college", "wise"))
         ):
             return "stacked_bar"
 
-        # If 2 categorical dimensions and 1 numeric metric exist, stacked bar is ideal for breakdown queries
-        if len(dim_cols) >= 2 and len(num_cols) == 1 and any(k in q_low for k in ("by", "breakdown", "per", "across")):
-            return "stacked_bar"
+        # If 2 categorical dimensions exist (e.g. COLLEGE NAME and GENDER), multi-series stacked chart is ideal
+        if len(dim_cols) >= 2:
+            if is_breakdown_intent or any(k in q_low for k in ("by", "breakdown", "per", "across", "wise", "student", "college", "grade")):
+                if len(df[dim_cols[0]].unique()) > 5 or len(df) > 8:
+                    return "stacked_horizontal_bar"
+                return "stacked_bar"
 
         # Dual-Axis Combo chart: ONLY when exactly 1 volume metric + 1 rate/percentage metric exist,
         # and NOT a multi-category demographic/composition breakdown
@@ -260,14 +263,26 @@ class ChartRecommender:
             fig.update_yaxes(title_text=str(line_col), secondary_y=True)
 
         elif chosen_type == "horizontal_bar":
-            fig = px.bar(
-                df.sort_values(by=primary_y, ascending=True),
-                x=primary_y,
-                y=x,
-                orientation="h",
-                color_discrete_sequence=OKABE_ITO_PALETTE,
-                text_auto=".2s",
-            )
+            color_col = dim_cols[1] if len(dim_cols) >= 2 else None
+            if color_col:
+                fig = px.bar(
+                    df,
+                    x=primary_y,
+                    y=x,
+                    color=color_col,
+                    orientation="h",
+                    barmode="stack",
+                    color_discrete_sequence=OKABE_ITO_PALETTE,
+                )
+            else:
+                fig = px.bar(
+                    df.sort_values(by=primary_y, ascending=True),
+                    x=primary_y,
+                    y=x,
+                    orientation="h",
+                    color_discrete_sequence=OKABE_ITO_PALETTE,
+                    text_auto=".2s",
+                )
 
         elif chosen_type == "stacked_bar":
             color_col = dim_cols[1] if len(dim_cols) >= 2 else None
@@ -549,14 +564,25 @@ class ChartRecommender:
 
         else:
             # Default grouped/single Bar chart
-            fig = px.bar(
-                df,
-                x=x,
-                y=ys,
-                barmode="group",
-                color_discrete_sequence=OKABE_ITO_PALETTE,
-                text_auto=".2s" if len(ys) == 1 else False,
-            )
+            color_col = dim_cols[1] if len(dim_cols) >= 2 else None
+            if color_col:
+                fig = px.bar(
+                    df,
+                    x=x,
+                    y=primary_y,
+                    color=color_col,
+                    barmode="group",
+                    color_discrete_sequence=OKABE_ITO_PALETTE,
+                )
+            else:
+                fig = px.bar(
+                    df,
+                    x=x,
+                    y=ys,
+                    barmode="group",
+                    color_discrete_sequence=OKABE_ITO_PALETTE,
+                    text_auto=".2s" if len(ys) == 1 else False,
+                )
 
         fig.update_layout(
             title=dict(text=title, font=dict(size=13, color="#94a3b8"), x=0.01),

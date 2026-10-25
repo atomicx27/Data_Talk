@@ -386,6 +386,8 @@ def test_conversational_follow_up_missing_category_and_demographic_summary(enric
     """
     from src.agents.query_agent import QueryAgent
 
+    ws, okf_store, rag_store, conn, report = enriched_demo_workspace
+
     history = [
         {
             "response": {
@@ -401,7 +403,7 @@ def test_conversational_follow_up_missing_category_and_demographic_summary(enric
     resolved_q, is_follow_up, ctx, tables = QueryAgent._resolve_follow_up_context(
         question="you are not showing the other students",
         conversation_history=history,
-        workspace=enriched_demo_workspace,
+        workspace=ws,
         llm_router=None,
     )
     assert is_follow_up is True
@@ -419,8 +421,90 @@ def test_conversational_follow_up_missing_category_and_demographic_summary(enric
         matched_measures=[],
         applied_rules=[],
         llm_router=None,
-        workspace=enriched_demo_workspace,
+        workspace=ws,
     )
     assert "Top Performer" not in summary
     assert "Highest Representation" in summary or "Highest Volume" in summary
+
+
+def test_now_show_conversational_pivot_and_gender_wise_query(enriched_demo_workspace):
+    """Verify that 'now show me the rio of total grades gender wise' pivots to the grades subject
+    rather than being trapped into filtering the prior colleges query, and groups by gender with ratio.
+    """
+    from src.knowledge.okf_models import TableSchema, ColumnProfile, RelationshipEdge
+    from src.knowledge.okf_store import JoinPlan
+
+    ws, okf_store, rag_store, conn, report = enriched_demo_workspace
+
+    history = [
+        {
+            "response": {
+                "success": True,
+                "executed_query": "SELECT college_name, male_count, female_count FROM college_stats",
+                "user_question": "show students gender ritio for each college",
+                "involved_tables": ["colleges", "students"],
+            }
+        }
+    ]
+
+    # 1. Follow-up resolution: should NOT prepend "show students gender ritio for each college filtered by..."
+    resolved_q, is_follow_up, ctx, tables = QueryAgent._resolve_follow_up_context(
+        question="now show me the rio of total grades gender wise",
+        conversation_history=history,
+        workspace=ws,
+        llm_router=None,
+    )
+    # Must be recognized as an independent query pivot on grades & gender
+    assert is_follow_up is False
+    assert "college" not in resolved_q.lower()
+    assert "grades" in resolved_q.lower()
+
+    # 2. Add university-like tables (students, enrollments_marks) to workspace to test SQL compilation
+    tbl_students = TableSchema(
+        name="students",
+        columns=[
+            ColumnProfile(name="student_id", data_type="BIGINT", is_primary_key=True),
+            ColumnProfile(name="gender", data_type="VARCHAR"),
+        ]
+    )
+    tbl_grades = TableSchema(
+        name="enrollments_marks",
+        columns=[
+            ColumnProfile(name="enrollment_id", data_type="BIGINT", is_primary_key=True),
+            ColumnProfile(name="student_id", data_type="BIGINT", is_foreign_key=True),
+            ColumnProfile(name="total_marks", data_type="DOUBLE"),
+        ]
+    )
+    ws.tables.extend([tbl_students, tbl_grades])
+    plan = JoinPlan(
+        required_tables=["enrollments_marks", "students"],
+        bridge_tables=[],
+        join_edges=[
+            RelationshipEdge(
+                id="rel_1",
+                source_table="enrollments_marks",
+                source_column="student_id",
+                target_table="students",
+                target_column="student_id",
+                join_type="LEFT",
+                cardinality="N:1",
+            )
+        ],
+        sql_join_clauses=["LEFT JOIN students ON enrollments_marks.student_id = students.student_id"],
+        has_fan_trap=False,
+        fact_tables_involved=["enrollments_marks"],
+        shared_dimensions=[],
+        fan_trap_guidance="",
+    )
+
+    sql = QueryAgent._deterministic_sql_compiler(
+        question="now show me the rio of total grades gender wise",
+        workspace=ws,
+        join_plan=plan,
+        matched_measures=[],
+    )
+    assert '"students"."gender"' in sql
+    assert '"enrollments_marks"' in sql
+    assert "ratio_pct" in sql
+
 

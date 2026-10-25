@@ -270,6 +270,14 @@ class QueryAgent:
             "products": ("product", "sku", "category", "categories", "hardware", "cloud", "suite"),
             "orders": ("order", "revenue", "sales", "profit", "margin", "discount", "channel", "qty", "month", "year", "top"),
             "returns": ("return", "refund", "defective", "reason"),
+            "enrollments_marks": ("grade", "grades", "mark", "marks", "score", "scores", "gpa", "exam", "assessment", "attendance", "enrollment", "enrol"),
+            "students": ("student", "students", "gender", "dob", "birth", "admission", "semester"),
+            "colleges": ("college", "colleges", "campus", "dean"),
+            "courses": ("course", "courses", "credit", "syllabus"),
+            "degree_programs": ("program", "degree", "major"),
+            "departments": ("department", "departments", "dept", "budget"),
+            "fee_invoices": ("fee", "fees", "invoice", "tuition", "paid", "balance", "due", "payment"),
+            "faculty": ("faculty", "professor", "teacher", "instructor", "salary", "rank"),
         }
         for t_name, kw_tuple in keyword_table_hints.items():
             if workspace.get_table(t_name) and any(k in q_low for k in kw_tuple):
@@ -537,7 +545,12 @@ class QueryAgent:
 
         # Case B: Standard Enterprise Demo Orders + Dimensions Query
         orders_demo = workspace.get_table("orders")
-        if orders_demo and orders_demo.get_column("rev_net_usd") and orders_demo.get_column("cogs_usd"):
+        if (
+            orders_demo
+            and orders_demo.get_column("rev_net_usd")
+            and orders_demo.get_column("cogs_usd")
+            and ("orders" in join_plan.required_tables or not join_plan.required_tables)
+        ):
             # Specific filters detected in query (e.g. from follow-up, refinement, or drill-down)
             extra_filters: list[str] = []
             if orders_filter and "ord_stat" not in (group_col or ""):
@@ -634,54 +647,133 @@ class QueryAgent:
             dim_col = None
 
             # Look for metric (numeric column mentioned or present in required tables)
-            for t_name in join_plan.required_tables:
-                t_obj = workspace.get_table(t_name)
-                if not t_obj:
-                    continue
-                for c in t_obj.columns:
-                    if c.is_blocked or c.is_primary_key or c.is_foreign_key:
+            # Check domain-specific synonyms first (e.g. grades/marks/gpa -> total_marks, fee -> tuition)
+            if any(g in q_low for g in ("grade", "grades", "mark", "marks", "score", "scores", "gpa")):
+                for t_name in join_plan.required_tables:
+                    t_obj = workspace.get_table(t_name)
+                    if not t_obj:
                         continue
-                    if any(ty in c.data_type.upper() for ty in ("INT", "FLOAT", "DOUBLE", "NUMERIC", "DECIMAL")):
-                        c_norm = c.name.lower().replace("_", " ")
-                        if c.name.lower() in q_low or c_norm in q_norm or any(w in q_norm for w in c_norm.split() if len(w) > 3):
+                    for c in t_obj.columns:
+                        if any(k in c.name.lower() for k in ("mark", "grade", "score", "gpa")) and any(
+                            ty in c.data_type.upper() for ty in ("INT", "FLOAT", "DOUBLE", "NUMERIC", "DECIMAL")
+                        ):
                             metric_tbl = t_name
                             metric_col = c.name
                             break
-                if metric_tbl:
-                    break
+                    if metric_tbl:
+                        break
+
+            if not metric_tbl:
+                for t_name in join_plan.required_tables:
+                    t_obj = workspace.get_table(t_name)
+                    if not t_obj:
+                        continue
+                    for c in t_obj.columns:
+                        if c.is_blocked or c.is_primary_key or c.is_foreign_key:
+                            continue
+                        if any(ty in c.data_type.upper() for ty in ("INT", "FLOAT", "DOUBLE", "NUMERIC", "DECIMAL")):
+                            c_norm = c.name.lower().replace("_", " ")
+                            if c.name.lower() in q_low or c_norm in q_norm or any(w in q_norm for w in c_norm.split() if len(w) > 3):
+                                metric_tbl = t_name
+                                metric_col = c.name
+                                break
+                    if metric_tbl:
+                        break
 
             # Look for dimension (text/categorical column representing the group)
-            for t_name in join_plan.required_tables:
-                t_obj = workspace.get_table(t_name)
-                if not t_obj:
-                    continue
-                t_norm = t_name.lower().replace("_", " ")
-                singular = t_name.lower()[:-1] if t_name.lower().endswith("s") else t_name.lower()
-                if t_name.lower() in q_low or t_norm in q_norm or singular in q_low:
-                    # Pick best descriptive column (e.g. college_name, name, code, etc.)
+            # Check if a specific column is explicitly requested as the dimension (e.g. "gender wise", "by gender")
+            wise_match = re.search(r"\b([a-z0-9_]+)\s+wise\b", q_low)
+            by_match = re.search(r"\b(?:by|per|across)\s+([a-z0-9_]+)", q_low)
+            target_dim_name = (wise_match.group(1) if wise_match else (by_match.group(1) if by_match else "")).lower()
+
+            if target_dim_name:
+                for t_name in join_plan.required_tables:
+                    t_obj = workspace.get_table(t_name)
+                    if not t_obj:
+                        continue
                     for c in t_obj.columns:
-                        if c.is_blocked:
+                        if c.is_blocked or c.is_primary_key or c.is_foreign_key:
                             continue
-                        if c.name.lower().endswith("name") or c.name.lower() in ("name", "title", "description", "label"):
+                        c_low = c.name.lower()
+                        if target_dim_name == c_low or target_dim_name in c_low:
                             dim_tbl = t_name
                             dim_col = c.name
                             break
-                    if not dim_col:
+                    if dim_tbl:
+                        break
+
+            if not dim_tbl:
+                for t_name in join_plan.required_tables:
+                    t_obj = workspace.get_table(t_name)
+                    if not t_obj:
+                        continue
+                    for c in t_obj.columns:
+                        if c.is_blocked or c.is_primary_key or c.is_foreign_key:
+                            continue
+                        if any(ty in c.data_type.upper() for ty in ("CHAR", "TEXT", "VARCHAR", "STRING")):
+                            c_low = c.name.lower()
+                            if c_low in q_low and len(c_low) >= 4:
+                                dim_tbl = t_name
+                                dim_col = c.name
+                                break
+                    if dim_tbl:
+                        break
+
+            if not dim_tbl:
+                for t_name in join_plan.required_tables:
+                    t_obj = workspace.get_table(t_name)
+                    if not t_obj:
+                        continue
+                    t_norm = t_name.lower().replace("_", " ")
+                    singular = t_name.lower()[:-1] if t_name.lower().endswith("s") else t_name.lower()
+                    if t_name.lower() in q_low or t_norm in q_norm or singular in q_low:
+                        # Pick best descriptive column (e.g. college_name, name, code, etc.)
                         for c in t_obj.columns:
                             if c.is_blocked:
                                 continue
-                            if any(k in c.name.lower() for k in ("name", "code", "title", "type", "category")):
+                            if c.name.lower().endswith("name") or c.name.lower() in ("name", "title", "description", "label"):
                                 dim_tbl = t_name
                                 dim_col = c.name
                                 break
-                    if not dim_col:
-                        for c in t_obj.columns:
-                            if not c.is_blocked and not c.is_primary_key and any(ty in c.data_type.upper() for ty in ("CHAR", "TEXT", "VARCHAR", "STRING")):
-                                dim_tbl = t_name
-                                dim_col = c.name
-                                break
-                if dim_tbl:
-                    break
+                        if not dim_col:
+                            for c in t_obj.columns:
+                                if c.is_blocked:
+                                    continue
+                                if any(k in c.name.lower() for k in ("name", "code", "title", "type", "category")):
+                                    dim_tbl = t_name
+                                    dim_col = c.name
+                                    break
+                        if not dim_col:
+                            for c in t_obj.columns:
+                                if not c.is_blocked and not c.is_primary_key and any(ty in c.data_type.upper() for ty in ("CHAR", "TEXT", "VARCHAR", "STRING")):
+                                    dim_tbl = t_name
+                                    dim_col = c.name
+                                    break
+                    if dim_tbl:
+                        break
+
+            # Check if a second dimension exists in a breakdown query (e.g. College AND Gender)
+            second_dim_tbl = None
+            second_dim_col = None
+            if dim_tbl and dim_col and any(k in q_low for k in ("ratio", "ritio", "rio", "gender", "breakdown", "by", "across")):
+                for t_name in join_plan.required_tables:
+                    t_obj = workspace.get_table(t_name)
+                    if not t_obj:
+                        continue
+                    for c in t_obj.columns:
+                        if c.is_blocked or c.is_primary_key or c.is_foreign_key:
+                            continue
+                        if t_name == dim_tbl and c.name == dim_col:
+                            continue
+                        c_low = c.name.lower()
+                        if any(k in c_low for k in ("gender", "status", "category", "type")) and any(
+                            k in q_low for k in (c_low, "gender", "category")
+                        ):
+                            second_dim_tbl = t_name
+                            second_dim_col = c.name
+                            break
+                    if second_dim_tbl:
+                        break
 
             first_edge = join_plan.join_edges[0]
             base_tbl_name = metric_tbl or first_edge.source_table
@@ -715,6 +807,26 @@ class QueryAgent:
 
             join_str = ("\n" + "\n".join(join_clauses)) if join_clauses else ""
 
+            # Check if user asked for ratio / percentage / share
+            is_ratio_query = any(k in q_low for k in ("ratio", "raio", "ritio", "rio", "pct", "percent", "share", "proportion"))
+
+            # If user asks for 2-dimension breakdown (e.g. College AND Gender)
+            if dim_tbl and dim_col and second_dim_tbl and second_dim_col:
+                d1_ref = f'"{dim_tbl}"."{dim_col}"'
+                d2_ref = f'"{second_dim_tbl}"."{second_dim_col}"'
+                d1_alias = re.sub(r"[^a-z0-9_]+", "_", dim_col.lower()).strip("_")
+                d2_alias = re.sub(r"[^a-z0-9_]+", "_", second_dim_col.lower()).strip("_")
+                return (
+                    f"SELECT {d1_ref} AS {d1_alias},\n"
+                    f"       {d2_ref} AS {d2_alias},\n"
+                    f"       COUNT(*) AS {d2_alias}_count,\n"
+                    f"       ROUND(100.0 * COUNT(*) / NULLIF(SUM(COUNT(*)) OVER (PARTITION BY {d1_ref}), 0), 2) AS {d2_alias}_ratio_pct\n"
+                    f'FROM "{base_tbl_name}"{join_str}\n'
+                    f"GROUP BY {d1_ref}, {d2_ref}\n"
+                    f"ORDER BY {d1_ref}, {d2_alias}_count DESC\n"
+                    f"LIMIT 50"
+                )
+
             # If user asks for a grouped aggregate (e.g. by/for each dimension)
             if dim_tbl and dim_col:
                 dim_ref = f'"{dim_tbl}"."{dim_col}"'
@@ -722,24 +834,33 @@ class QueryAgent:
                 if metric_tbl and metric_col:
                     agg_fn = "AVG" if any(w in q_low for w in ("avg", "average", "mean")) else "SUM"
                     metric_ref = f'ROUND({agg_fn}("{metric_tbl}"."{metric_col}"), 2)'
-                    if metric_col.lower().startswith("total_") and agg_fn == "SUM":
-                        metric_alias = metric_col
-                    elif metric_col.lower().startswith("avg_") and agg_fn == "AVG":
-                        metric_alias = metric_col
-                    else:
-                        metric_alias = f"total_{metric_col}" if agg_fn == "SUM" else f"avg_{metric_col}"
+                    metric_alias = f"total_{metric_col}" if agg_fn == "SUM" else f"avg_{metric_col}"
+                    ratio_select = (
+                        f",\n       ROUND(100.0 * COUNT(*) / NULLIF(SUM(COUNT(*)) OVER (), 0), 2) AS ratio_pct"
+                        if is_ratio_query else ""
+                    )
+                    return (
+                        f"SELECT {dim_ref} AS {dim_alias},\n"
+                        f"       COUNT(*) AS total_count,\n"
+                        f"       {metric_ref} AS {metric_alias}{ratio_select}\n"
+                        f'FROM "{base_tbl_name}"{join_str}\n'
+                        f"GROUP BY {dim_ref}\n"
+                        f"ORDER BY total_count DESC\n"
+                        f"LIMIT 25"
+                    )
                 else:
-                    metric_ref = "COUNT(*)"
-                    metric_alias = "row_count"
-
-                return (
-                    f"SELECT {dim_ref} AS {dim_alias},\n"
-                    f"       {metric_ref} AS {metric_alias}\n"
-                    f'FROM "{base_tbl_name}"{join_str}\n'
-                    f"GROUP BY {dim_ref}\n"
-                    f"ORDER BY {metric_alias} DESC\n"
-                    f"LIMIT 25"
-                )
+                    ratio_select = (
+                        f",\n       ROUND(100.0 * COUNT(*) / NULLIF(SUM(COUNT(*)) OVER (), 0), 2) AS ratio_pct"
+                        if is_ratio_query else ""
+                    )
+                    return (
+                        f"SELECT {dim_ref} AS {dim_alias},\n"
+                        f"       COUNT(*) AS row_count{ratio_select}\n"
+                        f'FROM "{base_tbl_name}"{join_str}\n'
+                        f"GROUP BY {dim_ref}\n"
+                        f"ORDER BY row_count DESC\n"
+                        f"LIMIT 25"
+                    )
 
             select_cols: list[str] = []
             for t_name in [base_tbl_name] + [t for t in join_plan.required_tables if t != base_tbl_name]:
@@ -959,6 +1080,29 @@ class QueryAgent:
         prior_q = last_resp.get("user_question", "")
         prior_tables = last_resp.get("involved_tables", [])
         q_low = question.lower().strip()
+
+        # Check if the query starts with a conversational prefix like "now show me" or "now show",
+        # but is actually a complete, self-contained analytical question rather than a filter refinement.
+        now_show_match = re.match(r"^now\s+show\s+(?:me\s+)?(?:the\s+)?(.*)", q_low)
+        if now_show_match:
+            rest = now_show_match.group(1).strip()
+            # If the remainder introduces a standalone subject / metric / domain (e.g. grades, revenue, courses, fees)
+            # or specifies a complete breakdown (e.g. "rio of total grades gender wise"), treat as independent query.
+            has_new_subject = any(
+                w in rest
+                for w in (
+                    "grade", "grades", "mark", "marks", "gpa", "score", "scores",
+                    "course", "courses", "fee", "fees", "invoice", "invoices",
+                    "faculty", "department", "order", "orders", "revenue", "sales", "profit",
+                    "customer", "customers", "product", "products", "return", "returns"
+                )
+            )
+            is_elliptical_filter = any(
+                rest.startswith(p)
+                for p in ("only", "just", "for", "in", "where", "top", "bottom", "trend", "monthly")
+            ) or (rest.startswith("by ") and len(rest.split()) <= 2)
+            if has_new_subject and not is_elliptical_filter:
+                return f"Show {rest}", False, None, []
 
         follow_up_regex = re.compile(
             r"^(filter\s+(that\s+|it\s+)?(by|to|for|where|only)|only\s+(in|for)|just\s+(in|for)|where\b|exclude\b|excluding\b|"
