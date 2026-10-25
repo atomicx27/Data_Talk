@@ -1392,6 +1392,14 @@ def test_overview_table_roles_compound_fks_and_fuzzy_typo_compiler():
     assert "Highest Expenditure" in sum_comp
     assert "Overall Net Position" in sum_comp
 
+    # 6. Verify compiler_mode and compiler_detail indicator ("heuristic" vs "llm")
+    sql_h, dax_h, mode_h, detail_h = QueryAgent._generate_query(
+        q_comp, ws, jp_comp, [], {}, False, None, None
+    )
+    assert mode_h == "heuristic"
+    assert "Heuristic" in detail_h
+
+
 
 
 

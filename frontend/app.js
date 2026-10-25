@@ -1782,6 +1782,11 @@ function renderChatView() {
         )
         .join('');
 
+      const isLlmCompiled = resp.compiler_mode === 'llm';
+      const compilerBadge = isLlmCompiled
+        ? `<span class="pii-badge pii-safe" style="background:rgba(16,185,129,0.14); color:#10b981; border:1px solid rgba(16,185,129,0.35);" title="${escapeHtml(resp.compiler_detail || 'Compiled via LLM')}"><svg class="icon" style="width:11px;height:11px"><use href="#i-sparkles"/></svg> ${escapeHtml(resp.compiler_detail || 'LLM Compiler')}</span>`
+        : `<span class="meta-chip" style="background:rgba(245,158,11,0.14); color:#d97706; border:1px solid rgba(245,158,11,0.35); font-weight:600;" title="${escapeHtml(resp.compiler_detail || 'Solved using built-in deterministic heuristic compiler')}"><svg class="icon" style="width:11px;height:11px"><use href="#i-cpu"/></svg> Heuristic Engine</span>`;
+
       const fanTrapBadge = resp.fan_trap_mitigated
         ? `<span class="pii-badge pii-safe" title="Pre-aggregated CTEs prevented multi-fact fan trap"><svg class="icon" style="width:11px;height:11px"><use href="#i-shield"/></svg>Multi-fact CTE</span>`
         : '';
@@ -1889,6 +1894,7 @@ function renderChatView() {
               <h3 class="chat-question-title">${escapeHtml(resp.user_question || '')}</h3>
             </div>
             <div class="chat-q-actions">
+              ${compilerBadge}
               ${fanTrapBadge}
               ${followUpBadge}
               ${drillDownBtn}
@@ -2195,6 +2201,15 @@ function openLineageModal(entry) {
   document.getElementById('lineageDaxCode').textContent = resp.compiled_dax_equivalent || '';
 
   const badges = [];
+  if (resp.compiler_mode === 'llm') {
+    badges.push(
+      `<span class="pii-badge pii-safe" style="background:rgba(16,185,129,0.14); color:#10b981; border:1px solid rgba(16,185,129,0.35);"><svg class="icon" style="width:11px;height:11px"><use href="#i-sparkles"/></svg> ${escapeHtml(resp.compiler_detail || 'LLM Compiler')}</span>`
+    );
+  } else {
+    badges.push(
+      `<span class="meta-chip" style="background:rgba(245,158,11,0.14); color:#d97706; border:1px solid rgba(245,158,11,0.35); font-weight:600;"><svg class="icon" style="width:11px;height:11px"><use href="#i-cpu"/></svg> ${escapeHtml(resp.compiler_detail || 'Deterministic Heuristic Engine')}</span>`
+    );
+  }
   if (resp.fan_trap_mitigated) {
     badges.push(
       `<span class="pii-badge pii-safe"><svg class="icon" style="width:11px;height:11px"><use href="#i-shield"/></svg>Multi-fact chasm/fan trap mitigated via pre-aggregated CTEs</span>`
@@ -2204,7 +2219,8 @@ function openLineageModal(entry) {
   document.getElementById('lineageBadgesRow').innerHTML = badges.join(' ');
 
   document.getElementById('lineageMetaDetails').innerHTML = `
-    <div><strong>Tables used:</strong> <code class="mono">${escapeHtml((resp.involved_tables || []).join(', '))}</code></div>
+    <div><strong>Compilation engine:</strong> <code class="mono">${escapeHtml(resp.compiler_detail || (resp.compiler_mode === 'llm' ? 'LLM' : 'Deterministic Heuristic Engine'))}</code></div>
+    <div style="margin-top:4px;"><strong>Tables used:</strong> <code class="mono">${escapeHtml((resp.involved_tables || []).join(', '))}</code></div>
     <div style="margin-top:4px;"><strong>Approved join paths:</strong> <code class="mono">${escapeHtml((resp.join_clauses_used || []).join(' ; ') || 'Single-table query')}</code></div>
   `;
 

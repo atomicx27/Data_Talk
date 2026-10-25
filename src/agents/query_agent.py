@@ -54,6 +54,8 @@ class QueryResponse(BaseModel):
     executive_summary: str = ""
     error_message: str = ""
     recommended_chart_type: str = "bar"
+    compiler_mode: str = "heuristic"
+    compiler_detail: str = "Deterministic Heuristic Engine"
     is_follow_up: bool = False
     follow_up_context: str | None = None
     suggested_follow_ups: list[str] = Field(default_factory=list)
@@ -174,10 +176,12 @@ class QueryAgent:
         last_error = ""
         current_query = ""
         dax_equiv = ""
+        compiler_mode = "heuristic"
+        compiler_detail = "Deterministic Heuristic Engine"
 
         for attempt in range(1, cls.MAX_RETRIES + 1):
             if attempt == 1:
-                current_query, dax_equiv = cls._generate_query(
+                current_query, dax_equiv, compiler_mode, compiler_detail = cls._generate_query(
                     question=resolved_q,
                     workspace=workspace,
                     join_plan=join_plan,
@@ -191,7 +195,7 @@ class QueryAgent:
                 healing_trace.append(
                     f"Attempt {attempt - 1} failed with error: `{last_error}`. Self-healing query against OKF schema..."
                 )
-                current_query = cls._repair_query(
+                current_query, compiler_mode, compiler_detail = cls._repair_query(
                     question=resolved_q,
                     failed_query=current_query,
                     error_msg=last_error,
@@ -243,6 +247,8 @@ class QueryAgent:
                     business_rules_applied=applied_rules[:5],
                     clarification_suggestion=clarification_hint,
                     executive_summary=summary_text,
+                    compiler_mode=compiler_mode,
+                    compiler_detail=compiler_detail,
                     is_follow_up=is_follow_up,
                     follow_up_context=follow_up_ctx,
                     suggested_follow_ups=follow_ups,
@@ -271,6 +277,8 @@ class QueryAgent:
                 business_rules_applied=applied_rules[:5],
                 clarification_suggestion=clarification_hint,
                 error_message=PrivacyFirewall.redact_text(last_error),
+                compiler_mode=compiler_mode,
+                compiler_detail=compiler_detail,
                 is_follow_up=is_follow_up,
                 follow_up_context=follow_up_ctx,
                 suggested_follow_ups=[
@@ -436,11 +444,12 @@ class QueryAgent:
         is_dax_target: bool,
         llm_router: LLMRouter | None,
         what_if_overrides: dict[str, float] | None = None,
-    ) -> tuple[str, str]:
+    ) -> tuple[str, str, str, str]:
         """Generate SQL or DAX query via LiteLLM if configured, with deterministic semantic compiler fallback."""
+        fallback_detail = "Deterministic Heuristic Engine (No LLM Key)"
         if llm_router is not None and llm_router.is_configured():
             try:
-                return cls._llm_compile_query(
+                sql_q, dax_q = cls._llm_compile_query(
                     question,
                     workspace,
                     join_plan,
@@ -450,8 +459,12 @@ class QueryAgent:
                     llm_router,
                     what_if_overrides,
                 )
-            except Exception:
-                pass
+                if sql_q and sql_q.strip():
+                    model_lbl = getattr(llm_router, "model", "LLM")
+                    return sql_q, dax_q, "llm", f"LLM ({model_lbl})"
+                fallback_detail = f"Heuristic Fallback ({getattr(llm_router, 'model', 'LLM')} returned empty SQL)"
+            except Exception as exc:
+                fallback_detail = f"Heuristic Fallback ({getattr(llm_router, 'model', 'LLM')} error: {type(exc).__name__})"
 
         # Deterministic Semantic Compiler (works 100% offline without an API key!)
         sql_query = cls._deterministic_sql_compiler(
@@ -461,8 +474,8 @@ class QueryAgent:
             question, workspace, matched_measures
         )
         if is_dax_target:
-            return dax_query, dax_query
-        return sql_query, dax_query
+            return dax_query, dax_query, "heuristic", fallback_detail
+        return sql_query, dax_query, "heuristic", fallback_detail
 
     @classmethod
     def _llm_compile_query(
@@ -1491,7 +1504,7 @@ class QueryAgent:
         join_plan: JoinPlan,
         is_dax_target: bool,
         llm_router: LLMRouter | None,
-    ) -> str:
+    ) -> tuple[str, str, str]:
         """Self-Healing Critic: repair a failed SQL/DAX query using OKF column metadata."""
         if llm_router is not None and llm_router.is_configured():
             schema_str = "\n".join(
@@ -1511,7 +1524,8 @@ class QueryAgent:
                     ),
                 )
                 if res.get("repaired_query"):
-                    return str(res["repaired_query"]).strip()
+                    model_lbl = getattr(llm_router, "model", "LLM")
+                    return str(res["repaired_query"]).strip(), "llm", f"LLM Self-Healed ({model_lbl})"
             except Exception:
                 pass
 
@@ -1529,8 +1543,12 @@ class QueryAgent:
         for pattern, replacement in col_repairs.items():
             repaired = re.sub(pattern, replacement, repaired, flags=re.IGNORECASE)
         if repaired == failed_query:
-            return cls._deterministic_sql_compiler(question, workspace, join_plan, [])
-        return repaired
+            return (
+                cls._deterministic_sql_compiler(question, workspace, join_plan, []),
+                "heuristic",
+                "Heuristic Self-Healing Fallback",
+            )
+        return repaired, "heuristic", "Heuristic Column Alias Repair"
 
     @classmethod
     def _build_executive_summary(
@@ -2166,6 +2184,7 @@ class QueryAgent:
                         }
                         for t in display_tables
                     ])
+                    model_lbl = getattr(llm_router, "model", "LLM")
                     return (
                         QueryResponse(
                             user_question=question,
@@ -2175,6 +2194,8 @@ class QueryAgent:
                             involved_tables=[t.name for t in display_tables[:6]],
                             executive_summary=res.strip(),
                             recommended_chart_type="table",
+                            compiler_mode="llm",
+                            compiler_detail=f"LLM ({model_lbl})",
                             suggested_follow_ups=suggested_clean[:4],
                         ),
                         df_overview,
