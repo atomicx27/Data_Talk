@@ -180,9 +180,24 @@ class ChartRecommender:
                 "proportion", "share", "composition", "distribution", "other", "wise"
             )
         )
+        is_comparison_intent = any(
+            k in q_low
+            for k in ("comparison", "compare", "vs", "versus", "between")
+        )
 
         preferred_metric = cls._select_preferred_metric(num_cols, question)
         is_non_additive = cls._is_non_additive_metric(preferred_metric)
+
+        # If 1D comparison across 2+ financial/value metrics (e.g. Expenditure vs Earning, Revenue vs Refund), use Grouped Bar Chart
+        fin_comparison_cols = [
+            c for c in count_breakdowns
+            if not str(c).lower().endswith("_count") and str(c).lower() != "row_count"
+        ]
+        if len(dim_cols) == 1 and len(fin_comparison_cols) >= 2 and (
+            is_comparison_intent
+            or any("expenditure" in str(c).lower() or "earning" in str(c).lower() for c in fin_comparison_cols)
+        ):
+            return "bar"
 
         # If 2+ percentage breakdown columns exist that represent a demographic/composition split (e.g., Male Pct, Female Pct, Other Pct)
         if len(pct_breakdowns) >= 2 and (
@@ -196,9 +211,10 @@ class ChartRecommender:
             len(dim_cols) <= 1
             and len(count_breakdowns) >= 2
             and not is_non_additive
+            and not is_comparison_intent
             and (
                 is_breakdown_intent
-                or any(k in q_low for k in ("by", "across", "per", "category", "status", "student", "college", "wise"))
+                or any(any(g in str(c).lower() for g in ("male", "female", "other")) for c in count_breakdowns)
             )
         ):
             return "stacked_bar"
@@ -206,7 +222,12 @@ class ChartRecommender:
         # If 2 dimensions exist (e.g. COLLEGE NAME and GENDER/YEAR)
         if len(dim_cols) >= 2:
             has_time_dim = any(cls._is_temporal_dim(d) for d in dim_cols[:2])
-            # Power BI / Data Analyst Rule: Non-additive metrics (AVG salary, GPA, rates) must NEVER stack!
+            time_col = next((d for d in dim_cols[:2] if cls._is_temporal_dim(d)), None)
+            time_nunique = df[time_col].nunique() if (time_col and time_col in df.columns) else 0
+            has_explicit_time_query = any(k in q_low for k in ("year", "trend", "over time", "yoy", "annual", "yearly", "monthly", "timeline"))
+            # Power BI / Data Analyst Rule:
+            # 1. Non-additive metrics (AVG salary, GPA, rates) must NEVER stack!
+            # 2. Explicit time-trend queries ("year on year", "trend") or > 8 time periods should use a Line chart instead of stacking 19 years of rainbow bars!
             if is_non_additive:
                 if has_time_dim:
                     return "line"
@@ -214,6 +235,9 @@ class ChartRecommender:
                 if sec_nunique > 8:
                     return "heatmap"
                 return "bar"
+
+            if has_time_dim and (has_explicit_time_query or time_nunique > 8):
+                return "line"
 
             if is_breakdown_intent or any(k in q_low for k in ("by", "breakdown", "per", "across", "wise", "student", "college", "grade", "trend")):
                 if df[dim_cols[0]].nunique() > 5 or len(df) > 8:
@@ -275,6 +299,24 @@ class ChartRecommender:
         if not num_cols:
             return None
 
+        # When 2 dimensions exist and dim_cols[1] is temporal (e.g. department_name + hire_year),
+        # place the temporal dimension on the primary X-axis and the category on the color legend for line/area charts.
+        if (
+            not x_col
+            and len(dim_cols) >= 2
+            and cls._is_temporal_dim(dim_cols[1])
+            and not cls._is_temporal_dim(dim_cols[0])
+            and chosen_type in ("line", "area")
+        ):
+            dim_cols = [dim_cols[1], dim_cols[0]] + dim_cols[2:]
+            p_sort = cls._select_preferred_metric(num_cols, title) or num_cols[0]
+            cat_series_col = dim_cols[1]
+            if cat_series_col in df.columns and df[cat_series_col].nunique() > 10:
+                agg_op = "mean" if cls._is_non_additive_metric(p_sort) else "sum"
+                top_series = getattr(df.groupby(cat_series_col)[p_sort], agg_op)().sort_values(ascending=False).head(10).index
+                df = df[df[cat_series_col].isin(top_series)]
+            df = df.sort_values(by=[dim_cols[0], dim_cols[1]])
+
         # High cardinality guard in visual generation: categorical charts with > 40 items become illegible walls of bars.
         if chosen_type in ("bar", "horizontal_bar", "stacked_bar", "stacked_bar_100", "stacked_horizontal_bar", "pie", "donut", "radar", "funnel"):
             primary_dim = dim_cols[0] if dim_cols else None
@@ -312,9 +354,27 @@ class ChartRecommender:
             any(g in str(c).lower() for g in ("male", "female", "other", "share"))
             for c in pct_breakdowns
         )
+        fin_comparison_cols = [
+            c for c in count_breakdowns
+            if not str(c).lower().endswith("_count")
+            and str(c).lower() != "row_count"
+            and not any(k in str(c).lower() for k in ("surplus", "deficit", "variance"))
+        ]
+        title_low = (title or "").lower()
+        is_comparison_chart = (
+            len(dim_cols) == 1
+            and len(fin_comparison_cols) >= 2
+            and chosen_type in ("bar", "horizontal_bar")
+            and (
+                any(k in title_low for k in ("comparison", "compare", "vs", "versus", "between"))
+                or any("expenditure" in str(c).lower() or "earning" in str(c).lower() for c in fin_comparison_cols)
+            )
+        )
 
         if chosen_type in ("stacked_bar_100", "percent_stacked_bar") and len(pct_breakdowns) >= 2:
             breakdown_ys = pct_breakdowns
+        elif is_comparison_chart:
+            breakdown_ys = fin_comparison_cols[:2]
         elif len(count_breakdowns) >= 2 and chosen_type in ("stacked_bar", "stacked_horizontal_bar") and len(dim_cols) == 1:
             breakdown_ys = count_breakdowns
         elif is_demo_pct_split:

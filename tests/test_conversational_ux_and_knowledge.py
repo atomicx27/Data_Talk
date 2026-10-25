@@ -1344,6 +1344,55 @@ def test_overview_table_roles_compound_fks_and_fuzzy_typo_compiler():
     assert "year_of_birth" not in sql
     assert "current_semester_num" not in sql
 
+    # 4. Verify 2D time-series chart recommendation is 'line' (not 'stacked_bar') with hire_year on X
+    from src.viz.chart_recommender import ChartRecommender
+
+    df_dept_yoy = pd.DataFrame({
+        "department_name": [f"Dept {i}" for i in range(15) for _ in range(3)],
+        "hire_year": ["2021", "2022", "2023"] * 15,
+        "total_salary": [100000.0 + i * 5000 for i in range(45)],
+        "hire_year_count": [2] * 45,
+    })
+    rec_yoy = ChartRecommender.recommend_chart_type(df_dept_yoy, "show me total cost of each deparement year on year")
+    assert rec_yoy == "line"
+    fig_yoy = ChartRecommender.build_figure(df_dept_yoy, rec_yoy, "show me total cost of each deparement year on year")
+    assert fig_yoy is not None
+    assert len(fig_yoy.data) == 10  # Capped at Top 10 departments for legibility
+
+    # 5. Verify multi-fact comparison: "show me a comparison between the expenditure and earning of each college"
+    q_comp = "show me a comparison between the expenditure and earning of each college"
+    det_comp = QueryAgent._detect_relevant_tables(q_comp, ws, {})
+    assert "colleges" in det_comp
+    assert "departments" in det_comp
+    assert "fee_invoices" in det_comp
+    jp_comp = OKFStore().get_join_plan(ws, det_comp)
+    sql_comp = QueryAgent._deterministic_sql_compiler(q_comp, ws, jp_comp, [])
+    assert "WITH dept_budget_cte AS" in sql_comp
+    assert "fee_earnings_cte AS" in sql_comp
+    assert "AS college_name" in sql_comp
+    assert "AS total_earnings" in sql_comp
+    assert "AS total_expenditure" in sql_comp
+    assert jp_comp.has_fan_trap is True
+
+    df_comp = pd.DataFrame({
+        "college_name": ["College of Engineering", "College of Business"],
+        "total_earnings": [15000000.0, 12000000.0],
+        "total_expenditure": [9500000.0, 8200000.0],
+        "department_budget": [5000000.0, 4200000.0],
+        "faculty_payroll": [4500000.0, 4000000.0],
+        "net_surplus_deficit": [5500000.0, 3800000.0],
+    })
+    rec_comp = ChartRecommender.recommend_chart_type(df_comp, q_comp)
+    assert rec_comp == "bar"
+    fig_comp = ChartRecommender.build_figure(df_comp, rec_comp, q_comp)
+    assert fig_comp is not None
+    assert len(fig_comp.data) == 2  # Plots both total_earnings and total_expenditure side-by-side
+    sum_comp = QueryAgent._build_executive_summary(q_comp, df_comp, [], [], None, ws)
+    assert "Highest Earnings" in sum_comp
+    assert "Highest Expenditure" in sum_comp
+    assert "Overall Net Position" in sum_comp
+
+
 
 
 

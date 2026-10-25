@@ -358,9 +358,9 @@ class QueryAgent:
             "colleges": ("college", "colleges", "campus", "dean"),
             "courses": ("course", "courses", "credit", "credits", "syllabus"),
             "degree_programs": ("program", "degree", "major"),
-            "departments": ("department", "departments", "dept", "budget", "cost", "expense", "spend", "allocated"),
-            "fee_invoices": ("fee", "fees", "invoice", "invoices", "tuition", "paid", "balance", "due", "payment"),
-            "faculty": ("faculty", "professor", "professors", "teacher", "instructor", "salary", "rank", "payroll"),
+            "departments": ("department", "departments", "dept", "budget", "cost", "costs", "expense", "expenses", "expenditure", "expenditures", "spend", "spending", "allocated", "outflow"),
+            "fee_invoices": ("fee", "fees", "invoice", "invoices", "tuition", "paid", "balance", "due", "payment", "earning", "earnings", "income", "revenue", "revenues", "collection", "collections", "billed", "billing", "receipts"),
+            "faculty": ("faculty", "professor", "professors", "teacher", "instructor", "salary", "salaries", "rank", "payroll", "wage", "wages", "compensation", "expenditure", "expenditures", "cost", "costs", "expense", "expenses"),
         }
         for t_name, kw_tuple in keyword_table_hints.items():
             if workspace.get_table(t_name) and any(
@@ -797,6 +797,66 @@ class QueryAgent:
                 f"       COUNT(DISTINCT orders.order_id) AS total_orders"
                 f"{extra_measure_select}\n"
                 f"FROM orders{join_str}{where_str}"
+            )
+
+        # Case B2: Multi-Fact Expenditure vs. Earnings Comparison across Colleges / Departments (Chasm/Fan Trap Safe CTE)
+        has_expenditure_intent = any(
+            w in q_low
+            for w in ("expenditure", "expenditures", "expense", "expenses", "cost", "costs", "budget", "spend", "spending", "outflow")
+        )
+        has_earning_intent = any(
+            w in q_low
+            for w in ("earning", "earnings", "revenue", "revenues", "income", "fee", "fees", "tuition", "collection", "collections", "receipts")
+        )
+        if (
+            has_expenditure_intent
+            and has_earning_intent
+            and workspace.get_table("colleges")
+            and workspace.get_table("departments")
+            and workspace.get_table("fee_invoices")
+            and workspace.get_table("students")
+        ):
+            join_plan.has_fan_trap = True
+            has_faculty = workspace.get_table("faculty") is not None
+            fac_cte = (
+                ",\nfaculty_payroll_cte AS (\n"
+                '    SELECT d."college_id", SUM(f."salary") AS faculty_payroll\n'
+                '    FROM "faculty" f\n'
+                '    JOIN "departments" d ON f."department_id" = d."department_id"\n'
+                '    GROUP BY d."college_id"\n'
+                ")"
+                if has_faculty
+                else ""
+            )
+            fac_join = 'LEFT JOIN faculty_payroll_cte fp ON c."college_id" = fp."college_id"\n' if has_faculty else ""
+            exp_expr = "COALESCE(db.department_budget, 0) + COALESCE(fp.faculty_payroll, 0)" if has_faculty else "COALESCE(db.department_budget, 0)"
+            fac_col = ",\n       ROUND(COALESCE(fp.faculty_payroll, 0), 2) AS faculty_payroll" if has_faculty else ""
+            return (
+                "WITH dept_budget_cte AS (\n"
+                '    SELECT "college_id", SUM("budget_allocated") AS department_budget\n'
+                '    FROM "departments"\n'
+                '    GROUP BY "college_id"\n'
+                ")"
+                f"{fac_cte},\n"
+                "fee_earnings_cte AS (\n"
+                '    SELECT s."college_id",\n'
+                '           SUM(fi."amount_paid") AS total_earnings,\n'
+                '           SUM(fi."net_amount_due") AS total_fee_billed\n'
+                '    FROM "fee_invoices" fi\n'
+                '    JOIN "students" s ON fi."student_id" = s."student_id"\n'
+                '    GROUP BY s."college_id"\n'
+                ")\n"
+                'SELECT c."college_name" AS college_name,\n'
+                "       ROUND(COALESCE(er.total_earnings, 0), 2) AS total_earnings,\n"
+                f"       ROUND({exp_expr}, 2) AS total_expenditure,\n"
+                "       ROUND(COALESCE(db.department_budget, 0), 2) AS department_budget"
+                f"{fac_col},\n"
+                f"       ROUND(COALESCE(er.total_earnings, 0) - ({exp_expr}), 2) AS net_surplus_deficit\n"
+                'FROM "colleges" c\n'
+                'LEFT JOIN dept_budget_cte db ON c."college_id" = db."college_id"\n'
+                f"{fac_join}"
+                'LEFT JOIN fee_earnings_cte er ON c."college_id" = er."college_id"\n'
+                "ORDER BY total_earnings DESC"
             )
 
         # Case C: Multi-table / Cross-Database joined query
@@ -1284,6 +1344,8 @@ class QueryAgent:
                 for c in target_tbl.columns
                 if not c.is_blocked and c.name not in num_cols and not c.is_primary_key
             ]
+        # Prefer human-readable *_name / title columns before *_code columns
+        cat_cols.sort(key=lambda col: 0 if col.lower().endswith("name") or col.lower() in ("name", "title") else 1)
 
         # Match the user's requested dimension column on single-table queries (e.g., academic_rank, gender, status, department_name)
         matched_cat_col = None
@@ -1563,6 +1625,21 @@ class QueryAgent:
                 and any(k in dc_low for k in ("date", "month", "year", "quarter", "week", "day", "time", "semester"))
             )
 
+            # Case 0: Multi-Metric Expenditure vs. Earnings Comparison
+            if "total_earnings" in df.columns and "total_expenditure" in df.columns:
+                tot_earn = float(df["total_earnings"].sum())
+                tot_exp = float(df["total_expenditure"].sum())
+                net_diff = tot_earn - tot_exp
+                top_earn_row = df.sort_values(by="total_earnings", ascending=False).iloc[0]
+                top_exp_row = df.sort_values(by="total_expenditure", ascending=False).iloc[0]
+                summary_lines = [
+                    f"Compared **Earnings vs. Expenditure** across **{len(df):,}** `{dim_title}` groups.",
+                    f"- 💰 **Highest Earnings**: **{top_earn_row[dim_col]}** at `{float(top_earn_row['total_earnings']):,.2f}` (Total Earnings: `{tot_earn:,.2f}`).",
+                    f"- 🏛️ **Highest Expenditure**: **{top_exp_row[dim_col]}** at `{float(top_exp_row['total_expenditure']):,.2f}` (Total Expenditure: `{tot_exp:,.2f}`).",
+                    f"- ⚖️ **Overall Net Position**: `{net_diff:+,.2f}` ({'Net Surplus' if net_diff >= 0 else 'Net Deficit'} across all groups).",
+                ]
+                return "\n".join(summary_lines)
+
             # Case 1: Time-Series Trend Narrative (Start -> End Trajectory, Peak/Trough, Period Mean)
             if is_time_dim and len(df) >= 2:
                 time_df = df.sort_values(by=dim_col, ascending=True)
@@ -1604,6 +1681,10 @@ class QueryAgent:
                     k in mc_low
                     for k in ("revenue", "rev", "sales", "profit", "fee", "tuition", "salary", "amount", "paid", "cost", "budget")
                 )
+                is_cost_metric = any(
+                    k in (mc_low + " " + q_low)
+                    for k in ("cost", "expense", "expenditure", "spend", "budget", "salary", "payroll", "outflow")
+                )
                 is_demographic_or_neutral = (not is_financial_metric) and any(
                     k in (q_low + " " + dc_low + " " + mc_low)
                     for k in (
@@ -1612,8 +1693,15 @@ class QueryAgent:
                         "ratio", "raio", "demographic", "distribution", "split", "mix", "breakdown", "count",
                     )
                 )
-                top_badge = "📊 **Highest Representation / Volume**" if is_demographic_or_neutral else "🏆 **Top Performer**"
-                bot_badge = "📉 **Lowest Representation**" if is_demographic_or_neutral else "📉 **Lowest Group**"
+                if is_cost_metric:
+                    top_badge = "💰 **Highest Cost / Expenditure**"
+                    bot_badge = "📉 **Lowest Cost / Expenditure**"
+                elif is_demographic_or_neutral:
+                    top_badge = "📊 **Highest Representation / Volume**"
+                    bot_badge = "📉 **Lowest Representation**"
+                else:
+                    top_badge = "🏆 **Top Performer**"
+                    bot_badge = "📉 **Lowest Group**"
 
                 summary_lines = [
                     f"Analyzed **{len(df):,}** groups across `{dim_title}` for `{metric_title}`.",
