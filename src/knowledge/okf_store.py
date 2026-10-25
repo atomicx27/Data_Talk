@@ -269,9 +269,13 @@ class OKFStore:
                             seen_edge_ids.add(rel.id)
                             path_edges.append(rel)
 
+        if path_edges:
+            connected_tables = {e.source_table for e in path_edges} | {e.target_table for e in path_edges}
+            path_nodes = {t for t in path_nodes if t in connected_tables}
+
         bridge_tables = [t for t in path_nodes if t not in valid_targets]
         sql_clauses = [
-            f"{e.join_type} JOIN {e.target_table} ON {e.source_table}.{e.source_column} = {e.target_table}.{e.target_column}"
+            f'{e.join_type} JOIN "{e.target_table}" ON "{e.source_table}"."{e.source_column}" = "{e.target_table}"."{e.target_column}"'
             for e in path_edges
         ]
 

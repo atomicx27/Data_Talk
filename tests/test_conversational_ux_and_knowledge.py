@@ -904,6 +904,124 @@ def test_drill_down_dropdown_break_that_down_by_department():
     assert sql.count('LEFT JOIN "colleges"') <= 1
 
 
+def test_drill_down_break_trend_by_college_no_irrelevant_table():
+    """Verify that breaking down a trend query by college:
+    1. Does not mistakenly pull in unmentioned tables like carbon_footprint_100_countries_2018_2025.
+    2. Correctly selects faculty.salary as the metric (AVG) and hire_year as the time dimension.
+    3. Produces executable, correctly-joined multi-table SQL without empty results."""
+    from src.knowledge.okf_models import OKFWorkspace, TableSchema, ColumnProfile, RelationshipEdge
+    from src.knowledge.okf_store import OKFStore
+    from src.agents.query_agent import QueryAgent
+    import duckdb
+
+    colleges_tbl = TableSchema(
+        name="colleges",
+        columns=[
+            ColumnProfile(name="college_id", data_type="BIGINT", is_primary_key=True),
+            ColumnProfile(name="college_name", data_type="VARCHAR"),
+            ColumnProfile(name="established_year", data_type="BIGINT"),
+        ],
+    )
+    departments_tbl = TableSchema(
+        name="departments",
+        columns=[
+            ColumnProfile(name="department_id", data_type="BIGINT", is_primary_key=True),
+            ColumnProfile(name="department_name", data_type="VARCHAR"),
+            ColumnProfile(name="college_id", data_type="BIGINT", is_foreign_key=True),
+        ],
+    )
+    faculty_tbl = TableSchema(
+        name="faculty",
+        columns=[
+            ColumnProfile(name="faculty_id", data_type="VARCHAR", is_primary_key=True),
+            ColumnProfile(name="department_id", data_type="BIGINT", is_foreign_key=True),
+            ColumnProfile(name="hire_date", data_type="VARCHAR"),
+            ColumnProfile(name="salary", data_type="DOUBLE"),
+        ],
+    )
+    carbon_tbl = TableSchema(
+        name="carbon_footprint_100_countries_2018_2025",
+        columns=[
+            ColumnProfile(name="Country", data_type="VARCHAR"),
+            ColumnProfile(name="Year", data_type="BIGINT"),
+            ColumnProfile(name="Total", data_type="DOUBLE"),
+        ],
+    )
+
+    ws = OKFWorkspace(
+        workspace_id="test_faculty_trend",
+        workspace_name="Faculty Trend BI",
+        source_type="duckdb",
+        dialect="duckdb",
+        tables=[colleges_tbl, departments_tbl, faculty_tbl, carbon_tbl],
+        relationships=[
+            RelationshipEdge(id="r1", source_table="faculty", source_column="department_id", target_table="departments", target_column="department_id"),
+            RelationshipEdge(id="r2", source_table="departments", source_column="college_id", target_table="colleges", target_column="college_id"),
+        ],
+    )
+
+    history = [
+        {
+            "response": {
+                "success": True,
+                "executed_query": "SELECT STRFTIME(TRY_CAST(hire_date AS DATE), '%Y') AS hire_year, AVG(salary) AS avg_salary FROM faculty GROUP BY hire_year",
+                "user_question": "show trend of salary of faculty year on year",
+                "involved_tables": ["faculty"],
+            }
+        }
+    ]
+
+    # 1. Resolve context for drilldown: "Break that down by College"
+    resolved_q, is_fu, ctx, prior_tables = QueryAgent._resolve_follow_up_context(
+        question="Break that down by College",
+        conversation_history=history,
+        workspace=ws,
+        llm_router=None,
+    )
+    assert is_fu is True
+    assert "broken down by college" in resolved_q.lower()
+
+    # 2. Relevant table detection MUST NOT include carbon footprint
+    detected = QueryAgent._detect_relevant_tables(resolved_q, ws, {})
+    assert "carbon_footprint_100_countries_2018_2025" not in detected
+    assert "faculty" in detected
+    assert "colleges" in detected
+
+    # 3. Join plan must only connect valid tables
+    store = OKFStore()
+    plan = store.get_join_plan(ws, detected)
+    assert "carbon_footprint_100_countries_2018_2025" not in plan.required_tables
+    assert set(plan.required_tables) == {"colleges", "departments", "faculty"}
+
+    # 4. Deterministic compiler must aggregate salary and group by college_name + hire_year
+    sql = QueryAgent._deterministic_sql_compiler(resolved_q, ws, plan, [])
+    assert sql is not None
+    sql_low = sql.lower()
+    assert "carbon_footprint" not in sql_low
+    assert "college_name" in sql_low
+    assert "hire_year" in sql_low
+    assert "avg_salary" in sql_low
+    assert "established_year" not in sql_low
+    assert "from \"faculty\"" in sql_low
+
+    # 5. Verify SQL execution against an in-memory DuckDB database
+    con = duckdb.connect()
+    con.execute('''
+        CREATE TABLE colleges (college_id BIGINT, college_name VARCHAR, established_year BIGINT);
+        CREATE TABLE departments (department_id BIGINT, department_name VARCHAR, college_id BIGINT);
+        CREATE TABLE faculty (faculty_id VARCHAR, department_id BIGINT, hire_date VARCHAR, salary DOUBLE);
+        INSERT INTO colleges VALUES (1, 'College of Engineering & Computing', 1980);
+        INSERT INTO departments VALUES (10, 'Computer Science', 1);
+        INSERT INTO faculty VALUES ('f1', 10, '2005-08-15', 94000.0), ('f2', 10, '2006-08-15', 109000.0);
+    ''')
+    df = con.execute(sql).fetchdf()
+    assert not df.empty
+    assert len(df) == 2
+    assert "college_name" in df.columns
+    assert "avg_salary" in df.columns
+
+
+
 
 
 

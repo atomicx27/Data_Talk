@@ -279,6 +279,11 @@ class QueryAgent:
         q_norm = re.sub(r"[_\s]+", " ", q_low)
         found: list[str] = []
 
+        GENERIC_COL_NAMES = {
+            "year", "date", "month", "day", "id", "status", "type", "name",
+            "code", "desc", "description", "value", "created_at", "updated_at",
+            "total", "count", "num", "number"
+        }
         for tbl in workspace.active_tables():
             t_low = tbl.name.lower()
             t_norm = re.sub(r"[_\s]+", " ", t_low)
@@ -297,6 +302,8 @@ class QueryAgent:
                     continue
                 c_low = col.name.lower()
                 c_norm = re.sub(r"[_\s]+", " ", c_low)
+                if c_low in GENERIC_COL_NAMES:
+                    continue
                 if re.search(rf"\b{re.escape(c_low)}\b", q_low) or re.search(rf"\b{re.escape(c_norm)}\b", q_norm):
                     found.append(tbl.name)
                     break
@@ -690,54 +697,50 @@ class QueryAgent:
             dim_col = None
 
             # Look for metric (numeric column mentioned or present in required tables)
-            # Check domain-specific synonyms first (e.g. grades/marks/gpa -> total_marks, fee -> tuition)
-            if any(g in q_low for g in ("grade", "grades", "mark", "marks", "score", "scores", "gpa")):
-                metric_candidates: list[tuple[int, str, str]] = []
-                for t_name in join_plan.required_tables:
-                    t_obj = workspace.get_table(t_name)
-                    if not t_obj:
+            metric_candidates: list[tuple[int, str, str]] = []
+            NON_METRIC_COLS = {
+                "year", "hire_year", "birth_year", "established_year", "academic_year", "fiscal_year",
+                "date", "month", "day", "rank", "zip", "zip_code", "postal_code", "phone", "phone_number",
+                "id", "code", "term_id", "college_id", "department_id", "student_id", "faculty_id", "course_id"
+            }
+            for t_name in join_plan.required_tables:
+                t_obj = workspace.get_table(t_name)
+                if not t_obj:
+                    continue
+                for c in t_obj.columns:
+                    if c.is_blocked or c.is_primary_key or c.is_foreign_key:
                         continue
-                    for c in t_obj.columns:
-                        if c.is_blocked or c.is_primary_key or c.is_foreign_key:
-                            continue
-                        if not any(ty in c.data_type.upper() for ty in ("INT", "FLOAT", "DOUBLE", "NUMERIC", "DECIMAL")):
-                            continue
-                        c_low = c.name.lower()
-                        score = 0
-                        if any(w in q_low for w in ("mark", "marks")) and "mark" in c_low:
-                            score = 100
-                        elif any(w in q_low for w in ("score", "scores")) and "score" in c_low:
-                            score = 90
-                        elif any(w in q_low for w in ("grade", "grades", "gpa")) and any(k in c_low for k in ("grade", "gpa", "mark")):
-                            score = 80
-                        elif any(k in c_low for k in ("mark", "grade", "score", "gpa")):
-                            score = 60
-
-                        if score > 0:
-                            if "total" in c_low:
-                                score += 10
-                            metric_candidates.append((score, t_name, c.name))
-
-                if metric_candidates:
-                    metric_candidates.sort(key=lambda x: -x[0])
-                    _, metric_tbl, metric_col = metric_candidates[0]
-
-            if not metric_tbl:
-                for t_name in join_plan.required_tables:
-                    t_obj = workspace.get_table(t_name)
-                    if not t_obj:
+                    if not any(ty in c.data_type.upper() for ty in ("INT", "FLOAT", "DOUBLE", "NUMERIC", "DECIMAL", "BIGINT")):
                         continue
-                    for c in t_obj.columns:
-                        if c.is_blocked or c.is_primary_key or c.is_foreign_key:
-                            continue
-                        if any(ty in c.data_type.upper() for ty in ("INT", "FLOAT", "DOUBLE", "NUMERIC", "DECIMAL")):
-                            c_norm = c.name.lower().replace("_", " ")
-                            if c.name.lower() in q_low or c_norm in q_norm or any(w in q_norm for w in c_norm.split() if len(w) > 3):
-                                metric_tbl = t_name
-                                metric_col = c.name
-                                break
-                    if metric_tbl:
-                        break
+                    c_low = c.name.lower()
+                    if c_low in NON_METRIC_COLS or c_low.endswith("_id") or c_low.endswith("_year"):
+                        continue
+                    score = 0
+                    if any(w in q_low for w in ("salary", "salaries", "compensation", "pay", "wage", "wages")) and any(k in c_low for k in ("salary", "pay", "comp", "wage")):
+                        score = 100
+                    elif any(w in q_low for w in ("revenue", "sales", "turnover")) and any(k in c_low for k in ("revenue", "rev", "sales", "amount")):
+                        score = 100
+                    elif any(w in q_low for w in ("profit", "margin", "earnings")) and any(k in c_low for k in ("profit", "margin")):
+                        score = 100
+                    elif any(w in q_low for w in ("cost", "expense", "spend", "budget")) and any(k in c_low for k in ("cost", "expense", "spend", "budget")):
+                        score = 100
+                    elif any(w in q_low for w in ("fee", "fees", "tuition", "invoice", "balance")) and any(k in c_low for k in ("fee", "tuition", "amount", "balance", "paid")):
+                        score = 100
+                    elif any(w in q_low for w in ("mark", "marks", "grade", "grades", "score", "scores", "gpa")) and any(k in c_low for k in ("mark", "score", "grade", "gpa")):
+                        score = 100
+                    elif re.search(rf"\b{re.escape(c_low)}\b", q_low):
+                        score = 90
+                    elif any(w in q_low for w in c_low.replace("_", " ").split() if len(w) > 3):
+                        score = 70
+
+                    if score > 0:
+                        if "total" in c_low:
+                            score += 5
+                        metric_candidates.append((score, t_name, c.name))
+
+            if metric_candidates:
+                metric_candidates.sort(key=lambda x: -x[0])
+                _, metric_tbl, metric_col = metric_candidates[0]
 
             # Look for dimension (text/categorical column representing the group)
             # Check if a specific column is explicitly requested as the dimension (e.g. "gender wise", "by college", "for each college", "broken down by department")
@@ -755,7 +758,12 @@ class QueryAgent:
                     t_obj = workspace.get_table(t_name)
                     if not t_obj:
                         continue
-                    for c in t_obj.columns:
+                    # Prefer name/title columns over code/id columns for human-readable grouping
+                    dim_candidates = sorted(
+                        t_obj.columns,
+                        key=lambda col: 0 if col.name.lower().endswith("name") or col.name.lower() in ("name", "title") else 1
+                    )
+                    for c in dim_candidates:
                         if c.is_blocked or c.is_primary_key or c.is_foreign_key:
                             continue
                         c_low = c.name.lower()
@@ -828,10 +836,10 @@ class QueryAgent:
                     if dim_tbl:
                         break
 
-            # Check if a second dimension exists in a breakdown query (e.g. College AND Gender / Academic Rank)
+            # Check if a second dimension exists in a breakdown query (e.g. College AND Gender / Academic Rank / Year)
             second_dim_tbl = None
             second_dim_col = None
-            if dim_tbl and dim_col and any(k in q_low for k in ("ratio", "ritio", "rio", "gender", "rank", "status", "breakdown", "by", "across", "distribution")):
+            if dim_tbl and dim_col and any(k in q_low for k in ("ratio", "ritio", "rio", "gender", "rank", "status", "breakdown", "by", "across", "distribution", "trend", "year", "annual", "yearly", "over time")):
                 candidates: list[tuple[int, str, str]] = []
                 for t_name in join_plan.required_tables:
                     t_obj = workspace.get_table(t_name)
@@ -850,9 +858,13 @@ class QueryAgent:
 
                         score = 0
                         # 1. Direct whole-word mention in user question (highest precedence)
-                        if re.search(rf"\b{re.escape(c_low)}\b", q_low):
+                        if any(k in q_low for k in ("trend", "year", "annual", "yearly", "over time")) and any(k in c_low for k in ("hire_year", "hire_date", "order_date", "date")):
+                            score = 105 if (metric_tbl and t_name == metric_tbl) else 95
+                        elif re.search(rf"\b{re.escape(c_low)}\b", q_low):
                             score = 100
                         # 2. Specific demographic/concept mappings
+                        elif any(k in q_low for k in ("trend", "year", "annual", "yearly", "over time")) and "year" in c_low:
+                            score = 90 if (metric_tbl and t_name == metric_tbl) else 75
                         elif any(k in q_low for k in ("gender", "sex", "male", "female", "demographic")) and c_low == "gender":
                             score = 100
                         elif any(k in q_low for k in ("rank", "title", "professor")) and "rank" in c_low:
@@ -884,7 +896,11 @@ class QueryAgent:
                     _, second_dim_tbl, second_dim_col = candidates[0]
 
             first_edge = join_plan.join_edges[0]
-            base_tbl_name = metric_tbl or first_edge.source_table
+            base_tbl_name = (
+                metric_tbl
+                if metric_tbl and any(metric_tbl in (e.source_table, e.target_table) for e in join_plan.join_edges)
+                else first_edge.source_table
+            )
             join_clauses = []
             joined_tables = {base_tbl_name}
 
@@ -894,14 +910,14 @@ class QueryAgent:
                 for edge in list(edges_to_process):
                     if edge.source_table in joined_tables and edge.target_table not in joined_tables:
                         join_clauses.append(
-                            f"{edge.join_type} JOIN {edge.target_table} ON {edge.source_table}.{edge.source_column} = {edge.target_table}.{edge.target_column}"
+                            f'{edge.join_type} JOIN "{edge.target_table}" ON "{edge.source_table}"."{edge.source_column}" = "{edge.target_table}"."{edge.target_column}"'
                         )
                         joined_tables.add(edge.target_table)
                         edges_to_process.remove(edge)
                         progress = True
                     elif edge.target_table in joined_tables and edge.source_table not in joined_tables:
                         join_clauses.append(
-                            f"{edge.join_type} JOIN {edge.source_table} ON {edge.target_table}.{edge.target_column} = {edge.source_table}.{edge.source_column}"
+                            f'{edge.join_type} JOIN "{edge.source_table}" ON "{edge.target_table}"."{edge.target_column}" = "{edge.source_table}"."{edge.source_column}"'
                         )
                         joined_tables.add(edge.source_table)
                         edges_to_process.remove(edge)
@@ -944,15 +960,20 @@ class QueryAgent:
             # Check if user asked for ratio / percentage / share
             is_ratio_query = any(k in q_low for k in ("ratio", "raio", "ritio", "rio", "pct", "percent", "share", "proportion"))
 
-            # If user asks for 2-dimension breakdown (e.g. College AND Gender)
+            # If user asks for 2-dimension breakdown (e.g. College AND Gender / Year)
             if dim_tbl and dim_col and second_dim_tbl and second_dim_col:
                 d1_ref = f'"{dim_tbl}"."{dim_col}"'
-                d2_ref = f'"{second_dim_tbl}"."{second_dim_col}"'
+                if any(k in second_dim_col.lower() for k in ("date", "time")) and any(w in q_low for w in ("year", "trend", "annual", "yearly", "over time")):
+                    d2_ref = f'STRFTIME(TRY_CAST("{second_dim_tbl}"."{second_dim_col}" AS DATE), \'%Y\')'
+                    d2_alias = re.sub(r"[^a-z0-9_]+", "_", second_dim_col.lower()).replace("date", "year").strip("_")
+                else:
+                    d2_ref = f'"{second_dim_tbl}"."{second_dim_col}"'
+                    d2_alias = re.sub(r"[^a-z0-9_]+", "_", second_dim_col.lower()).strip("_")
                 d1_alias = re.sub(r"[^a-z0-9_]+", "_", dim_col.lower()).strip("_")
-                d2_alias = re.sub(r"[^a-z0-9_]+", "_", second_dim_col.lower()).strip("_")
 
                 if metric_tbl and metric_col:
                     m_clean = re.sub(r"[^a-z0-9_]+", "_", metric_col.lower()).strip("_")
+                    agg_fn = "AVG" if any(w in q_low for w in ("avg", "average", "mean", "salary", "salaries", "compensation", "rate", "gpa", "score")) else "SUM"
                     avg_alias = m_clean.replace("total_", "avg_") if m_clean.startswith("total_") else f"avg_{m_clean}"
                     tot_alias = m_clean if m_clean.startswith("total_") else f"total_{m_clean}"
                     ratio_alias = (m_clean.replace("total_", "") + "_ratio_pct").lstrip("_")
@@ -965,11 +986,10 @@ class QueryAgent:
                         f"SELECT {d1_ref} AS {d1_alias},\n"
                         f"       {d2_ref} AS {d2_alias},\n"
                         f"       COUNT(*) AS {d2_alias}_count,\n"
-                        f"       ROUND(AVG(\"{metric_tbl}\".\"{metric_col}\"), 2) AS {avg_alias},\n"
-                        f"       ROUND(SUM(\"{metric_tbl}\".\"{metric_col}\"), 2) AS {tot_alias}{ratio_select}\n"
+                        f"       ROUND({agg_fn}(\"{metric_tbl}\".\"{metric_col}\"), 2) AS {avg_alias if agg_fn == 'AVG' else tot_alias}{ratio_select}\n"
                         f'FROM "{base_tbl_name}"{join_str}{where_clause}\n'
                         f"GROUP BY {d1_ref}, {d2_ref}\n"
-                        f"ORDER BY {d1_ref}, {d2_alias}_count DESC\n"
+                        f"ORDER BY {d1_ref}, {d2_ref} ASC\n"
                         f"LIMIT 50"
                     )
 
@@ -1034,26 +1054,67 @@ class QueryAgent:
                 return f'SELECT {", ".join(select_cols)} FROM "{base_tbl_name}"{join_str}{where_clause} LIMIT 50'
 
         # Fallback for arbitrary user-uploaded single or multi-table schema
-        first_tbl = workspace.active_tables()[0]
-        cols = [c.name for c in first_tbl.columns if not c.is_blocked]
+        target_tbl = None
+        if join_plan and join_plan.required_tables:
+            target_tbl = workspace.get_table(join_plan.required_tables[0])
+        if not target_tbl:
+            for t in workspace.active_tables():
+                t_low = t.name.lower()
+                if t_low in q_low or t_low.rstrip("s") in q_low:
+                    target_tbl = t
+                    break
+        if not target_tbl:
+            target_tbl = workspace.active_tables()[0]
+
+        cols = [c.name for c in target_tbl.columns if not c.is_blocked]
         num_cols = [
             c.name
-            for c in first_tbl.columns
+            for c in target_tbl.columns
             if not c.is_blocked
-            and any(t in c.data_type.upper() for t in ("INT", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC"))
-            and not c.is_primary_key
+            and any(t in c.data_type.upper() for t in ("INT", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC", "BIGINT"))
+            and not c.is_primary_key and not c.name.lower().endswith("_id")
         ]
+        # Prioritize metric column that matches question (e.g. salary)
+        matched_num_col = None
+        for nc in num_cols:
+            if nc.lower() in q_low or any(w in q_low for w in nc.lower().split("_") if len(w) > 3):
+                matched_num_col = nc
+                break
+        active_num_col = matched_num_col or (num_cols[0] if num_cols else None)
+
         cat_cols = [
             c.name
-            for c in first_tbl.columns
+            for c in target_tbl.columns
             if not c.is_blocked and c.name not in num_cols and not c.is_primary_key
         ]
-        if cat_cols and num_cols:
+
+        # Check if question is a trend / time-series query
+        date_col = next((c.name for c in target_tbl.columns if not c.is_blocked and any(k in c.name.lower() for k in ("date", "time", "year")) and not c.name.lower().endswith("_id")), None)
+        if date_col and any(w in q_low for w in ("trend", "year", "monthly", "over time", "timeline")):
+            agg_fn = "AVG" if any(w in q_low for w in ("avg", "average", "mean", "salary", "salaries", "compensation", "rate", "gpa", "score")) else "SUM"
+            dim_expr = f'STRFTIME(TRY_CAST("{target_tbl.name}"."{date_col}" AS DATE), \'%Y\')' if "date" in date_col.lower() else f'"{target_tbl.name}"."{date_col}"'
+            dim_alias = date_col.lower().replace("date", "year") if "date" in date_col.lower() else date_col.lower()
+            if active_num_col:
+                alias = f"avg_{active_num_col}" if agg_fn == "AVG" else f"total_{active_num_col}"
+                return (
+                    f'SELECT {dim_expr} AS {dim_alias},\n'
+                    f'       ROUND({agg_fn}("{target_tbl.name}"."{active_num_col}"), 2) AS {alias},\n'
+                    f'       COUNT(*) AS row_count\n'
+                    f'FROM "{target_tbl.name}"\n'
+                    f'WHERE "{target_tbl.name}"."{date_col}" IS NOT NULL\n'
+                    f'GROUP BY {dim_alias}\n'
+                    f'ORDER BY {dim_alias} ASC\n'
+                    f'LIMIT 50'
+                )
+
+        if cat_cols and active_num_col:
+            agg_fn = "AVG" if any(w in q_low for w in ("avg", "average", "mean", "salary", "salaries", "compensation", "rate", "gpa", "score")) else "SUM"
+            alias = f"avg_{active_num_col}" if agg_fn == "AVG" else f"total_{active_num_col}"
             return (
-                f'SELECT "{cat_cols[0]}", ROUND(SUM("{num_cols[0]}"), 2) AS total_{num_cols[0]}, COUNT(*) AS row_count '
-                f'FROM "{first_tbl.name}" GROUP BY "{cat_cols[0]}" ORDER BY total_{num_cols[0]} DESC LIMIT 25'
+                f'SELECT "{cat_cols[0]}", ROUND({agg_fn}("{target_tbl.name}"."{active_num_col}"), 2) AS {alias}, COUNT(*) AS row_count '
+                f'FROM "{target_tbl.name}" GROUP BY "{cat_cols[0]}" ORDER BY {alias} DESC LIMIT 25'
             )
-        return f'SELECT {", ".join(f"{c}" for c in cols[:8])} FROM "{first_tbl.name}" LIMIT 50'
+        return f'SELECT {", ".join(f"{c}" for c in cols[:8])} FROM "{target_tbl.name}" LIMIT 50'
 
     @classmethod
     def _build_dax_equivalent(
