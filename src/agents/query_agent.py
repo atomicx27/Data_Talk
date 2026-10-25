@@ -988,6 +988,8 @@ class QueryAgent:
                     d2_ref = f'"{second_dim_tbl}"."{second_dim_col}"'
                     d2_alias = re.sub(r"[^a-z0-9_]+", "_", second_dim_col.lower()).strip("_")
                 d1_alias = re.sub(r"[^a-z0-9_]+", "_", dim_col.lower()).strip("_")
+                top_match = re.search(r"\b(?:top|bottom|limit)\s+(\d+)\b", q_low)
+                limit_clause = f"LIMIT {int(top_match.group(1))}" if top_match else "LIMIT 500"
 
                 if metric_tbl and metric_col:
                     m_clean = re.sub(r"[^a-z0-9_]+", "_", metric_col.lower()).strip("_")
@@ -1007,7 +1009,7 @@ class QueryAgent:
                         f'FROM "{base_tbl_name}"{join_str}{where_clause}\n'
                         f"GROUP BY {d1_ref}, {d2_ref}\n"
                         f"ORDER BY {d1_ref}, {d2_ref} ASC\n"
-                        f"LIMIT 50"
+                        f"{limit_clause}"
                     )
 
                 return (
@@ -1018,7 +1020,7 @@ class QueryAgent:
                     f'FROM "{base_tbl_name}"{join_str}{where_clause}\n'
                     f"GROUP BY {d1_ref}, {d2_ref}\n"
                     f"ORDER BY {d1_ref}, {d2_alias}_count DESC\n"
-                    f"LIMIT 50"
+                    f"{limit_clause}"
                 )
 
             # If user asks for a grouped aggregate (e.g. by/for each dimension)

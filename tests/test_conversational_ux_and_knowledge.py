@@ -12,7 +12,7 @@ from src.api.runtime import AppRuntime
 from src.connectors.duckdb_connector import DuckDBConnector
 from src.connectors.profiler import StatisticalProfiler
 from src.knowledge.join_inference import JoinInferenceEngine
-from src.knowledge.okf_models import OKFWorkspace, TableRole, TableSchema, ColumnProfile
+from src.knowledge.okf_models import OKFWorkspace, TableRole, TableSchema, ColumnProfile, RelationshipEdge
 from src.knowledge.okf_store import OKFStore, JoinPlan
 from src.knowledge.rag_store import RAGStore
 
@@ -1080,6 +1080,26 @@ def test_fee_trend_and_drill_down_executive_summary_and_follow_ups():
     assert "Payment Year Count" not in summary
     assert "College of Architecture & Built Environment" in summary
     assert "98,240,000.00" in summary or "98,240,000" in summary
+
+    # 4. 2D breakdown limit must allow all colleges across years (LIMIT 500, not LIMIT 50)
+    plan_2d = JoinPlan(
+        required_tables=["students", "departments", "colleges"],
+        bridge_tables=[],
+        join_edges=[
+            RelationshipEdge(id="r1", source_table="students", source_column="department_id", target_table="departments", target_column="department_id"),
+            RelationshipEdge(id="r2", source_table="departments", source_column="college_id", target_table="colleges", target_column="college_id"),
+        ],
+        sql_join_clauses=[
+            'LEFT JOIN "departments" ON "students"."department_id" = "departments"."department_id"',
+            'LEFT JOIN "colleges" ON "departments"."college_id" = "colleges"."college_id"',
+        ],
+        has_fan_trap=False,
+        fact_tables_involved=["students"],
+        shared_dimensions=[],
+        fan_trap_guidance="",
+    )
+    sql_2d = QueryAgent._deterministic_sql_compiler("show me fee trend of students year on year broken down by college", ws, plan_2d, [])
+    assert sql_2d.strip().endswith("LIMIT 500")
 
 
 

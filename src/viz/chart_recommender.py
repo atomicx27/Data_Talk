@@ -221,9 +221,13 @@ class ChartRecommender:
                 # If raw entity data (e.g. 10,000 raw students), refuse to render an unreadable blob
                 if primary_categories > 100:
                     return None
-                # Otherwise, gracefully truncate to Top 25
+                # Otherwise, gracefully truncate to Top 25 primary categories
                 p_sort = num_cols[0] if num_cols else df.columns[0]
-                df = df.sort_values(by=p_sort, ascending=False).head(25)
+                if len(dim_cols) >= 2 and primary_dim in df.columns:
+                    top_cats = df.groupby(primary_dim)[p_sort].sum().sort_values(ascending=False).head(25).index
+                    df = df[df[primary_dim].isin(top_cats)]
+                else:
+                    df = df.sort_values(by=p_sort, ascending=False).head(25)
 
         x = x_col or (dim_cols[0] if dim_cols else df.columns[0])
 
