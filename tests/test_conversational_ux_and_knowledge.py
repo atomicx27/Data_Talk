@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import tempfile
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
@@ -377,3 +378,49 @@ def test_delete_project_post_body_and_traversal_defense(test_client: TestClient,
     # Reject path traversal
     bad_res = test_client.post("/api/workspace/delete", json={"workspace_id": "../bad"})
     assert bad_res.status_code == 400
+
+
+def test_conversational_follow_up_missing_category_and_demographic_summary(enriched_demo_workspace):
+    """Verify that critique follow-ups (e.g. 'you are not showing the other students') are resolved
+    contextually and demographic executive summaries use neutral phrasing rather than 'Top Performer'.
+    """
+    from src.agents.query_agent import QueryAgent
+
+    history = [
+        {
+            "response": {
+                "success": True,
+                "executed_query": "SELECT college_name, male_count, female_count, other_count FROM college_stats",
+                "user_question": "show me gender ratio of students for each college",
+                "involved_tables": ["college_stats"],
+            }
+        }
+    ]
+
+    # 1. Follow-up resolution
+    resolved_q, is_follow_up, ctx, tables = QueryAgent._resolve_follow_up_context(
+        question="you are not showing the other students",
+        conversation_history=history,
+        workspace=enriched_demo_workspace,
+        llm_router=None,
+    )
+    assert is_follow_up is True
+    assert "gender ratio of students for each college" in resolved_q
+    assert "college_stats" in tables
+
+    # 2. Executive summary tone for demographic / student query
+    df_demo = pd.DataFrame({
+        "College Name": ["College A", "College B", "College C"],
+        "Male Count": [400, 250, 100],
+    })
+    summary = QueryAgent._build_executive_summary(
+        question="show me gender ratio of students for each college",
+        df=df_demo,
+        matched_measures=[],
+        applied_rules=[],
+        llm_router=None,
+        workspace=enriched_demo_workspace,
+    )
+    assert "Top Performer" not in summary
+    assert "Highest Representation" in summary or "Highest Volume" in summary
+

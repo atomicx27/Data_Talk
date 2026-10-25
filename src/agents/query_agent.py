@@ -901,13 +901,24 @@ class QueryAgent:
             dim_title = dim_col.replace('_', ' ').title()
             metric_title = metric_col.replace('_', ' ').title()
 
+            is_demographic_or_neutral = any(
+                k in (question + " " + dim_col + " " + metric_col).lower()
+                for k in (
+                    "gender", "sex", "age", "race", "ethnicity", "religion",
+                    "student", "enrollment", "faculty", "staff", "patient",
+                    "ratio", "raio", "demographic", "distribution", "split", "mix", "breakdown"
+                )
+            )
+            top_badge = "📊 **Highest Representation / Volume**" if is_demographic_or_neutral else "🏆 **Top Performer**"
+            bot_badge = "📉 **Lowest Representation**" if is_demographic_or_neutral else "📉 **Lowest Group**"
+
             summary_lines = [
                 f"Analyzed **{len(df):,}** groups across `{dim_title}` for `{metric_title}`.",
-                f"- 🏆 **Top Performer**: **{top_row[dim_col]}** with `{top_val:,.2f}` (**{share:.1f}%** of total `{total_val:,.2f}`).",
+                f"- {top_badge}: **{top_row[dim_col]}** with `{top_val:,.2f}` (**{share:.1f}%** of total `{total_val:,.2f}`).",
             ]
             if len(df) > 1 and str(bot_row[dim_col]) != str(top_row[dim_col]):
                 summary_lines.append(
-                    f"- 📉 **Lowest Group**: **{bot_row[dim_col]}** at `{bot_val:,.2f}`."
+                    f"- {bot_badge}: **{bot_row[dim_col]}** at `{bot_val:,.2f}`."
                 )
 
             if len(df) >= 3:
@@ -955,7 +966,12 @@ class QueryAgent:
             r"now\s+show|now\s+break|and\s+for|what\s+about|how\s+about|"
             r"(show\s+)?(top|bottom)\s+\d+|sort\s+by|order\s+by|highest|lowest|"
             r"drill\s+down(\s+into)?|drill\s+into|zoom\s+in\s+on|"
-            r"show\s+only|show\s+more|show\s+trend|monthly\s+trend)",
+            r"show\s+only|show\s+more|show\s+trend|monthly\s+trend|"
+            r"you\s+(are\s+not|aren't|didn't|only)\s+show(ing)?|"
+            r"(where|what)\s+(is|are|about)\s+(the\s+)?(other|rest|remaining|female|male)|"
+            r"why\s+(is|are|isn't|aren't)\s+.*(shown|included|visible)|"
+            r"(include|show)\s+(the\s+)?(other|rest|remaining|all)|"
+            r"(show|display)\s+all\s+(categories|groups|genders|breakdowns))",
             re.IGNORECASE,
         )
         has_pronoun = any(re.search(rf"\b{p}\b", q_low) for p in ("that", "those", "it", "them", "these", "this"))
@@ -1009,6 +1025,8 @@ class QueryAgent:
             seg = drill_match.group(1).strip()
             dim = drill_match.group(2).strip()
             resolved_q = f"{prior_q} for {seg} broken down by {dim}"
+        elif any(k in q_low for k in ("not show", "aren't show", "didn't show", "only show", "other", "where are", "why isn't", "include all")):
+            resolved_q = f"{prior_q} including all categories and complete breakdown"
         elif cleaned_sub:
             resolved_q = f"{prior_q} filtered by {cleaned_sub}"
         else:

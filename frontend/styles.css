@@ -2705,3 +2705,233 @@ dialog.modal-dialog::backdrop {
   margin-right: 4px;
   margin-bottom: 4px;
 }
+
+/* ==================== DATA INGESTION LOADING SCREEN ==================== */
+.ingestion-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  background: rgba(10, 15, 29, 0.85);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  opacity: 1;
+  transition: opacity 0.25s ease, visibility 0.25s ease;
+}
+
+.ingestion-overlay.hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.ingestion-card {
+  width: 100%;
+  max-width: 520px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-focus);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(59, 130, 246, 0.25);
+  padding: 26px 24px 20px;
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: ingestionSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes ingestionSlideUp {
+  from {
+    transform: translateY(16px) scale(0.98);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.ingestion-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.ingestion-spinner-container {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+}
+
+.ingestion-spinner {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 3px solid rgba(59, 130, 246, 0.2);
+  border-top-color: var(--accent-blue);
+  border-right-color: var(--accent-cyan);
+  animation: ingestionSpin 0.9s linear infinite;
+}
+
+.ingestion-spinner-glow {
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.4) 0%, transparent 70%);
+  pointer-events: none;
+  animation: ingestionPulse 1.8s ease-in-out infinite alternate;
+}
+
+@keyframes ingestionSpin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes ingestionPulse {
+  from { transform: scale(0.85); opacity: 0.5; }
+  to { transform: scale(1.15); opacity: 1; }
+}
+
+.ingestion-title-group {
+  flex: 1;
+}
+
+.ingestion-title {
+  margin: 0 0 4px 0;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+.ingestion-subtitle {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.ingestion-progress-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+
+.ingestion-progress-bar {
+  height: 100%;
+  width: 15%;
+  background: linear-gradient(90deg, #3b82f6, #06b6d4, #10b981);
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
+.ingestion-stats-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  margin-top: -6px;
+}
+
+.ingestion-steps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+}
+
+.ingest-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  transition: color 0.2s ease, opacity 0.2s ease;
+}
+
+.ingest-step .step-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ingest-step.pending {
+  opacity: 0.45;
+}
+.ingest-step.pending .step-icon {
+  border: 2px solid var(--border-subtle);
+  background: transparent;
+}
+
+.ingest-step.active {
+  opacity: 1;
+}
+.ingest-step.active .step-icon {
+  border: 2px solid var(--accent-blue);
+  background: rgba(59, 130, 246, 0.2);
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
+  animation: stepBlink 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes stepBlink {
+  from { transform: scale(0.9); }
+  to { transform: scale(1.15); }
+}
+
+.ingest-step.completed {
+  opacity: 0.95;
+}
+.ingest-step.completed .step-icon {
+  background: var(--accent-emerald);
+  border: 2px solid var(--accent-emerald);
+  position: relative;
+}
+.ingest-step.completed .step-icon::after {
+  content: "✓";
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.ingest-step .step-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ingest-step .step-title {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ingest-step .step-desc {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.ingestion-footer-tip {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 12px;
+}

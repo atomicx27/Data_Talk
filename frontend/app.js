@@ -220,6 +220,98 @@ function showToast(message) {
   }, 3400);
 }
 
+// ==================== DATA INGESTION LOADING CONTROLLER ====================
+let ingestionTimerInterval = null;
+let ingestionPhaseInterval = null;
+let ingestionStartTime = 0;
+
+function showIngestionLoading(title = 'Ingesting & Profiling Data', subtitle = 'Preparing your analytical workspace...') {
+  const overlay = document.getElementById('ingestionLoadingOverlay');
+  if (!overlay) return;
+
+  const titleEl = document.getElementById('ingestionTitle');
+  const subtitleEl = document.getElementById('ingestionSubtitle');
+  const progressBar = document.getElementById('ingestionProgressBar');
+  const phaseLabel = document.getElementById('ingestionCurrentPhase');
+  const timerEl = document.getElementById('ingestionElapsedTime');
+
+  if (titleEl) titleEl.textContent = title;
+  if (subtitleEl) subtitleEl.textContent = subtitle;
+  if (progressBar) progressBar.style.width = '18%';
+  if (phaseLabel) phaseLabel.textContent = 'Stage 1 of 4: Reading and validating files';
+  if (timerEl) timerEl.textContent = 'Elapsed: 0s';
+
+  for (let i = 1; i <= 4; i++) {
+    const s = document.getElementById(`ingestStep${i}`);
+    if (s) s.className = i === 1 ? 'ingest-step active' : 'ingest-step pending';
+  }
+
+  overlay.classList.remove('hidden');
+
+  ingestionStartTime = Date.now();
+  if (ingestionTimerInterval) clearInterval(ingestionTimerInterval);
+  ingestionTimerInterval = setInterval(() => {
+    const elapsedSec = Math.floor((Date.now() - ingestionStartTime) / 1000);
+    if (timerEl) timerEl.textContent = `Elapsed: ${elapsedSec}s`;
+  }, 500);
+
+  const stages = [
+    { step: 1, width: '25%', label: 'Stage 1 of 4: Validating source files & schema' },
+    { step: 2, width: '55%', label: 'Stage 2 of 4: Materializing DuckDB columnar storage' },
+    { step: 3, width: '78%', label: 'Stage 3 of 4: Profiling columns & detecting PII' },
+    { step: 4, width: '92%', label: 'Stage 4 of 4: Inferring relationships & domain graph' },
+  ];
+  let curStageIdx = 0;
+  if (ingestionPhaseInterval) clearInterval(ingestionPhaseInterval);
+  ingestionPhaseInterval = setInterval(() => {
+    curStageIdx++;
+    if (curStageIdx < stages.length) {
+      const st = stages[curStageIdx];
+      if (progressBar) progressBar.style.width = st.width;
+      if (phaseLabel) phaseLabel.textContent = st.label;
+      for (let i = 1; i <= 4; i++) {
+        const stepEl = document.getElementById(`ingestStep${i}`);
+        if (!stepEl) continue;
+        if (i < st.step) {
+          stepEl.className = 'ingest-step completed';
+        } else if (i === st.step) {
+          stepEl.className = 'ingest-step active';
+        } else {
+          stepEl.className = 'ingest-step pending';
+        }
+      }
+    }
+  }, 1100);
+}
+
+function hideIngestionLoading() {
+  const overlay = document.getElementById('ingestionLoadingOverlay');
+  if (!overlay) return;
+
+  const progressBar = document.getElementById('ingestionProgressBar');
+  const phaseLabel = document.getElementById('ingestionCurrentPhase');
+  if (progressBar) progressBar.style.width = '100%';
+  if (phaseLabel) phaseLabel.textContent = 'Ingestion complete!';
+
+  for (let i = 1; i <= 4; i++) {
+    const stepEl = document.getElementById(`ingestStep${i}`);
+    if (stepEl) stepEl.className = 'ingest-step completed';
+  }
+
+  if (ingestionTimerInterval) {
+    clearInterval(ingestionTimerInterval);
+    ingestionTimerInterval = null;
+  }
+  if (ingestionPhaseInterval) {
+    clearInterval(ingestionPhaseInterval);
+    ingestionPhaseInterval = null;
+  }
+
+  setTimeout(() => {
+    overlay.classList.add('hidden');
+  }, 400);
+}
+
 async function apiRequest(url, options = {}) {
   const headers = options.headers || {};
   if (options.body && !(options.body instanceof FormData)) {
@@ -2214,6 +2306,10 @@ function renderAllViews() {
 }
 
 async function loadDemoDataset() {
+  showIngestionLoading(
+    'Loading Enterprise Demo Warehouse',
+    'Materializing customers, products, orders, and returns tables into local DuckDB columnar storage...'
+  );
   try {
     showToast('Loading 4-table demo warehouse…');
     APP_STATE = await apiRequest('/api/connect/demo', { method: 'POST' });
@@ -2221,6 +2317,8 @@ async function loadDemoDataset() {
     showToast('Demo warehouse profiled and ready');
   } catch (err) {
     showToast(`Error loading demo: ${err.message}`);
+  } finally {
+    hideIngestionLoading();
   }
 }
 
@@ -2395,7 +2493,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
     const fd = new FormData();
+    const count = fileIn.files.length;
     Array.from(fileIn.files).forEach((f) => fd.append('files', f));
+    showIngestionLoading(
+      `Ingesting ${count} File${count > 1 ? 's' : ''}`,
+      'Reading source data, materializing DuckDB columnar storage, and scanning for PII...'
+    );
     try {
       showToast('Ingesting & profiling uploaded files…');
       APP_STATE = await apiRequest('/api/connect/upload', { method: 'POST', body: fd });
@@ -2403,12 +2506,19 @@ document.addEventListener('DOMContentLoaded', async () => {
       showToast('Files ingested and profiled');
     } catch (err) {
       showToast(`Upload error: ${err.message}`);
+    } finally {
+      hideIngestionLoading();
     }
   });
 
   // SQL Connect Submit
   document.getElementById('sqlConnectForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
+    const dialect = document.getElementById('sqlDialectInput')?.value || 'SQL';
+    showIngestionLoading(
+      `Connecting to ${dialect.toUpperCase()} Database`,
+      'Attaching database, extracting table catalogs, profiling columns, and inferring join relationships...'
+    );
     try {
       const source_id = document.getElementById('sqlSourceIdInput')?.value?.trim() || undefined;
       const source_name = document.getElementById('sqlSourceNameInput')?.value?.trim() || undefined;
@@ -2429,6 +2539,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       showToast(attach_mode ? 'Connected and attached SQL database' : 'Connected & profiled SQL database');
     } catch (err) {
       showToast(`SQL Error: ${err.message}`);
+    } finally {
+      hideIngestionLoading();
     }
   });
 
@@ -2442,6 +2554,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   document.getElementById('pbiConnectForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
+    showIngestionLoading(
+      'Connecting to Power BI Semantic Model',
+      'Establishing DAX endpoint session, discovering measures, and building schema model...'
+    );
     try {
       APP_STATE = await apiRequest('/api/connect/powerbi', {
         method: 'POST',
@@ -2456,6 +2572,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       showToast('Connected to Power BI semantic model');
     } catch (err) {
       showToast(`Power BI Error: ${err.message}`);
+    } finally {
+      hideIngestionLoading();
     }
   });
 

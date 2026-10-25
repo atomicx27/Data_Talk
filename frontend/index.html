@@ -1076,6 +1076,66 @@ ORDER BY net_revenue DESC;</textarea>
     </form>
   </dialog>
 
+  <!-- Ingestion Loading Progress Modal Overlay -->
+  <div id="ingestionLoadingOverlay" class="ingestion-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="ingestionTitle">
+    <div class="ingestion-card">
+      <div class="ingestion-header">
+        <div class="ingestion-spinner-container">
+          <div class="ingestion-spinner"></div>
+          <div class="ingestion-spinner-glow"></div>
+        </div>
+        <div class="ingestion-title-group">
+          <h3 id="ingestionTitle" class="ingestion-title">Ingesting &amp; Profiling Data</h3>
+          <p id="ingestionSubtitle" class="ingestion-subtitle">Analyzing schemas, materializing DuckDB columnar storage, and scanning PII...</p>
+        </div>
+      </div>
+
+      <div class="ingestion-progress-track">
+        <div id="ingestionProgressBar" class="ingestion-progress-bar" style="width: 15%;"></div>
+      </div>
+      <div class="ingestion-stats-row">
+        <span id="ingestionCurrentPhase" class="ingestion-phase-label">Stage 1 of 4: Parsing source files</span>
+        <span id="ingestionElapsedTime" class="ingestion-timer">Elapsed: 0s</span>
+      </div>
+
+      <div class="ingestion-steps-list">
+        <div id="ingestStep1" class="ingest-step active">
+          <div class="step-icon"></div>
+          <div class="step-content">
+            <span class="step-title">1. Read &amp; validate source files</span>
+            <span class="step-desc">Parsing CSV / Excel / Parquet tables and verifying column encodings</span>
+          </div>
+        </div>
+        <div id="ingestStep2" class="ingest-step pending">
+          <div class="step-icon"></div>
+          <div class="step-content">
+            <span class="step-title">2. Materialize DuckDB warehouse</span>
+            <span class="step-desc">Building local columnar storage and fast indexing</span>
+          </div>
+        </div>
+        <div id="ingestStep3" class="ingest-step pending">
+          <div class="step-icon"></div>
+          <div class="step-content">
+            <span class="step-title">3. Profile columns &amp; detect PII</span>
+            <span class="step-desc">Calculating statistical distributions and masking sensitive personal fields</span>
+          </div>
+        </div>
+        <div id="ingestStep4" class="ingest-step pending">
+          <div class="step-icon"></div>
+          <div class="step-content">
+            <span class="step-title">4. Infer relationships &amp; domain graph</span>
+            <span class="step-desc">Running 3-signal join inference and initializing hybrid RAG memory</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="ingestion-footer-tip">
+        <span class="tip-icon">🔒</span>
+        <span><strong>Local-First Guarantee:</strong> Your raw data is processed 100% locally on your machine. No row data leaves this device.</span>
+      </div>
+    </div>
+  </div>
+
   <script src="/static/app.js?v=2.0.3" defer></script>
 </body>
 </html>

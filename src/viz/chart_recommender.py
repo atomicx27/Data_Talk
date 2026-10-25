@@ -99,14 +99,55 @@ class ChartRecommender:
             if any(k in first_dim for k in ("date", "month", "year", "quarter", "week", "day", "time")):
                 return "area" if "area" in q_low else "line"
 
+        # High cardinality guard: categorical charts with > 40 items become illegible walls of bars.
+        # Fallback to interactive paginated table to preserve readability.
+        if len(df) > 40:
+            return "table"
+
+        # Multi-metric breakdown / composition check (e.g. Male/Female/Other or New/Returning/Churned)
+        total_cols = [
+            c for c in num_cols
+            if any(k in str(c).lower() for k in ("total", "sum", "overall", "all_students", "grand_total"))
+        ]
+        non_total_num = [c for c in num_cols if c not in total_cols]
+        pct_breakdowns = [
+            c for c in non_total_num
+            if any(k in str(c).lower() for k in ("pct", "percent", "margin", "rate", "ratio"))
+        ]
+        count_breakdowns = [c for c in non_total_num if c not in pct_breakdowns]
+
+        is_breakdown_intent = any(
+            k in q_low
+            for k in (
+                "ratio", "raio", "gender", "breakdown", "demographic", "split",
+                "proportion", "share", "composition", "distribution", "other"
+            )
+        )
+
+        # If 2+ percentage breakdown columns exist (e.g., Male Pct, Female Pct, Other Pct)
+        if len(pct_breakdowns) >= 2:
+            return "stacked_bar_100" if (is_breakdown_intent or "100" in q_low) else "stacked_bar"
+
+        # If 2+ count/volume breakdown columns exist (e.g., Male Count, Female Count, Other Count)
+        if len(count_breakdowns) >= 2 and (
+            is_breakdown_intent
+            or any(k in q_low for k in ("by", "across", "per", "category", "status", "student", "college"))
+        ):
+            return "stacked_bar"
+
         # If 2 categorical dimensions and 1 numeric metric exist, stacked bar is ideal for breakdown queries
         if len(dim_cols) >= 2 and len(num_cols) == 1 and any(k in q_low for k in ("by", "breakdown", "per", "across")):
             return "stacked_bar"
 
-        # If both a dollar/volume metric and a percentage/rate metric exist, recommend a Dual-Axis Combo chart!
-        pct_cols = [c for c in num_cols if any(k in str(c).lower() for k in ("pct", "percent", "margin", "rate", "ratio"))]
-        non_pct_cols = [c for c in num_cols if c not in pct_cols]
-        if pct_cols and non_pct_cols and dim_cols and 2 <= len(df) <= 20:
+        # Dual-Axis Combo chart: ONLY when exactly 1 volume metric + 1 rate/percentage metric exist,
+        # and NOT a multi-category demographic/composition breakdown
+        if (
+            len(pct_breakdowns) == 1
+            and len(count_breakdowns) == 1
+            and dim_cols
+            and 2 <= len(df) <= 20
+            and not is_breakdown_intent
+        ):
             return "combo"
 
         if len(df) > 10 and dim_cols:
@@ -139,17 +180,61 @@ class ChartRecommender:
         if not num_cols:
             return None
 
+        # High cardinality guard in visual generation: categorical charts with > 40 items become illegible walls of bars.
+        if chosen_type in ("bar", "horizontal_bar", "stacked_bar", "stacked_bar_100", "stacked_horizontal_bar", "pie", "donut", "radar", "funnel"):
+            if len(df) > 40:
+                first_dim = str(dim_cols[0]).lower() if dim_cols else ""
+                is_time = any(k in first_dim for k in ("date", "month", "year", "quarter", "week", "day", "time"))
+                if not is_time:
+                    # If raw entity data (e.g. 10,000 raw students), refuse to render an unreadable blob
+                    if len(df) > 100:
+                        return None
+                    # Otherwise, gracefully truncate to Top 25
+                    p_sort = num_cols[0] if num_cols else df.columns[0]
+                    df = df.sort_values(by=p_sort, ascending=False).head(25)
+
         x = x_col or (dim_cols[0] if dim_cols else df.columns[0])
-        ys = y_cols or [c for c in num_cols if c != x][:2]
+
+        # Detect multi-metric breakdown candidates (e.g., Male/Female/Other) excluding grand totals
+        total_cols = [
+            c for c in num_cols
+            if any(k in str(c).lower() for k in ("total", "sum", "overall", "all_students", "grand_total"))
+        ]
+        non_total_num = [c for c in num_cols if c not in total_cols and c != x]
+        pct_breakdowns = [
+            c for c in non_total_num
+            if any(k in str(c).lower() for k in ("pct", "percent", "margin", "rate", "ratio"))
+        ]
+        count_breakdowns = [c for c in non_total_num if c not in pct_breakdowns]
+
+        if chosen_type in ("stacked_bar_100", "percent_stacked_bar") and len(pct_breakdowns) >= 2:
+            breakdown_ys = pct_breakdowns
+        elif len(count_breakdowns) >= 2:
+            breakdown_ys = count_breakdowns
+        elif len(pct_breakdowns) >= 2:
+            breakdown_ys = pct_breakdowns
+        else:
+            breakdown_ys = non_total_num if non_total_num else [num_cols[0]]
+
+        ys = y_cols or breakdown_ys
         if not ys:
             ys = [num_cols[0]]
 
         primary_y = ys[0]
 
         if chosen_type == "combo" and len(num_cols) >= 2:
-            pct_cols = [c for c in num_cols if any(k in str(c).lower() for k in ("pct", "percent", "margin", "rate"))]
-            bar_col = next((c for c in num_cols if c not in pct_cols), num_cols[0])
-            line_col = pct_cols[0] if pct_cols else num_cols[1]
+            pct_cols = [
+                c for c in num_cols
+                if any(k in str(c).lower() for k in ("pct", "percent", "margin", "rate"))
+                and not any(t in str(c).lower() for t in ("total", "sum"))
+            ]
+            non_pct_cols = [
+                c for c in num_cols
+                if c not in pct_cols
+                and not any(t in str(c).lower() for t in ("total", "sum"))
+            ]
+            bar_col = non_pct_cols[0] if non_pct_cols else num_cols[0]
+            line_col = pct_cols[0] if pct_cols else (num_cols[1] if len(num_cols) > 1 else num_cols[0])
             fig = make_subplots(specs=[[{"secondary_y": True}]])
             fig.add_trace(
                 go.Bar(
@@ -203,6 +288,20 @@ class ChartRecommender:
                     barmode="stack",
                     color_discrete_sequence=OKABE_ITO_PALETTE,
                 )
+                for trace in fig.data:
+                    clean = (
+                        str(trace.name)
+                        .replace("_", " ")
+                        .replace(" Count", "")
+                        .replace(" count", "")
+                        .replace(" Pct", " %")
+                        .replace(" pct", " %")
+                        .strip()
+                        .title()
+                    )
+                    if clean.endswith(" %"):
+                        clean = clean[:-2] + " %"
+                    trace.name = clean
 
         elif chosen_type in ("stacked_bar_100", "percent_stacked_bar"):
             color_col = dim_cols[1] if len(dim_cols) >= 2 else None
@@ -223,6 +322,20 @@ class ChartRecommender:
                     barmode="stack",
                     color_discrete_sequence=OKABE_ITO_PALETTE,
                 )
+                for trace in fig.data:
+                    clean = (
+                        str(trace.name)
+                        .replace("_", " ")
+                        .replace(" Count", "")
+                        .replace(" count", "")
+                        .replace(" Pct", " %")
+                        .replace(" pct", " %")
+                        .strip()
+                        .title()
+                    )
+                    if clean.endswith(" %"):
+                        clean = clean[:-2] + " %"
+                    trace.name = clean
             fig.update_layout(barnorm="percent", yaxis=dict(ticksuffix="%"))
 
         elif chosen_type == "stacked_horizontal_bar":

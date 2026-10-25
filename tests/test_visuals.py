@@ -101,3 +101,52 @@ def test_build_sunburst_figure(sample_multidim_df):
     fig_sun = ChartRecommender.build_figure(sample_multidim_df, chart_type="sunburst", title="Sunburst")
     assert fig_sun is not None
     assert fig_sun.data[0].type == "sunburst"
+
+
+def test_gender_ratio_multi_metric_breakdown_recommendation():
+    """Verify that multi-metric demographic composition (like gender ratio across colleges)
+    recommends a stacked bar and renders all categories (Male, Female, Other) instead of a dual-axis combo.
+    """
+    df_gender = pd.DataFrame({
+        "COLLEGE NAME": ["Engineering", "Business", "Medicine", "Arts", "Science"],
+        "MALE COUNT": [450, 320, 210, 180, 290],
+        "FEMALE COUNT": [380, 410, 350, 280, 310],
+        "OTHER COUNT": [20, 15, 12, 18, 14],
+        "TOTAL STUDENTS": [850, 745, 572, 478, 614],
+        "MALE PCT": [52.94, 42.95, 36.71, 37.66, 47.23],
+        "FEMALE PCT": [44.71, 55.03, 61.19, 58.58, 50.49],
+        "OTHER PCT": [2.35, 2.01, 2.10, 3.77, 2.28],
+    })
+
+    # Should recommend stacked_bar_100 or stacked_bar, definitely NOT combo
+    rec = ChartRecommender.recommend_chart_type(df_gender, "show me gender raio of students for each college")
+    assert rec in ("stacked_bar_100", "stacked_bar")
+    assert rec != "combo"
+
+    # Figure generation should plot Male, Female, Other traces without double-counting TOTAL STUDENTS
+    fig = ChartRecommender.build_figure(df_gender, chart_type=rec, title="Gender Ratio Across Colleges")
+    assert fig is not None
+    trace_names = [t.name.lower() for t in fig.data]
+    assert any("male" in n for n in trace_names)
+    assert any("female" in n for n in trace_names)
+    assert any("other" in n for n in trace_names)
+    assert not any("total" in n for n in trace_names)
+
+
+def test_high_cardinality_guard_prevents_unreadable_stacked_bar():
+    """Verify that high-cardinality entity tables (e.g. 5,000 students) refuse to render an illegible wall of bars."""
+    df_large = pd.DataFrame({
+        "student_id": [f"STD_{i}" for i in range(1, 1001)],
+        "first_name": [f"Name_{i}" for i in range(1, 1001)],
+        "gpa": [3.5] * 1000,
+        "credits": [60] * 1000,
+    })
+
+    # Recommender must fall back to table
+    rec = ChartRecommender.recommend_chart_type(df_large, "you are not showing the other students")
+    assert rec == "table"
+
+    # build_figure should return None (rendering the interactive table view)
+    fig = ChartRecommender.build_figure(df_large, chart_type="stacked_bar", title="Students")
+    assert fig is None
+
