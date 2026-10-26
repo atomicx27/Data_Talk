@@ -2520,18 +2520,29 @@ dialog.modal-dialog::backdrop {
   position: absolute;
   right: 0;
   top: 100%;
-  margin-top: 4px;
-  z-index: 120;
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
+  margin-top: 6px;
+  z-index: 140;
+  background: var(--bg-surface-elevated, #1e293b);
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.14));
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
-  min-width: 190px;
-  padding: 4px 0;
+  box-shadow: var(--shadow-float, 0 12px 32px rgba(0, 0, 0, 0.35));
+  min-width: 235px;
+  max-width: 310px;
+  padding: 6px 0;
 }
 
 .drilldown-menu.open {
   display: block;
+}
+
+.drilldown-section-label {
+  padding: 6px 12px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
 }
 
 .drilldown-opt-btn {
@@ -2546,30 +2557,58 @@ dialog.modal-dialog::backdrop {
   display: flex;
   align-items: center;
   gap: 8px;
-  transition: background var(--transition-fast);
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 
 .drilldown-opt-btn:hover {
-  background: var(--bg-hover);
-  color: var(--primary-color);
+  background: var(--bg-surface-hover, rgba(99, 102, 241, 0.12));
+  color: var(--accent-primary, #6366f1);
 }
 
 .plotly-click-banner {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
   padding: 8px 12px;
-  background: var(--bg-subtle);
-  border: 1px solid var(--primary-color);
+  background: var(--bg-surface-elevated, rgba(99, 102, 241, 0.08));
+  border: 1px solid var(--accent-primary, #6366f1);
   border-radius: var(--radius-md);
   margin-bottom: 8px;
   font-size: 12px;
   animation: fadeIn 0.2s ease-in;
 }
 
+.resolved-context-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg-surface-hover, rgba(99, 102, 241, 0.1));
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.1));
+}
+
+.btn-improve-prompt {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 11px;
+  height: 36px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: var(--radius-md);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .table-filter-input {
-  border: 1px solid var(--border-color);
-  background: var(--bg-card);
+  border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.14));
+  background: var(--bg-surface, #0f172a);
   color: var(--text-primary);
   border-radius: var(--radius-sm);
   padding: 4px 8px;
@@ -2579,8 +2618,8 @@ dialog.modal-dialog::backdrop {
 }
 
 .table-filter-input:focus {
-  border-color: var(--primary-color);
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+  border-color: var(--accent-primary, #6366f1);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.18);
 }
 
 /* ==================== HUMAN-IN-THE-LOOP BUSINESS KNOWLEDGE CUSTOMIZATION ==================== */

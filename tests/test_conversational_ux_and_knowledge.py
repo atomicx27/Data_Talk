@@ -1400,6 +1400,225 @@ def test_overview_table_roles_compound_fks_and_fuzzy_typo_compiler():
     assert "Heuristic" in detail_h
 
 
+def test_partial_entity_matching_chasm_drilldown_prompt_improver_and_chart_fixes(test_client: TestClient):
+    """Verify partial category matching ('philosophy' -> 'History & Philosophy'), partial column matching,
+    chasm-free College->Department drill-down, multi-fact drill-down, prompt improver, and chart recommendation fixes."""
+    from src.knowledge.okf_models import OKFWorkspace, TableRole, TableSchema, ColumnProfile, RelationshipEdge
+    from src.knowledge.okf_store import OKFStore
+    from src.knowledge.join_inference import JoinInferenceEngine
+    from src.viz.chart_recommender import ChartRecommender
+
+    ws = OKFWorkspace(
+        workspace_id="test_uni_drill_partial",
+        workspace_name="University Drill & Partial Test",
+        tables=[
+            TableSchema(
+                name="colleges",
+                row_count=8,
+                table_role=TableRole.DIMENSION,
+                columns=[
+                    ColumnProfile(name="college_id", data_type="VARCHAR", is_primary_key=True, distinct_count=8),
+                    ColumnProfile(
+                        name="college_name",
+                        data_type="VARCHAR",
+                        distinct_count=8,
+                        sample_values=[
+                            "College of Engineering & Computing",
+                            "College of Arts & Humanities",
+                            "College of Business & Management",
+                        ],
+                    ),
+                ],
+            ),
+            TableSchema(
+                name="departments",
+                row_count=32,
+                table_role=TableRole.DIMENSION,
+                columns=[
+                    ColumnProfile(name="department_id", data_type="VARCHAR", is_primary_key=True, distinct_count=32),
+                    ColumnProfile(name="college_id", data_type="VARCHAR", is_foreign_key=True, distinct_count=8),
+                    ColumnProfile(name="department_code", data_type="VARCHAR", distinct_count=32),
+                    ColumnProfile(
+                        name="department_name",
+                        data_type="VARCHAR",
+                        distinct_count=32,
+                        sample_values=[
+                            "History & Philosophy",
+                            "Electrical & Computer Engineering",
+                            "Computer Science & Engineering",
+                            "Mechanical & Aerospace Engineering",
+                            "English & Comparative Literature",
+                        ],
+                    ),
+                    ColumnProfile(name="budget_allocated", data_type="BIGINT", distinct_count=32),
+                ],
+            ),
+            TableSchema(
+                name="degree_programs",
+                row_count=64,
+                table_role=TableRole.DIMENSION,
+                columns=[
+                    ColumnProfile(name="program_id", data_type="VARCHAR", is_primary_key=True, distinct_count=64),
+                    ColumnProfile(name="department_id", data_type="VARCHAR", is_foreign_key=True, distinct_count=32),
+                    ColumnProfile(
+                        name="program_name",
+                        data_type="VARCHAR",
+                        distinct_count=64,
+                        sample_values=[
+                            "B.Tech in Artificial Intelligence & Data Science",
+                            "B.A. in History & Philosophy",
+                        ],
+                    ),
+                    ColumnProfile(name="degree_level", data_type="VARCHAR", distinct_count=4),
+                ],
+            ),
+            TableSchema(
+                name="faculty",
+                row_count=421,
+                table_role=TableRole.DIMENSION,
+                columns=[
+                    ColumnProfile(name="faculty_id", data_type="VARCHAR", is_primary_key=True, distinct_count=421),
+                    ColumnProfile(name="department_id", data_type="VARCHAR", is_foreign_key=True, distinct_count=32),
+                    ColumnProfile(name="academic_rank", data_type="VARCHAR", distinct_count=5),
+                    ColumnProfile(name="salary", data_type="BIGINT", distinct_count=400),
+                ],
+            ),
+            TableSchema(
+                name="students",
+                row_count=12800,
+                table_role=TableRole.DIMENSION,
+                columns=[
+                    ColumnProfile(name="student_id", data_type="VARCHAR", is_primary_key=True, distinct_count=12800),
+                    ColumnProfile(name="college_id", data_type="VARCHAR", is_foreign_key=True, distinct_count=8),
+                    ColumnProfile(name="program_id", data_type="VARCHAR", is_foreign_key=True, distinct_count=64),
+                    ColumnProfile(name="gender", data_type="VARCHAR", distinct_count=3),
+                ],
+            ),
+            TableSchema(
+                name="enrollments_marks",
+                row_count=344054,
+                table_role=TableRole.FACT,
+                columns=[
+                    ColumnProfile(name="enrollment_id", data_type="VARCHAR", is_primary_key=True, distinct_count=344054),
+                    ColumnProfile(name="student_id", data_type="VARCHAR", is_foreign_key=True, distinct_count=12800),
+                    ColumnProfile(name="internal_assessment_score", data_type="DOUBLE", distinct_count=100),
+                    ColumnProfile(name="midterm_score", data_type="DOUBLE", distinct_count=100),
+                    ColumnProfile(name="total_marks", data_type="DOUBLE", distinct_count=100),
+                ],
+            ),
+            TableSchema(
+                name="fee_invoices",
+                row_count=105260,
+                table_role=TableRole.FACT,
+                columns=[
+                    ColumnProfile(name="invoice_id", data_type="VARCHAR", is_primary_key=True, distinct_count=105260),
+                    ColumnProfile(name="student_id", data_type="VARCHAR", is_foreign_key=True, distinct_count=12800),
+                    ColumnProfile(name="technology_library_fee", data_type="BIGINT", distinct_count=50),
+                    ColumnProfile(name="hostel_mess_fee", data_type="BIGINT", distinct_count=50),
+                    ColumnProfile(name="balance_outstanding", data_type="BIGINT", distinct_count=500),
+                    ColumnProfile(name="net_amount_due", data_type="BIGINT", distinct_count=500),
+                ],
+            ),
+        ],
+    )
+    ws.relationships = JoinInferenceEngine.infer_relationships(ws.tables, connector=None)
+    OKFStore.classify_table_roles(ws)
+    okf = OKFStore()
+
+    # 1. Partial category value matching: "philosophy" -> departments.department_name = 'History & Philosophy'
+    matches_phil = QueryAgent._detect_categorical_value_matches("show faculty salary in philosophy", ws)
+    assert any(
+        m["table"] == "departments"
+        and m["column"] == "department_name"
+        and m["value"] == "History & Philosophy"
+        for m in matches_phil
+    )
+    det_phil = QueryAgent._detect_relevant_tables("show faculty salary in philosophy", ws, {})
+    assert "departments" in det_phil
+    assert "faculty" in det_phil
+    jp_phil = okf.get_join_plan(ws, det_phil)
+    sql_phil = QueryAgent._deterministic_sql_compiler("show faculty salary in philosophy", ws, jp_phil, [])
+    assert "History & Philosophy" in sql_phil
+
+    # 2. Partial column name matching: "internal score", "outstanding", "library fee"
+    det_int = QueryAgent._detect_relevant_tables("show internal score by college", ws, {})
+    assert "enrollments_marks" in det_int
+    assert "colleges" in det_int
+    jp_int = okf.get_join_plan(ws, det_int)
+    sql_int = QueryAgent._deterministic_sql_compiler("show internal score by college", ws, jp_int, [])
+    assert "internal_assessment_score" in sql_int
+
+    det_out = QueryAgent._detect_relevant_tables("show outstanding fees by college", ws, {})
+    assert "fee_invoices" in det_out
+    jp_out = okf.get_join_plan(ws, det_out)
+    sql_out = QueryAgent._deterministic_sql_compiler("show outstanding fees by college", ws, jp_out, [])
+    assert "balance_outstanding" in sql_out
+
+    # 3. Chasm-free Steiner tree & SQL for College -> Department drill-down on student marks
+    det_drill = ["enrollments_marks", "students", "colleges", "departments"]
+    jp_drill = okf.get_join_plan(ws, det_drill)
+    # Must route through degree_programs (N:1 hierarchy), NOT direct colleges <- departments chasm fan-out
+    assert "degree_programs" in jp_drill.required_tables
+    q_drill = "Show average marks for each college for College of Engineering & Computing broken down by Department"
+    sql_drill = QueryAgent._deterministic_sql_compiler(q_drill, ws, jp_drill, [])
+    assert '"departments"."department_name"' in sql_drill
+    assert "College of Engineering & Computing" in sql_drill
+    assert '"degree_programs"' in sql_drill
+
+    # 4. Multi-fact Expenditure vs. Earnings drill-down into a specific College by Department
+    q_b2_drill = (
+        "show me a comparison between the expenditure and earning of each college "
+        "for College of Engineering & Computing broken down by Department"
+    )
+    sql_b2_drill = QueryAgent._deterministic_sql_compiler(q_b2_drill, ws, jp_drill, [])
+    assert "AS department_name" in sql_b2_drill
+    assert "College of Engineering & Computing" in sql_b2_drill
+    assert "degree_programs" in sql_b2_drill
+
+    # 5. Hierarchy-aware drill-down options: viewing department_name must NOT offer College (coarse parent)
+    df_dept = pd.DataFrame({
+        "department_name": ["History & Philosophy", "Computer Science & Engineering"],
+        "avg_salary": [92000.0, 118000.0],
+    })
+    drill_opts = QueryAgent._generate_drill_down_options(df_dept, ws, ["departments", "faculty"])
+    opt_dims = [d["dimension"] for d in drill_opts]
+    assert "college" not in opt_dims
+    assert "degree_program" in opt_dims or "academic_rank" in opt_dims
+
+    # 6. Prompt Improver (QueryAgent.improve_user_prompt & POST /api/chat/improve-prompt)
+    imp = QueryAgent.improve_user_prompt("average marks in philosophy", ws)
+    assert "History & Philosophy" in imp["improved_question"]
+    assert len(imp["resolutions"]) >= 1
+
+    test_client.post("/api/connect/demo")
+    imp_res = test_client.post("/api/chat/improve-prompt", json={"question": "rev by cat"})
+    assert imp_res.status_code == 200
+    imp_json = imp_res.json()
+    assert "improved_question" in imp_json
+
+    # 7. Chart Recommender: 2D percentage share (gender_ratio_pct) uses stacked_bar_100, and 32-row horizontal_bar scales height
+    df_gender_pct = pd.DataFrame({
+        "college_name": ["College A", "College A", "College B", "College B"],
+        "gender": ["Female", "Male", "Female", "Male"],
+        "gender_ratio_pct": [52.0, 48.0, 49.0, 51.0],
+        "student_count": [520, 480, 490, 510],
+    })
+    rec_pct = ChartRecommender.recommend_chart_type(df_gender_pct, "show gender ratio in each college")
+    assert rec_pct in ("stacked_bar_100", "stacked_bar")
+
+    df_32_depts = pd.DataFrame({
+        "department_name": [f"Department {i}" for i in range(32)],
+        "avg_salary": [85000.0 + i * 1000 for i in range(32)],
+        "row_count": [12 + (i % 5) for i in range(32)],
+    })
+    rec_32 = ChartRecommender.recommend_chart_type(df_32_depts, "show average salary by department")
+    assert rec_32 == "horizontal_bar"
+    fig_32 = ChartRecommender.build_figure(df_32_depts, rec_32, "show average salary by department")
+    assert fig_32.layout.height >= 700
+    assert len(fig_32.data) == 1  # Does NOT stack row_count on top of avg_salary
+
+
+
 
 
 

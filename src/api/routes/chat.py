@@ -10,7 +10,12 @@ from fastapi import APIRouter, Depends
 from src.agents.query_agent import QueryAgent
 from src.api.deps import get_runtime, get_session
 from src.api.runtime import AppRuntime, SessionState
-from src.api.schemas import ChartBuildRequest, ChatQueryRequest, TeachRuleRequest
+from src.api.schemas import (
+    ChartBuildRequest,
+    ChatQueryRequest,
+    ImprovePromptRequest,
+    TeachRuleRequest,
+)
 from src.api.utils import fig_to_json
 from src.knowledge.okf_models import BusinessRule
 from src.viz.chart_recommender import ChartRecommender
@@ -47,13 +52,14 @@ def run_chat_query(
         what_if_overrides=overrides,
         conversation_history=history,
     )
+    effective_q = resp.resolved_question or req.question
     if resp.recommended_chart_type and resp.recommended_chart_type in ("table", "kpi", "none"):
         rec_chart = resp.recommended_chart_type
     else:
-        rec_chart = ChartRecommender.recommend_chart_type(df, req.question)
+        rec_chart = ChartRecommender.recommend_chart_type(df, effective_q)
         resp.recommended_chart_type = rec_chart
 
-    fig = ChartRecommender.build_figure(df, chart_type=rec_chart, title=req.question)
+    fig = ChartRecommender.build_figure(df, chart_type=rec_chart, title=effective_q)
     rows = df.head(250).to_dict(orient="records") if not df.empty else []
     columns = [str(c) for c in df.columns]
 
@@ -71,6 +77,25 @@ def run_chat_query(
         "entry": chat_entry,
         "state": runtime.serialize_state(session),
     }
+
+
+@router.post("/improve-prompt")
+def improve_chat_prompt(
+    req: ImprovePromptRequest,
+    runtime: Annotated[AppRuntime, Depends(get_runtime)],
+    session: Annotated[SessionState, Depends(get_session)],
+) -> dict[str, Any]:
+    ws_id = session.active_workspace_id
+    ws = runtime.get_workspace(ws_id)
+    conn = runtime.get_connector(ws_id)
+    history = session.chat_history.get(ws_id, [])
+    return QueryAgent.improve_user_prompt(
+        question=req.question,
+        workspace=ws,
+        connector=conn,
+        conversation_history=history,
+        llm_router=session.llm_router,
+    )
 
 
 @router.post("/chart")

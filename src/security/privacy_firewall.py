@@ -134,7 +134,7 @@ class PrivacyFirewall:
         column_name: str,
         raw_samples: list[Any],
         distinct_count: int,
-        max_cardinality_for_sampling: int = 30,
+        max_cardinality_for_sampling: int = 100,
     ) -> tuple[list[str], bool]:
         """Sanitize column sample values for safe storage in OKF and prompts.
 
@@ -150,12 +150,12 @@ class PrivacyFirewall:
 
         sanitized: list[str] = []
         pii_found = False
-        for val in raw_samples[:10]:
+        for val in raw_samples[:65]:
             if val is None:
                 continue
             s_val = str(val).strip()
             # Strip control characters & newlines
-            s_val = re.sub(r"[\r\n\t\x00-\x1f]+", " ", s_val)[:50]
+            s_val = re.sub(r"[\r\n\t\x00-\x1f]+", " ", s_val)[:80]
             # Check for prompt injection inside database values
             if PROMPT_INJECTION_PATTERNS.search(s_val):
                 sanitized.append("<REDACTED_UNTRUSTED_TEXT>")

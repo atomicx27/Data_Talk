@@ -80,12 +80,23 @@ class QueryAgent:
         conversation_history: list[dict[str, Any]] | None = None,
     ) -> tuple[QueryResponse, pd.DataFrame]:
         """Execute a natural language analytical query with hybrid OKF+RAG retrieval and 3x self-healing."""
-        q_clean = question.strip()
+        cls._ensure_categorical_samples(workspace, connector)
+        q_clean = cls._normalize_prompt_text(question.strip())
 
         # Resolve Conversational Follow-Up Intent & Inherited Context
         resolved_q, is_follow_up, follow_up_ctx, inherited_tables = cls._resolve_follow_up_context(
             q_clean, conversation_history, workspace, llm_router
         )
+        resolved_q = cls._normalize_prompt_text(resolved_q)
+
+        # Check if partial category value resolution occurred (e.g., "philosophy" -> "History & Philosophy")
+        cat_value_matches = cls._detect_categorical_value_matches(resolved_q, workspace)
+        if cat_value_matches and not follow_up_ctx:
+            top_m = cat_value_matches[0]
+            if top_m.get("matched_phrase", "").lower() != top_m.get("value", "").lower():
+                follow_up_ctx = (
+                    f"Matched '{top_m['matched_phrase']}' → {top_m['table']}.{top_m['column']} = '{top_m['value']}'"
+                )
 
         # 0. Check if the user is asking an exploratory overview question about the entire dataset
         if cls._is_dataset_overview_question(resolved_q):
@@ -229,7 +240,7 @@ class QueryAgent:
                     resolved_q, df, matched_measures, applied_rules, llm_router, workspace
                 )
                 follow_ups = cls._generate_suggested_follow_ups(df, resolved_q, workspace, join_plan)
-                drill_downs = cls._generate_drill_down_options(df, workspace)
+                drill_downs = cls._generate_drill_down_options(df, workspace, join_plan.required_tables)
 
                 resp = QueryResponse(
                     user_question=q_clean,
@@ -293,6 +304,219 @@ class QueryAgent:
     # Helper Methods: Retrieval, Compilation & Self-Healing Repair
     # ------------------------------------------------------------------
     @staticmethod
+    def _normalize_prompt_text(text: str) -> str:
+        """Sanitize Unicode non-breaking hyphens, smart quotes, and noisy parentheticals."""
+        if not text:
+            return ""
+        cleaned = re.sub(r"[\u2010\u2011\u2012\u2013\u2014\u2015\u2212]", "-", text)
+        cleaned = re.sub(r"[\u2018\u2019]", "'", cleaned)
+        cleaned = re.sub(r"[\u201c\u201d]", '"', cleaned)
+        cleaned = re.sub(r"\(\s*e\.g\.[^)]*\)", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        return cleaned
+
+    @classmethod
+    def _ensure_categorical_samples(
+        cls,
+        workspace: OKFWorkspace,
+        connector: "BaseConnector | None" = None,
+    ) -> None:
+        """Populate sample_values in-memory for medium-cardinality categorical columns (up to 100 distinct values)."""
+        if connector is None or getattr(connector, "dialect", "") == "dax":
+            return
+        SKIP_COLS = {
+            "first_name", "last_name", "email", "phone", "phone_number",
+            "roll_number", "address", "remarks", "syllabus_summary", "date_of_birth",
+        }
+        for tbl in workspace.active_tables():
+            for col in tbl.columns:
+                if col.is_blocked or col.is_pii or col.is_primary_key or col.is_foreign_key:
+                    continue
+                c_low = col.name.lower()
+                if c_low in SKIP_COLS or c_low.endswith("_id"):
+                    continue
+                if not any(ty in col.data_type.upper() for ty in ("CHAR", "TEXT", "VARCHAR", "STRING")):
+                    continue
+                if 0 < col.distinct_count <= 100 and len(col.sample_values) < min(col.distinct_count, 50):
+                    if col.sample_values == ["<REDACTED_PII_COLUMN>"]:
+                        continue
+                    try:
+                        samp_sql = (
+                            f'SELECT DISTINCT CAST("{col.name}" AS VARCHAR) AS val '
+                            f'FROM "{tbl.name}" WHERE "{col.name}" IS NOT NULL LIMIT 65'
+                        )
+                        samp_df = connector.execute_query(samp_sql, max_rows=65)
+                        if not samp_df.empty and "val" in samp_df.columns:
+                            raw_vals = [str(v) for v in samp_df["val"].tolist() if v is not None]
+                            sanitized, pii_found = PrivacyFirewall.sanitize_profile_samples(
+                                col.name, raw_vals, col.distinct_count
+                            )
+                            if not pii_found and sanitized:
+                                col.sample_values = sanitized
+                    except Exception:
+                        pass
+
+    @classmethod
+    def _detect_categorical_value_matches(
+        cls,
+        question: str,
+        workspace: OKFWorkspace,
+    ) -> list[dict[str, Any]]:
+        """Detect partial or exact categorical column values mentioned in the user's natural-language question.
+
+        Example: 'philosophy' -> departments.department_name = 'History & Philosophy'
+                 'electrical engineering' -> departments.department_name = 'Electrical & Computer Engineering'
+        """
+        q_clean = cls._normalize_prompt_text(question)
+        q_low = q_clean.lower()
+        q_words = [w for w in re.findall(r"[a-z0-9]+", q_low) if len(w) >= 3]
+        if not q_words:
+            return []
+
+        # Extract any explicitly single/double-quoted segments first
+        quoted_segments = [
+            m.strip().lower()
+            for m in re.findall(r"['\"]([^'\"]{2,80})['\"]", q_clean)
+            if m.strip()
+        ]
+
+        # Generic SQL/BI/schema words that should not trigger single-word category value matches on their own
+        GENERIC_SINGLE_TOKENS = {
+            "show", "list", "give", "tell", "what", "which", "where", "when", "who", "how",
+            "many", "much", "total", "sum", "avg", "average", "mean", "count", "number",
+            "ratio", "ritio", "raio", "rio", "share", "percent", "percentage", "trend",
+            "monthly", "yearly", "annual", "year", "years", "month", "months", "date", "time",
+            "top", "bottom", "highest", "lowest", "best", "worst", "most", "least",
+            "all", "each", "every", "per", "by", "for", "in", "of", "from", "to", "with",
+            "on", "at", "and", "or", "the", "this", "that", "these", "those", "it", "them",
+            "break", "broken", "down", "drill", "into", "split", "across", "wise", "compare",
+            "versus", "between", "filter", "filtered", "only", "just", "over", "under", "more", "less",
+            "table", "tables", "column", "columns", "data", "dataset", "overview", "summary",
+            "college", "colleges", "department", "departments", "dept", "student", "students",
+            "faculty", "professor", "professors", "teacher", "instructor", "course", "courses",
+            "program", "programs", "degree", "degrees", "level", "rank", "gender", "status",
+            "fee", "fees", "invoice", "invoices", "tuition", "salary", "salaries", "payroll",
+            "budget", "cost", "costs", "expense", "expenses", "expenditure", "expenditures",
+            "earning", "earnings", "revenue", "revenues", "sales", "profit", "margin",
+            "order", "orders", "return", "returns", "customer", "customers", "product", "products",
+            "category", "categories", "region", "regions", "tier", "tiers", "channel", "channels",
+            "mark", "marks", "grade", "grades", "score", "scores", "gpa", "assessment", "attendance",
+            "science", "sciences", "studies", "development", "management", "system", "systems",
+            "general", "applied", "arts", "bachelor", "master", "doctor", "associate", "assistant",
+            "paid", "due", "outstanding", "balance", "net", "gross", "credit", "credits", "active",
+        }
+        VAL_STOP_WORDS = {"of", "and", "the", "in", "for", "to", "a", "an", "&"}
+
+        # Don't match a word as a category filter if it immediately follows "by / per / each / broken down by"
+        by_tail_match = re.findall(
+            r"\b(?:by|per|for\s+each|each|broken\s+down\s+by|split\s+by)\s+([a-z0-9_]+(?:\s+[a-z0-9_]+)?)",
+            q_low,
+        )
+        grouping_phrases = " ".join(by_tail_match)
+
+        candidates: list[dict[str, Any]] = []
+        for tbl in workspace.active_tables():
+            for col in tbl.columns:
+                if col.is_blocked or col.is_pii or col.is_primary_key or col.is_foreign_key:
+                    continue
+                c_low = col.name.lower()
+                if c_low.endswith("_id") or c_low.endswith("_code") or not col.sample_values:
+                    continue
+                if col.sample_values == ["<REDACTED_PII_COLUMN>"]:
+                    continue
+
+                # Pre-index tokenized values in this column to know when a token uniquely identifies 1 value
+                val_tokens_map: dict[str, list[str]] = {}
+                token_freq: dict[str, int] = {}
+                for raw_val in col.sample_values:
+                    v_str = str(raw_val).strip()
+                    if not v_str or len(v_str) < 2:
+                        continue
+                    v_toks = [
+                        t for t in re.findall(r"[a-z0-9]+", v_str.lower())
+                        if len(t) >= 3 and t not in VAL_STOP_WORDS
+                    ]
+                    val_tokens_map[v_str] = v_toks
+                    for vt in set(v_toks):
+                        token_freq[vt] = token_freq.get(vt, 0) + 1
+
+                for v_str, v_toks in val_tokens_map.items():
+                    v_low = v_str.lower()
+                    score = 0
+                    matched_phrase = ""
+
+                    # 1. Explicit quoted segment match
+                    if any(qs == v_low or (len(qs) >= 4 and qs in v_low) for qs in quoted_segments):
+                        score = 150 + len(v_str)
+                        matched_phrase = v_str
+                    # 2. Full categorical value appears verbatim in the query
+                    elif len(v_low) >= 4 and re.search(rf"\b{re.escape(v_low)}\b", q_low):
+                        # Avoid treating 'gender' / 'department' column mentions as value matches if in grouping_phrases
+                        if v_low in grouping_phrases and len(v_toks) == 1 and v_low in GENERIC_SINGLE_TOKENS:
+                            continue
+                        score = 130 + len(v_str)
+                        matched_phrase = v_str
+                    else:
+                        # 3. Check content-word overlap between query tokens and value tokens
+                        matched_toks: list[str] = []
+                        for vt in v_toks:
+                            if vt in ("college", "department", "program", "bachelor", "master", "bs", "ms", "ba", "phd"):
+                                continue
+                            if vt in q_words:
+                                matched_toks.append(vt)
+                            elif len(vt) >= 6:
+                                for qw in q_words:
+                                    if len(qw) >= 6 and abs(len(qw) - len(vt)) <= 2:
+                                        if difflib.SequenceMatcher(None, qw, vt).ratio() >= 0.84:
+                                            matched_toks.append(qw)
+                                            break
+
+                        if len(matched_toks) >= 2:
+                            # Multi-word match (e.g., "history and philosophy", "electrical engineering", "computer science")
+                            score = 105 + (12 * len(matched_toks))
+                            matched_phrase = " ".join(matched_toks)
+                        elif len(matched_toks) == 1:
+                            mt = matched_toks[0]
+                            # Single distinctive word match (e.g., "philosophy", "psychology", "neuroscience", "accounting")
+                            if mt not in GENERIC_SINGLE_TOKENS and len(mt) >= 4:
+                                # Prioritize when this token uniquely identifies a single value in this column
+                                freq = token_freq.get(mt, 1)
+                                if freq == 1:
+                                    score = 92
+                                    matched_phrase = mt
+                                elif freq <= 2 and c_low.endswith("_name"):
+                                    score = 72
+                                    matched_phrase = mt
+
+                    if score > 0:
+                        # Prefer *_name columns over generic columns when tying
+                        if c_low.endswith("_name"):
+                            score += 4
+                        candidates.append({
+                            "table": tbl.name,
+                            "column": col.name,
+                            "value": v_str,
+                            "score": score,
+                            "matched_phrase": matched_phrase,
+                        })
+
+        candidates.sort(key=lambda x: (-x["score"], len(x["value"])))
+        # Deduplicate so we keep at most the best match per matched_phrase / table.column
+        deduped: list[dict[str, Any]] = []
+        seen_cols: set[tuple[str, str]] = set()
+        seen_phrases: set[str] = set()
+        for cand in candidates:
+            tc = (cand["table"], cand["column"])
+            mp = cand["matched_phrase"].lower()
+            if tc in seen_cols or (mp and mp in seen_phrases):
+                continue
+            seen_cols.add(tc)
+            if mp:
+                seen_phrases.add(mp)
+            deduped.append(cand)
+        return deduped
+
+    @staticmethod
     def _fuzzy_matches_word(q_words: list[str], candidate: str, threshold: float = 0.80) -> bool:
         """Return True if any token in q_words matches candidate exactly or with fuzzy similarity >= threshold."""
         cand = candidate.lower().strip()
@@ -325,6 +549,23 @@ class QueryAgent:
             "code", "desc", "description", "value", "created_at", "updated_at",
             "total", "count", "num", "number"
         }
+        GENERIC_COL_TOKENS = {
+            "total", "count", "amount", "value", "number", "num", "code", "name",
+            "type", "status", "date", "year", "month", "day", "rate", "pct",
+            "percent", "score", "fee", "usd", "id", "net", "current", "max", "min", "avg", "per",
+        }
+        all_table_nouns: set[str] = set()
+        for _t in workspace.active_tables():
+            _tl = _t.name.lower()
+            all_table_nouns.add(_tl)
+            if _tl.endswith("s"):
+                all_table_nouns.add(_tl[:-1])
+            for _part in _tl.split("_"):
+                if len(_part) >= 3:
+                    all_table_nouns.add(_part)
+                    if _part.endswith("s"):
+                        all_table_nouns.add(_part[:-1])
+
         for tbl in workspace.active_tables():
             t_low = tbl.name.lower()
             t_norm = re.sub(r"[_\s]+", " ", t_low)
@@ -350,10 +591,32 @@ class QueryAgent:
                 if re.search(rf"\b{re.escape(c_low)}\b", q_low) or re.search(rf"\b{re.escape(c_norm)}\b", q_norm):
                     found.append(tbl.name)
                     break
+                if c_low.endswith("_id") or col.is_primary_key or col.is_foreign_key:
+                    continue
                 col_words = [w for w in c_norm.split() if len(w) > 3]
                 if len(col_words) >= 2 and all(re.search(rf"\b{re.escape(w)}\b", q_norm) for w in col_words):
                     found.append(tbl.name)
                     break
+                # Partial column name match on distinctive non-generic column tokens
+                # e.g., "internal score" -> internal_assessment_score, "outstanding" -> balance_outstanding,
+                # "library fee" -> technology_library_fee, "hostel" -> hostel_mess_fee, "midterm" -> midterm_score
+                distinctive_col_words = [
+                    w for w in col_words
+                    if w not in GENERIC_COL_TOKENS and w not in all_table_nouns and len(w) >= 4
+                ]
+                if distinctive_col_words and any(
+                    re.search(rf"\b{re.escape(dw)}\b", q_norm) or cls._fuzzy_matches_word(q_words, dw, 0.84)
+                    for dw in distinctive_col_words
+                ):
+                    if tbl.name not in found:
+                        found.append(tbl.name)
+                    break
+
+        # Detect tables via partial or exact categorical value matches (e.g. "philosophy" -> departments)
+        for cat_m in cls._detect_categorical_value_matches(question, workspace):
+            t_cat = cat_m["table"]
+            if t_cat not in found and workspace.get_table(t_cat):
+                found.append(t_cat)
 
         # Domain keyword mapping for common dimensions/facts (with word boundary + fuzzy typo protection)
         keyword_table_hints = {
@@ -831,6 +1094,71 @@ class QueryAgent:
         ):
             join_plan.has_fan_trap = True
             has_faculty = workspace.get_table("faculty") is not None
+            cat_matches_b2 = cls._detect_categorical_value_matches(question, workspace)
+            college_filter_val = next(
+                (m["value"] for m in cat_matches_b2 if m["table"] == "colleges" and m["column"] == "college_name"),
+                None,
+            )
+            dept_filter_val = next(
+                (m["value"] for m in cat_matches_b2 if m["table"] == "departments" and m["column"] == "department_name"),
+                None,
+            )
+            wants_dept_grain = (
+                any(w in q_low for w in ("department", "departments", "dept"))
+                or bool(college_filter_val)
+                or bool(dept_filter_val)
+            )
+            if wants_dept_grain and workspace.get_table("degree_programs"):
+                b2_where_parts: list[str] = []
+                if college_filter_val:
+                    safe_c = college_filter_val.replace("'", "''")
+                    b2_where_parts.append(f'c."college_name" = \'{safe_c}\'')
+                if dept_filter_val:
+                    safe_d = dept_filter_val.replace("'", "''")
+                    b2_where_parts.append(f'd."department_name" = \'{safe_d}\'')
+                b2_where_sql = ("\nWHERE " + " AND ".join(b2_where_parts)) if b2_where_parts else ""
+                fac_cte_dept = (
+                    ",\nfaculty_payroll_cte AS (\n"
+                    '    SELECT "department_id", SUM("salary") AS faculty_payroll\n'
+                    '    FROM "faculty"\n'
+                    '    GROUP BY "department_id"\n'
+                    ")"
+                    if has_faculty
+                    else ""
+                )
+                fac_join_dept = 'LEFT JOIN faculty_payroll_cte fp ON d."department_id" = fp."department_id"\n' if has_faculty else ""
+                exp_expr = "COALESCE(db.department_budget, 0) + COALESCE(fp.faculty_payroll, 0)" if has_faculty else "COALESCE(db.department_budget, 0)"
+                fac_col = ",\n       ROUND(COALESCE(fp.faculty_payroll, 0), 2) AS faculty_payroll" if has_faculty else ""
+                return (
+                    "WITH dept_budget_cte AS (\n"
+                    '    SELECT "department_id", SUM("budget_allocated") AS department_budget\n'
+                    '    FROM "departments"\n'
+                    '    GROUP BY "department_id"\n'
+                    ")"
+                    f"{fac_cte_dept},\n"
+                    "fee_earnings_cte AS (\n"
+                    '    SELECT dp."department_id",\n'
+                    '           SUM(fi."amount_paid") AS total_earnings,\n'
+                    '           SUM(fi."net_amount_due") AS total_fee_billed\n'
+                    '    FROM "fee_invoices" fi\n'
+                    '    JOIN "students" s ON fi."student_id" = s."student_id"\n'
+                    '    JOIN "degree_programs" dp ON s."program_id" = dp."program_id"\n'
+                    '    GROUP BY dp."department_id"\n'
+                    ")\n"
+                    'SELECT d."department_name" AS department_name,\n'
+                    "       ROUND(COALESCE(er.total_earnings, 0), 2) AS total_earnings,\n"
+                    f"       ROUND({exp_expr}, 2) AS total_expenditure,\n"
+                    "       ROUND(COALESCE(db.department_budget, 0), 2) AS department_budget"
+                    f"{fac_col},\n"
+                    f"       ROUND(COALESCE(er.total_earnings, 0) - ({exp_expr}), 2) AS net_surplus_deficit\n"
+                    'FROM "departments" d\n'
+                    'LEFT JOIN "colleges" c ON d."college_id" = c."college_id"\n'
+                    'LEFT JOIN dept_budget_cte db ON d."department_id" = db."department_id"\n'
+                    f"{fac_join_dept}"
+                    f'LEFT JOIN fee_earnings_cte er ON d."department_id" = er."department_id"{b2_where_sql}\n'
+                    "ORDER BY total_earnings DESC"
+                )
+
             fac_cte = (
                 ",\nfaculty_payroll_cte AS (\n"
                 '    SELECT d."college_id", SUM(f."salary") AS faculty_payroll\n'
@@ -875,6 +1203,7 @@ class QueryAgent:
         # Case C: Multi-table / Cross-Database joined query
         if len(join_plan.required_tables) >= 2 and join_plan.join_edges:
             q_norm = re.sub(r"[_\s]+", " ", q_low)
+            q_words_c = [w for w in re.findall(r"[a-z0-9]+", q_low) if len(w) >= 2]
             metric_tbl = None
             metric_col = None
             dim_tbl = None
@@ -889,6 +1218,7 @@ class QueryAgent:
                 "current_semester", "current_semester_num", "semester", "semester_num",
                 "section_number", "credit_hours", "course_level", "is_active",
             }
+            GENERIC_METRIC_WORDS = {"total", "amount", "fee", "score", "marks", "usd", "net", "pct", "rate"}
             has_time_intent = any(w in q_low for w in ("year", "trend", "annual", "yearly", "over time", "yoy", "monthly"))
             for t_name in join_plan.required_tables:
                 t_obj = workspace.get_table(t_name)
@@ -921,17 +1251,42 @@ class QueryAgent:
                             score = 105 if (has_time_intent and tbl_has_date) else 92
                         else:
                             score = 95 if (has_time_intent and not tbl_has_date) else 100
-                    elif any(w in q_low for w in ("fee", "fees", "tuition", "invoice", "balance")) and any(k in c_low for k in ("fee", "tuition", "amount", "balance", "paid")):
+                    elif any(w in q_low for w in ("fee", "fees", "tuition", "invoice", "balance", "outstanding", "scholarship", "hostel", "mess", "library", "paid", "due")) and any(k in c_low for k in ("fee", "tuition", "amount", "balance", "paid", "scholarship", "discount")):
                         score = 100
-                    elif any(w in q_low for w in ("mark", "marks", "grade", "grades", "score", "scores", "gpa")) and any(k in c_low for k in ("mark", "score", "grade", "gpa")):
+                    elif any(w in q_low for w in ("mark", "marks", "grade", "grades", "score", "scores", "gpa", "cgpa", "midterm", "internal", "assessment", "attendance")) and any(k in c_low for k in ("mark", "score", "grade", "gpa", "cgpa", "attendance")):
                         score = 100
                     elif re.search(rf"\b{re.escape(c_low)}\b", q_low):
-                        score = 90
+                        score = 95
                     elif any(w in q_low for w in c_low.replace("_", " ").split() if len(w) > 3):
-                        score = 70
+                        score = 75
+
+                    # Boost specific sub-metric columns when user mentions distinctive qualifiers
+                    # (e.g. "internal score" -> internal_assessment_score, "outstanding" -> balance_outstanding,
+                    #  "hostel fee" -> hostel_mess_fee, "library fee" -> technology_library_fee, "midterm" -> midterm_score)
+                    c_tokens = [w for w in c_low.split("_") if len(w) >= 3]
+                    distinctive_hits = sum(
+                        1
+                        for ct in c_tokens
+                        if ct not in GENERIC_METRIC_WORDS
+                        and (re.search(rf"\b{re.escape(ct)}\b", q_norm) or cls._fuzzy_matches_word(q_words_c, ct, 0.84))
+                    )
+                    if distinctive_hits > 0:
+                        score = max(score, 90) + (distinctive_hits * 25)
+
+                    # Specific semantic synonym boosts for disambiguating multi-metric tables
+                    if any(w in q_low for w in ("gpa", "cgpa", "grade point", "grade points")) and c_low in ("grade_points", "cgpa"):
+                        score += 30
+                    elif "attendance" in q_low and "attendance" in c_low:
+                        score += 35
+                    elif any(w in q_low for w in ("outstanding", "unpaid", "arrear", "arrears")) and "outstanding" in c_low:
+                        score += 35
+                    elif any(w in q_low for w in ("paid", "collected", "collection")) and "paid" in c_low:
+                        score += 30
+                    elif any(w in q_low for w in ("due", "billed")) and "due" in c_low:
+                        score += 20
 
                     if score > 0:
-                        if "total" in c_low:
+                        if "total" in c_low or "net_amount" in c_low:
                             score += 5
                         metric_candidates.append((score, t_name, c.name))
 
@@ -939,60 +1294,210 @@ class QueryAgent:
                 metric_candidates.sort(key=lambda x: -x[0])
                 _, metric_tbl, metric_col = metric_candidates[0]
 
-            # Look for dimension (text/categorical column representing the group)
-            # Check if a specific column is explicitly requested as the dimension (e.g. "gender wise", "by college", "for each college", "broken down by department")
-            wise_match = re.search(r"\b([a-z0-9_]+)\s+wise\b", q_low)
-            break_match = re.search(r"\b(?:break\s+(?:that\s+|it\s+)?down\s+by|broken\s+down\s+by|drill\s+down\s+by|split\s+(?:that\s+|it\s+)?by)\s+([a-z0-9_]+)", q_low)
-            by_match = re.search(r"\b(?:by|per|across|for\s+each|for\s+every|each)\s+([a-z0-9_]+)", q_low)
-            target_dim_name = (
-                break_match.group(1)
-                if break_match
-                else (wise_match.group(1) if wise_match else (by_match.group(1) if by_match else ""))
-            ).lower()
+            # Build the join tree FIRST so we know joined_tables and can resolve WHERE filters before picking dimensions
+            first_edge = join_plan.join_edges[0]
+            base_tbl_name = (
+                metric_tbl
+                if metric_tbl and any(metric_tbl in (e.source_table, e.target_table) for e in join_plan.join_edges)
+                else first_edge.source_table
+            )
+            join_clauses = []
+            joined_tables = {base_tbl_name}
 
-            if target_dim_name:
-                # Prioritize tables whose name matches target_dim_name (including fuzzy typo match like 'deparement' -> 'departments')
-                def _matches_target_dim(tn: str) -> bool:
+            edges_to_process = list(join_plan.join_edges)
+            while edges_to_process:
+                progress = False
+                # Pass 1: Prioritize forward N:1 joins (child FK -> parent PK) to prevent 1:N fan-out
+                for edge in list(edges_to_process):
+                    if edge.source_table in joined_tables and edge.target_table not in joined_tables:
+                        join_clauses.append(
+                            f'{edge.join_type} JOIN "{edge.target_table}" ON "{edge.source_table}"."{edge.source_column}" = "{edge.target_table}"."{edge.target_column}"'
+                        )
+                        joined_tables.add(edge.target_table)
+                        edges_to_process.remove(edge)
+                        progress = True
+                    elif edge.source_table in joined_tables and edge.target_table in joined_tables:
+                        edges_to_process.remove(edge)
+                        progress = True
+                if progress:
+                    continue
+                # Pass 2: Only traverse reverse 1:N joins if no forward N:1 edge is currently available
+                for edge in list(edges_to_process):
+                    if edge.target_table in joined_tables and edge.source_table not in joined_tables:
+                        join_clauses.append(
+                            f'{edge.join_type} JOIN "{edge.source_table}" ON "{edge.target_table}"."{edge.target_column}" = "{edge.source_table}"."{edge.source_column}"'
+                        )
+                        joined_tables.add(edge.source_table)
+                        edges_to_process.remove(edge)
+                        progress = True
+                        break
+                if not progress:
+                    break
+
+            join_str = ("\n" + "\n".join(join_clauses)) if join_clauses else ""
+
+            # Resolve WHERE filters from:
+            # 1) Partial/exact categorical value matches (e.g. "philosophy" -> departments.department_name = 'History & Philosophy')
+            # 2) Explicit drill-down segment filters (e.g. "for 'College of Engineering & Computing'")
+            where_filters: list[str] = []
+            filtered_tables_cols: set[tuple[str, str]] = set()
+
+            for cat_m in cls._detect_categorical_value_matches(question, workspace):
+                m_tbl, m_col, m_val = cat_m["table"], cat_m["column"], cat_m["value"]
+                if m_tbl in joined_tables and (m_tbl, m_col) not in filtered_tables_cols:
+                    safe_val = str(m_val).replace("'", "''")
+                    where_filters.append(f'"{m_tbl}"."{m_col}" = \'{safe_val}\'')
+                    filtered_tables_cols.add((m_tbl, m_col))
+
+            filter_seg_match = re.search(
+                r"\b(?:for\s+['\"]([a-z0-9_ &]+?)['\"]|(?:into|filtered\s+to|filtered\s+by)\s+['\"]?([a-z0-9_ &]+?)['\"]?)(?:\s+broken\s+down|\s+break\s+down|\s+by\s+|\s*$)",
+                q_low,
+            )
+            if filter_seg_match and not where_filters:
+                raw_seg = (filter_seg_match.group(1) or filter_seg_match.group(2) or "").strip()
+                STOP_SEG_WORDS = {
+                    "each", "every", "all", "any", "the", "this", "that", "these", "those",
+                    "drill", "down", "into", "result", "results",
+                    "college", "colleges", "department", "departments", "student", "students",
+                    "faculty", "course", "courses", "program", "programs", "degree", "degrees",
+                    "order", "orders", "customer", "customers", "product", "products",
+                    "category", "categories", "region", "regions", "year", "years", "month", "months",
+                    "gender", "genders", "rank", "ranks", "status", "tier", "tiers", "channel", "channels",
+                }
+                seg_words = [w for w in raw_seg.split() if len(w) > 2 and w not in STOP_SEG_WORDS]
+                if seg_words:
+                    ordered_joined = sorted(
+                        joined_tables,
+                        key=lambda tn: 0 if any(w in tn.lower() for w in raw_seg.split()) else 1,
+                    )
+                    for t_name in ordered_joined:
+                        t_obj = workspace.get_table(t_name)
+                        if not t_obj:
+                            continue
+                        # Always prioritize *_name / title columns over *_code columns for segment text filters!
+                        sorted_cols = sorted(
+                            t_obj.columns,
+                            key=lambda col: 0 if col.name.lower().endswith("name") or col.name.lower() in ("name", "title") else 1,
+                        )
+                        for c in sorted_cols:
+                            if c.is_blocked:
+                                continue
+                            if any(ty in c.data_type.upper() for ty in ("CHAR", "TEXT", "VARCHAR", "STRING")):
+                                c_low = c.name.lower()
+                                if any(k in c_low for k in ("name", "title", "category", "region", "desc", "code")):
+                                    pattern = "%" + "%".join(seg_words[:3]) + "%"
+                                    where_filters.append(f'LOWER("{t_name}"."{c.name}") LIKE \'{pattern}\'')
+                                    filtered_tables_cols.add((t_name, c.name))
+                                    break
+                        if where_filters:
+                            break
+
+            where_clause = ("\nWHERE " + " AND ".join(where_filters)) if where_filters else ""
+
+            # Helper to resolve a dimension phrase (1 or 2 words, e.g. 'department', 'degree program', 'academic rank')
+            def _resolve_dim_phrase(
+                dim_phrase: str,
+                exclude_cols: set[tuple[str, str]],
+            ) -> tuple[str | None, str | None]:
+                if not dim_phrase:
+                    return None, None
+                dp_clean = re.sub(r"\s+", "_", dim_phrase.strip().lower())
+                # Strip trailing noise words if captured
+                dp_tokens = [
+                    w for w in dp_clean.split("_")
+                    if w and w not in ("for", "in", "where", "filtered", "to", "and", "the", "wise", "each", "every")
+                ][:2]
+                if not dp_tokens:
+                    return None, None
+                dp_norm = "_".join(dp_tokens)
+                dp_first = dp_tokens[0]
+
+                def _matches_tbl(tn: str) -> bool:
                     tl = tn.lower()
                     ts = tl[:-1] if tl.endswith("s") else tl
                     return (
-                        target_dim_name in tl
-                        or target_dim_name.rstrip("s") in tl
-                        or cls._fuzzy_matches_word([target_dim_name], tl)
-                        or cls._fuzzy_matches_word([target_dim_name], ts)
+                        dp_norm in tl
+                        or dp_first in tl
+                        or dp_first.rstrip("s") in tl
+                        or cls._fuzzy_matches_word(dp_tokens, tl)
+                        or cls._fuzzy_matches_word(dp_tokens, ts)
                     )
 
                 ordered_dim_tables = sorted(
                     join_plan.required_tables,
-                    key=lambda tn: 0 if _matches_target_dim(tn) else 1,
+                    key=lambda tn: 0 if _matches_tbl(tn) else 1,
                 )
                 for t_name in ordered_dim_tables:
                     t_obj = workspace.get_table(t_name)
                     if not t_obj:
                         continue
-                    # Prefer name/title columns over code/id columns for human-readable grouping
                     dim_candidates = sorted(
                         t_obj.columns,
                         key=lambda col: 0 if col.name.lower().endswith("name") or col.name.lower() in ("name", "title") else 1,
                     )
                     for c in dim_candidates:
+                        if (t_name, c.name) in exclude_cols:
+                            continue
                         c_low = c.name.lower()
                         if c.is_blocked or c.is_primary_key or c.is_foreign_key or c_low.endswith("_id") or c_low == "id":
                             continue
-                        if c_low in ("first_name", "last_name", "phone", "phone_number", "email"):
+                        if c_low in ("first_name", "last_name", "phone", "phone_number", "email", "roll_number", "date_of_birth"):
                             continue
-                        c_stem = c_low.replace("_name", "").replace("_code", "")
+                        c_stem = c_low.replace("_name", "").replace("_code", "").replace("_title", "")
                         if (
-                            target_dim_name == c_low
-                            or target_dim_name in c_low
-                            or cls._fuzzy_matches_word([target_dim_name], c_stem)
-                            or (_matches_target_dim(t_name) and c_low.endswith("name"))
+                            dp_norm == c_low
+                            or dp_norm == c_stem
+                            or dp_norm in c_low
+                            or dp_first == c_low
+                            or dp_first == c_stem
+                            or (len(dp_tokens) >= 2 and all(tok in (t_name.lower() + "_" + c_low) for tok in dp_tokens))
+                            or cls._fuzzy_matches_word([dp_first], c_stem)
+                            or (_matches_tbl(t_name) and (c_low.endswith("name") or c_low.endswith("title") or c_low in ("name", "title")))
                         ):
-                            dim_tbl = t_name
-                            dim_col = c.name
-                            break
-                    if dim_tbl:
-                        break
+                            return t_name, c.name
+                return None, None
+
+            # Extract explicit primary grouping ("by / for each X") and secondary breakdown ("broken down by Y")
+            wise_match = re.search(r"\b([a-z0-9_]+)\s+wise\b", q_low)
+            break_match = re.search(
+                r"\b(?:break\s+(?:that\s+|it\s+)?down\s+by|broken\s+down\s+by|drill\s+down\s+by|split\s+(?:that\s+|it\s+)?by)\s+([a-z0-9_]+(?:\s+(?:program|level|rank|status|mode|tier|category|channel|title|name|year|month))?)",
+                q_low,
+            )
+            by_match = re.search(
+                r"\b(?:by|per|across|for\s+each|for\s+every|each)\s+([a-z0-9_]+(?:\s+(?:program|level|rank|status|mode|tier|category|channel|title|name|year|month))?)",
+                q_low,
+            )
+
+            break_phrase = break_match.group(1).strip().lower() if break_match else ""
+            primary_phrase = (
+                by_match.group(1).strip().lower()
+                if by_match
+                else (wise_match.group(1).strip().lower() if wise_match else "")
+            )
+
+            second_dim_tbl = None
+            second_dim_col = None
+
+            # Case 1: Both primary dimension (e.g. "for each college") and breakdown dimension (e.g. "broken down by department / gender") exist
+            if primary_phrase and break_phrase and primary_phrase != break_phrase:
+                # Check if primary_phrase refers to a column that is ALREADY filtered to a single segment in where_filters
+                prim_tbl, prim_col = _resolve_dim_phrase(primary_phrase, set())
+                brk_tbl, brk_col = _resolve_dim_phrase(break_phrase, filtered_tables_cols)
+                if prim_tbl and prim_col and (prim_tbl, prim_col) in filtered_tables_cols:
+                    # Drilling INTO a filtered parent segment (e.g. College = 'College of Engineering & Computing') by child dimension!
+                    dim_tbl, dim_col = brk_tbl, brk_col
+                elif prim_tbl and prim_col and brk_tbl and brk_col and (prim_tbl, prim_col) != (brk_tbl, brk_col):
+                    # Unfiltered 2D breakdown (e.g. "Show average marks for each college broken down by gender")
+                    dim_tbl, dim_col = prim_tbl, prim_col
+                    second_dim_tbl, second_dim_col = brk_tbl, brk_col
+                else:
+                    dim_tbl, dim_col = (brk_tbl, brk_col) if brk_tbl else (prim_tbl, prim_col)
+            else:
+                target_dim_phrase = break_phrase or primary_phrase
+                if target_dim_phrase:
+                    dim_tbl, dim_col = _resolve_dim_phrase(target_dim_phrase, filtered_tables_cols)
+                    if not dim_tbl:
+                        dim_tbl, dim_col = _resolve_dim_phrase(target_dim_phrase, set())
 
             if not dim_tbl:
                 for t_name in join_plan.required_tables:
@@ -1002,6 +1507,8 @@ class QueryAgent:
                     for c in t_obj.columns:
                         c_low = c.name.lower()
                         if c.is_blocked or c.is_primary_key or c.is_foreign_key or c_low.endswith("_id") or c_low == "id":
+                            continue
+                        if (t_name, c.name) in filtered_tables_cols:
                             continue
                         if any(ty in c.data_type.upper() for ty in ("CHAR", "TEXT", "VARCHAR", "STRING")):
                             if c_low in q_low and len(c_low) >= 4:
@@ -1014,7 +1521,7 @@ class QueryAgent:
             if not dim_tbl:
                 def tbl_priority(t: str) -> int:
                     tl = t.lower()
-                    if any(k in tl for k in ("college", "department", "category", "region", "country", "territory")):
+                    if any(k in tl for k in ("college", "department", "program", "category", "region", "country", "territory")):
                         return 0
                     return 1
 
@@ -1024,8 +1531,7 @@ class QueryAgent:
                         continue
                     t_norm = t_name.lower().replace("_", " ")
                     singular = t_name.lower()[:-1] if t_name.lower().endswith("s") else t_name.lower()
-                    if t_name.lower() in q_low or t_norm in q_norm or singular in q_low:
-                        # Pick best descriptive column (e.g. college_name, name, code, etc.), avoiding personal names
+                    if t_name.lower() in q_low or t_norm in q_norm or singular in q_low or any(ft == t_name for ft, _ in filtered_tables_cols):
                         for c in t_obj.columns:
                             c_low = c.name.lower()
                             if c.is_blocked or c.is_primary_key or c.is_foreign_key or c_low.endswith("_id"):
@@ -1058,9 +1564,7 @@ class QueryAgent:
                         break
 
             # Check if a second dimension exists in a breakdown query (e.g. College AND Gender / Academic Rank / Year)
-            second_dim_tbl = None
-            second_dim_col = None
-            if dim_tbl and dim_col and any(
+            if not second_dim_tbl and dim_tbl and dim_col and any(
                 k in q_low
                 for k in (
                     "ratio", "ritio", "raio", "gender", "rank", "status", "breakdown",
@@ -1077,6 +1581,8 @@ class QueryAgent:
                         if c.is_blocked or c.is_primary_key or c.is_foreign_key or c_low.endswith("_id") or c_low == "id":
                             continue
                         if t_name == dim_tbl and c.name == dim_col:
+                            continue
+                        if (t_name, c.name) in filtered_tables_cols:
                             continue
                         if metric_tbl and t_name == metric_tbl and c.name == metric_col:
                             continue
@@ -1117,82 +1623,6 @@ class QueryAgent:
                 if candidates:
                     candidates.sort(key=lambda x: -x[0])
                     _, second_dim_tbl, second_dim_col = candidates[0]
-
-            first_edge = join_plan.join_edges[0]
-            base_tbl_name = (
-                metric_tbl
-                if metric_tbl and any(metric_tbl in (e.source_table, e.target_table) for e in join_plan.join_edges)
-                else first_edge.source_table
-            )
-            join_clauses = []
-            joined_tables = {base_tbl_name}
-
-            edges_to_process = list(join_plan.join_edges)
-            while edges_to_process:
-                progress = False
-                for edge in list(edges_to_process):
-                    if edge.source_table in joined_tables and edge.target_table not in joined_tables:
-                        join_clauses.append(
-                            f'{edge.join_type} JOIN "{edge.target_table}" ON "{edge.source_table}"."{edge.source_column}" = "{edge.target_table}"."{edge.target_column}"'
-                        )
-                        joined_tables.add(edge.target_table)
-                        edges_to_process.remove(edge)
-                        progress = True
-                    elif edge.target_table in joined_tables and edge.source_table not in joined_tables:
-                        join_clauses.append(
-                            f'{edge.join_type} JOIN "{edge.source_table}" ON "{edge.target_table}"."{edge.target_column}" = "{edge.source_table}"."{edge.source_column}"'
-                        )
-                        joined_tables.add(edge.source_table)
-                        edges_to_process.remove(edge)
-                        progress = True
-                    elif edge.source_table in joined_tables and edge.target_table in joined_tables:
-                        edges_to_process.remove(edge)
-                        progress = True
-                if not progress:
-                    break
-
-            join_str = ("\n" + "\n".join(join_clauses)) if join_clauses else ""
-
-            # Check for segment filter (e.g. "for 'College of Engineering & Computing'" or "filtered to College of ...")
-            where_filters: list[str] = []
-            filter_seg_match = re.search(
-                r"\b(?:for\s+['\"]([a-z0-9_ &]+?)['\"]|(?:into|filtered\s+to|filtered\s+by)\s+['\"]?([a-z0-9_ &]+?)['\"]?)(?:\s+broken\s+down|\s+break\s+down|\s*$)",
-                q_low,
-            )
-            if filter_seg_match:
-                raw_seg = (filter_seg_match.group(1) or filter_seg_match.group(2) or "").strip()
-                STOP_SEG_WORDS = {
-                    "each", "every", "all", "any", "the", "this", "that", "these", "those",
-                    "drill", "down", "into", "result", "results",
-                    "college", "colleges", "department", "departments", "student", "students",
-                    "faculty", "course", "courses", "program", "programs", "degree", "degrees",
-                    "order", "orders", "customer", "customers", "product", "products",
-                    "category", "categories", "region", "regions", "year", "years", "month", "months",
-                    "gender", "genders", "rank", "ranks", "status", "tier", "tiers", "channel", "channels",
-                }
-                seg_words = [w for w in raw_seg.split() if len(w) > 2 and w not in STOP_SEG_WORDS]
-                if seg_words:
-                    ordered_joined = sorted(
-                        joined_tables,
-                        key=lambda tn: 0 if any(w in tn.lower() for w in raw_seg.split()) else 1,
-                    )
-                    for t_name in ordered_joined:
-                        t_obj = workspace.get_table(t_name)
-                        if not t_obj:
-                            continue
-                        for c in t_obj.columns:
-                            if c.is_blocked:
-                                continue
-                            if any(ty in c.data_type.upper() for ty in ("CHAR", "TEXT", "VARCHAR", "STRING")):
-                                c_low = c.name.lower()
-                                if any(k in c_low for k in ("name", "code", "title", "desc", "category", "region")):
-                                    pattern = "%" + "%".join(seg_words[:3]) + "%"
-                                    where_filters.append(f'LOWER("{t_name}"."{c.name}") LIKE \'{pattern}\'')
-                                    break
-                        if where_filters:
-                            break
-
-            where_clause = ("\nWHERE " + " AND ".join(where_filters)) if where_filters else ""
 
             # Check if user asked for ratio / percentage / share (matching 'rio' only as a whole word so 'prior'/'period' don't trigger it)
             is_ratio_query = bool(
@@ -1299,7 +1729,24 @@ class QueryAgent:
         # Fallback for single-table or unjoined schema queries
         target_tbl = None
         if join_plan and join_plan.required_tables:
-            target_tbl = workspace.get_table(join_plan.required_tables[0])
+            # If multiple unjoined tables were matched, pick the table whose name or columns best match the question
+            best_t = None
+            best_t_score = -1
+            for rt in join_plan.required_tables:
+                t_cand = workspace.get_table(rt)
+                if not t_cand:
+                    continue
+                t_sc = 0
+                tl = t_cand.name.lower()
+                if tl in q_low or tl.rstrip("s") in q_low:
+                    t_sc += 50
+                for col in t_cand.columns:
+                    if not col.is_blocked and col.name.lower() in q_low:
+                        t_sc += 30
+                if t_sc > best_t_score:
+                    best_t_score = t_sc
+                    best_t = t_cand
+            target_tbl = best_t or workspace.get_table(join_plan.required_tables[0])
         if not target_tbl:
             for t in workspace.active_tables():
                 t_low = t.name.lower()
@@ -1340,6 +1787,16 @@ class QueryAgent:
                 matched_num_col = nc
                 break
         active_num_col = matched_num_col or (num_cols[0] if num_cols else None)
+
+        # Check for single-table categorical value filter (e.g. "departments in philosophy")
+        single_where_parts: list[str] = []
+        single_filtered_cols: set[str] = set()
+        for cat_m in cls._detect_categorical_value_matches(question, workspace):
+            if cat_m["table"] == target_tbl.name:
+                safe_v = str(cat_m["value"]).replace("'", "''")
+                single_where_parts.append(f'"{target_tbl.name}"."{cat_m["column"]}" = \'{safe_v}\'')
+                single_filtered_cols.add(cat_m["column"])
+        single_where_sql = f" WHERE {' AND '.join(single_where_parts)}" if single_where_parts else ""
 
         cat_cols = [
             c.name
@@ -1407,6 +1864,7 @@ class QueryAgent:
             dim_alias = date_col.lower().replace("date", "year") if "date" in date_col.lower() else date_col.lower()
             top_match = re.search(r"\b(?:top|bottom|limit)\s+(\d+)\b", q_low)
             limit_clause = f"\nLIMIT {int(top_match.group(1))}" if top_match else ""
+            extra_date_cond = (" AND " + " AND ".join(single_where_parts)) if single_where_parts else ""
             if active_num_col:
                 alias = cls._clean_agg_alias(active_num_col, agg_fn)
                 return (
@@ -1414,7 +1872,7 @@ class QueryAgent:
                     f'       ROUND({agg_fn}("{target_tbl.name}"."{active_num_col}"), 2) AS {alias},\n'
                     f'       COUNT(*) AS row_count\n'
                     f'FROM "{target_tbl.name}"\n'
-                    f'WHERE "{target_tbl.name}"."{date_col}" IS NOT NULL\n'
+                    f'WHERE "{target_tbl.name}"."{date_col}" IS NOT NULL{extra_date_cond}\n'
                     f'GROUP BY {dim_alias}\n'
                     f'ORDER BY {dim_alias} ASC'
                     f'{limit_clause}'
@@ -1427,16 +1885,16 @@ class QueryAgent:
             limit_clause = f" LIMIT {int(top_match.group(1))}" if top_match else ""
             return (
                 f'SELECT "{active_cat_col}", ROUND({agg_fn}("{target_tbl.name}"."{active_num_col}"), 2) AS {alias}, COUNT(*) AS row_count '
-                f'FROM "{target_tbl.name}" GROUP BY "{active_cat_col}" ORDER BY {alias} {sort_dir}{limit_clause}'
+                f'FROM "{target_tbl.name}"{single_where_sql} GROUP BY "{active_cat_col}" ORDER BY {alias} {sort_dir}{limit_clause}'
             )
         if active_cat_col:
             top_match = re.search(r"\b(?:top|bottom|limit)\s+(\d+)\b", q_low)
             limit_clause = f" LIMIT {int(top_match.group(1))}" if top_match else ""
             return (
                 f'SELECT "{active_cat_col}", COUNT(*) AS row_count '
-                f'FROM "{target_tbl.name}" GROUP BY "{active_cat_col}" ORDER BY row_count {sort_dir}{limit_clause}'
+                f'FROM "{target_tbl.name}"{single_where_sql} GROUP BY "{active_cat_col}" ORDER BY row_count {sort_dir}{limit_clause}'
             )
-        return f'SELECT {", ".join(f"{c}" for c in cols[:8])} FROM "{target_tbl.name}" LIMIT 50'
+        return f'SELECT {", ".join(f"{c}" for c in cols[:8])} FROM "{target_tbl.name}"{single_where_sql} LIMIT 50'
 
     @classmethod
     def _build_dax_equivalent(
@@ -1598,11 +2056,22 @@ class QueryAgent:
                 c for c in num_cols
                 if not any(k in str(c).lower() for k in ("row_count", "total_count", "_count", "count"))
             ]
+            # For 2D part-to-whole demographic breakdowns (where business_metrics only has *_ratio_pct and a *_count column exists),
+            # prefer the volume count column for primary ranking and report the share percentage alongside it.
+            count_cols = [c for c in num_cols if c not in business_metrics]
+            only_part_to_whole_pct = (
+                second_dim_col is not None
+                and len(business_metrics) == 1
+                and str(business_metrics[0]).lower().endswith(("_ratio_pct", "_share_pct"))
+                and len(count_cols) >= 1
+            )
             matched_business = [
                 c for c in business_metrics
                 if any(k in str(c).lower() for k in q_tokens)
             ]
-            if matched_business:
+            if only_part_to_whole_pct:
+                metric_col = count_cols[0]
+            elif matched_business:
                 metric_col = matched_business[0]
             elif business_metrics and not any(k in q_low for k in ("count", "headcount", "how many", "number of")):
                 metric_col = business_metrics[0]
@@ -1769,30 +2238,42 @@ class QueryAgent:
             return question, False, None, []
 
         last_resp = last_turn.get("response", {})
-        prior_q = last_resp.get("resolved_question") or last_resp.get("user_question", "")
+        prior_q = cls._normalize_prompt_text(
+            last_resp.get("resolved_question") or last_resp.get("user_question", "")
+        )
         prior_tables = last_resp.get("involved_tables", [])
-        q_low = question.lower().strip()
+        q_clean = cls._normalize_prompt_text(question)
+        q_low = q_clean.lower().strip()
+
+        # Strip prior drill-down tail from prior_q so chaining a new drill-down doesn't stack conflicting filters
+        base_prior_q = re.sub(
+            r"\s+for\s+['\"][^'\"]+['\"](?:\s+broken\s+down\s+by\s+[a-z0-9_ ]+)?$",
+            "",
+            prior_q,
+            flags=re.IGNORECASE,
+        ).strip() or prior_q
 
         # Check if the query starts with a conversational prefix like "now show me" or "now show",
         # but is actually a complete, self-contained analytical question rather than a filter refinement.
         now_show_match = re.match(r"^now\s+show\s+(?:me\s+)?(?:the\s+)?(.*)", q_low)
         if now_show_match:
             rest = now_show_match.group(1).strip()
-            # If the remainder introduces a standalone subject / metric / domain (e.g. grades, revenue, courses, fees)
-            # or specifies a complete breakdown (e.g. "rio of total grades gender wise"), treat as independent query.
             has_new_subject = any(
                 w in rest
                 for w in (
                     "grade", "grades", "mark", "marks", "gpa", "score", "scores",
                     "course", "courses", "fee", "fees", "invoice", "invoices",
-                    "faculty", "department", "order", "orders", "revenue", "sales", "profit",
-                    "customer", "customers", "product", "products", "return", "returns"
+                    "faculty", "department", "departments", "college", "colleges",
+                    "student", "students", "program", "programs", "salary", "salaries",
+                    "budget", "expenditure", "earning", "earnings",
+                    "order", "orders", "revenue", "sales", "profit",
+                    "customer", "customers", "product", "products", "return", "returns",
                 )
             )
             is_elliptical_filter = any(
                 rest.startswith(p)
                 for p in ("only", "just", "for", "in", "where", "top", "bottom", "trend", "monthly")
-            ) or (rest.startswith("by ") and len(rest.split()) <= 2)
+            ) or (rest.startswith("by ") and len(rest.split()) <= 3)
             if has_new_subject and not is_elliptical_filter:
                 return f"Show {rest}", False, None, []
 
@@ -1803,7 +2284,6 @@ class QueryAgent:
         )
         if sub_match:
             sub_entity = sub_match.group(1).strip()
-            # Match sub_entity with active tables in workspace
             matched_tbl = None
             for t in workspace.active_tables():
                 t_clean = t.name.lower().replace("_", " ")
@@ -1812,7 +2292,6 @@ class QueryAgent:
                     break
 
             if matched_tbl:
-                # Remove sibling fact/entity tables from prior_tables
                 retained_prior = [t for t in prior_tables if t != matched_tbl.name]
                 if matched_tbl.name == "faculty":
                     retained_prior = [t for t in retained_prior if t != "students"]
@@ -1821,12 +2300,10 @@ class QueryAgent:
                 elif matched_tbl.name in ("orders", "returns"):
                     retained_prior = [t for t in retained_prior if t not in ("orders", "returns")]
 
-                # Check if matched_tbl has the requested dimension from prior_q (e.g. gender)
                 has_gender = bool(matched_tbl.get_column("gender"))
                 if "gender" in prior_q.lower() and not has_gender:
-                    # Target table has no gender column! Substitute with existing categorical dimension
                     if matched_tbl.get_column("academic_rank"):
-                        resolved_q = f"Show faculty distribution and academic rank breakdown for each college"
+                        resolved_q = "Show faculty distribution and academic rank breakdown for each college"
                         follow_ctx = "Refined for faculty (Note: faculty table tracks academic rank, but not gender)"
                     else:
                         resolved_q = f"Show {matched_tbl.name} count and share for each college"
@@ -1844,11 +2321,11 @@ class QueryAgent:
 
         follow_up_regex = re.compile(
             r"^(filter\s+(that\s+|it\s+)?(by|to|for|where|only)|only\s+(in|for)|just\s+(in|for)|where\b|exclude\b|excluding\b|"
-            r"break\s+(that\s+|it\s+)?down\s+by|split\s+(that\s+|it\s+)?by|by\s+[a-z0-9_]+$|group(ed)?\s+by|"
-            r"now\s+show|now\s+break|and\s+for|what\s+about|how\s+about|"
-            r"(show\s+)?(top|bottom)\s+\d+|sort\s+by|order\s+by|highest|lowest|"
+            r"break\s+(that\s+|it\s+|this\s+)?down\s+by|split\s+(that\s+|it\s+|this\s+)?by|by\s+[a-z0-9_ ]+$|group(ed)?\s+by|"
+            r"now\s+show\s+(only|just|top|bottom|by|for)|now\s+break|and\s+for|what\s+about|how\s+about|"
+            r"(show\s+)?(top|bottom)\s+\d+$|sort\s+by|order\s+by|"
             r"drill\s+down(\s+into)?|drill\s+into|zoom\s+in\s+on|"
-            r"show\s+only|show\s+more|show\s+trend|monthly\s+trend|"
+            r"show\s+only|show\s+more|(?:show\s+)?(?:monthly|yearly|annual)?\s*trend(\s+over\s+time|\s+for\b|$)|"
             r"you\s+(are\s+not|aren't|didn't|only)\s+show(ing)?|"
             r"(where|what)\s+(is|are|about)\s+(the\s+)?(other|rest|remaining|female|male)|"
             r"why\s+(is|are|isn't|aren't)\s+.*(shown|included|visible)|"
@@ -1856,9 +2333,29 @@ class QueryAgent:
             r"(show|display)\s+all\s+(categories|groups|genders|breakdowns))",
             re.IGNORECASE,
         )
-        has_pronoun = any(re.search(rf"\b{p}\b", q_low) for p in ("that", "those", "it", "them", "these", "this"))
-        is_short_fragment = len(q_low.split()) <= 4 and not any(
-            t in q_low for t in ("show tables", "tell", "what", "compare", "list", "select", "explain", "how many", "overview")
+        # Only treat 'that'/'it'/'this'/'them' as follow-up pronouns when not used as a relative clause ("departments that have...")
+        has_pronoun = bool(
+            re.search(r"\b(it|them|those|these)\b", q_low)
+            or re.search(r"\b(?:break|split|filter|sort|order|group|show|for|of|in|on)\s+(?:that|this)\b", q_low)
+            or re.search(r"^(?:that|this)\b", q_low)
+        )
+        # Do NOT treat a short 2-4 word query as an elliptical fragment if it names its own table or metric!
+        STANDALONE_SUBJECT_WORDS = {
+            "student", "students", "faculty", "professor", "professors", "college", "colleges",
+            "department", "departments", "course", "courses", "program", "programs", "degree",
+            "fee", "fees", "invoice", "invoices", "tuition", "salary", "salaries", "mark", "marks",
+            "grade", "grades", "score", "scores", "gpa", "cgpa", "budget", "expenditure", "earning", "earnings",
+            "order", "orders", "return", "returns", "customer", "customers", "product", "products",
+            "revenue", "sales", "profit", "margin",
+        }
+        q_tokens_set = set(re.findall(r"[a-z0-9]+", q_low))
+        has_own_subject = bool(q_tokens_set & STANDALONE_SUBJECT_WORDS)
+        is_short_fragment = (
+            len(q_low.split()) <= 3
+            and not has_own_subject
+            and not any(
+                t in q_low for t in ("show", "tell", "what", "compare", "list", "select", "explain", "how many", "overview")
+            )
         )
 
         is_follow_up = bool(follow_up_regex.search(q_low) or has_pronoun or is_short_fragment)
@@ -1867,25 +2364,94 @@ class QueryAgent:
 
         follow_up_ctx = f"Refined from: '{prior_q}'"
 
-        # LLM resolution if available
+        # 1. Deterministic high-precision patterns FIRST (for UI drill-down clicks, segment trends, and breakdowns)
+        #    so they are never corrupted by vague LLM meta-text.
+        drill_seg_by_match = re.search(
+            r"\bdrill\s+(?:down\s+)?(?:into\s+)?['\"]?([a-z0-9_ &/-]+?)['\"]?\s+by\s+([a-z0-9_ ]+)$",
+            q_clean,
+            flags=re.IGNORECASE,
+        )
+        if drill_seg_by_match:
+            seg = drill_seg_by_match.group(1).strip()
+            dim = drill_seg_by_match.group(2).strip()
+            return f"{base_prior_q} for '{seg}' broken down by {dim}", True, follow_up_ctx, prior_tables
+
+        drill_seg_only_match = re.search(
+            r"\bdrill\s+(?:down\s+)?(?:into\s+)['\"]?([a-z0-9_ &/-]+?)['\"]?$",
+            q_clean,
+            flags=re.IGNORECASE,
+        )
+        if drill_seg_only_match:
+            seg = drill_seg_only_match.group(1).strip()
+            # Determine which table/column `seg` belongs to so we automatically pick the right child dimension
+            seg_matches = cls._detect_categorical_value_matches(f"'{seg}'", workspace)
+            seg_tbl = seg_matches[0]["table"] if seg_matches else ""
+            if seg_tbl == "colleges" or (not seg_tbl and workspace.get_table("departments") and any(w in base_prior_q.lower() for w in ("college", "colleges"))):
+                child_dim = "department"
+            elif seg_tbl == "departments" or (not seg_tbl and any(w in base_prior_q.lower() for w in ("department", "departments"))):
+                if "faculty" in prior_tables and "students" not in prior_tables:
+                    child_dim = "academic_rank"
+                elif workspace.get_table("degree_programs"):
+                    child_dim = "degree program"
+                else:
+                    child_dim = "gender"
+            elif workspace.get_table("customers") and any(w in base_prior_q.lower() for w in ("product", "category")):
+                child_dim = "region"
+            else:
+                child_dim = "department" if workspace.get_table("departments") else "category"
+            return f"{base_prior_q} for '{seg}' broken down by {child_dim}", True, follow_up_ctx, prior_tables
+
+        trend_for_seg_match = re.search(
+            r"\b(?:show\s+)?(?:monthly|yearly|annual)?\s*trend(?:\s+over\s+time)?\s+for\s+['\"]?([a-z0-9_ &/-]+?)['\"]?$",
+            q_clean,
+            flags=re.IGNORECASE,
+        )
+        if trend_for_seg_match:
+            seg = trend_for_seg_match.group(1).strip()
+            if seg.lower() not in ("this breakdown", "this", "it", "that"):
+                return f"Trend over time of {base_prior_q} for '{seg}'", True, follow_up_ctx, prior_tables
+            return f"Trend over time of {base_prior_q}", True, follow_up_ctx, prior_tables
+
+        break_by_match = re.search(
+            r"^(?:now\s+)?(?:break\s+(?:that\s+|it\s+|this\s+)?down\s+by|split\s+(?:that\s+|it\s+|this\s+)?by|by)\s+([a-z0-9_ ]+)$",
+            q_low,
+        )
+        if break_by_match:
+            dim_name = break_by_match.group(1).strip()
+            return f"{prior_q} broken down by {dim_name}", True, follow_up_ctx, prior_tables
+
+        # 2. LLM resolution if available (with strict validation against vague meta-text)
         if llm_router and llm_router.is_configured():
             try:
                 sys_prompt = (
                     "You are Data_Talk's Conversational Context Resolver. "
                     "The user is asking a follow-up refinement query to a prior analytical query.\n"
-                    "Rewrite the follow-up into a single clear, self-contained analytical question "
-                    "that retains the previous metrics and tables while applying the new filter, breakdown, or ranking.\n"
+                    "Rewrite the follow-up into a single clear, concrete, self-contained analytical question "
+                    "that explicitly names the metric and entity from the Prior Question while applying the new filter, breakdown, or ranking.\n"
+                    "STRICT RULE: NEVER output meta-phrases like 'previously requested metric', 'original query', or 'same data source'.\n"
                     "Return JSON: {\"resolved_question\": \"...\"}"
                 )
                 usr_prompt = f"Prior Question: {prior_q}\nFollow-Up Query: {question}"
                 res = llm_router.complete_json("resolve_follow_up", sys_prompt, usr_prompt)
-                resolved = res.get("resolved_question")
-                if resolved and len(resolved.strip()) > 5:
-                    return resolved.strip(), True, follow_up_ctx, prior_tables
+                resolved = cls._normalize_prompt_text(str(res.get("resolved_question") or ""))
+                VAGUE_META_PHRASES = (
+                    "previously requested",
+                    "original query",
+                    "previous query",
+                    "same data source",
+                    "metric(s)",
+                    "prior question",
+                )
+                if (
+                    resolved
+                    and len(resolved) > 5
+                    and not any(vp in resolved.lower() for vp in VAGUE_META_PHRASES)
+                ):
+                    return resolved, True, follow_up_ctx, prior_tables
             except Exception:
                 pass
 
-        # Deterministic contextual synthesis
+        # 3. Deterministic contextual synthesis fallback
         cleaned_sub = re.sub(
             r"^(filter\s+(that\s+|it\s+)?(by|to|for|where|only)|only\s+(in|for)|just\s+(in|for)|where|and\s+for|what\s+about|now\s+show\s+only)\s*",
             "",
@@ -1901,29 +2467,142 @@ class QueryAgent:
             tb_match = re.search(r"\b(?:show\s+)?(top|bottom)\s+(\d+)\b", q_low)
             resolved_q = f"{tb_match.group(1).title()} {tb_match.group(2)} {prior_q}"
         elif any(w in q_low for w in ("month", "monthly", "trend")):
-            resolved_q = f"Monthly trend of {prior_q}"
-        elif re.search(r"\bdrill\s+(?:down\s+)?(?:into\s+)?([a-z0-9_ &]+)\s+by\s+([a-z0-9_ ]+)", q_low):
-            drill_match = re.search(r"\bdrill\s+(?:down\s+)?(?:into\s+)?([a-z0-9_ &]+)\s+by\s+([a-z0-9_ ]+)", q_low)
-            seg = drill_match.group(1).strip()
-            dim = drill_match.group(2).strip()
-            resolved_q = f"{prior_q} for '{seg}' broken down by {dim}"
-        elif re.search(r"\bdrill\s+(?:down\s+)?(?:into\s+)?([a-z0-9_ &]+)", q_low):
-            drill_match = re.search(r"\bdrill\s+(?:down\s+)?(?:into\s+)?([a-z0-9_ &]+)", q_low)
-            seg = drill_match.group(1).strip()
-            if workspace.get_table("departments") and any(w in prior_q.lower() for w in ("college", "colleges")):
-                resolved_q = f"{prior_q} for '{seg}' broken down by department"
-            elif workspace.get_table("customers") and any(w in prior_q.lower() for w in ("product", "category")):
-                resolved_q = f"{prior_q} for '{seg}' broken down by region"
-            else:
-                resolved_q = f"{prior_q} for '{seg}'"
+            resolved_q = f"Trend over time of {base_prior_q}"
         elif any(k in q_low for k in ("not show", "aren't show", "didn't show", "only show", "other", "where are", "why isn't", "include all")):
             resolved_q = f"{prior_q} including all categories and complete breakdown"
         elif cleaned_sub:
-            resolved_q = f"{prior_q} filtered by {cleaned_sub}"
+            resolved_q = f"{base_prior_q} for '{cleaned_sub}'"
         else:
             resolved_q = f"{prior_q} ({question})"
 
         return resolved_q, True, follow_up_ctx, prior_tables
+
+    @classmethod
+    def improve_user_prompt(
+        cls,
+        question: str,
+        workspace: OKFWorkspace,
+        connector: "BaseConnector | None" = None,
+        conversation_history: list[dict[str, Any]] | None = None,
+        llm_router: LLMRouter | None = None,
+    ) -> dict[str, Any]:
+        """Enhance a casual/colloquial user prompt into a precise, schema-aware BI question.
+
+        Automatically resolves:
+        - Partial category values (e.g., 'philosophy' -> Department 'History & Philosophy')
+        - Partial/colloquial column names (e.g., 'internal score' -> internal_assessment_score, 'outstanding' -> balance_outstanding)
+        - Common typos (e.g., 'ritio' -> 'ratio', 'deparement' -> 'department')
+        - Follow-up context when refining a previous turn
+        """
+        cls._ensure_categorical_samples(workspace, connector)
+        raw_q = cls._normalize_prompt_text(question.strip())
+        if not raw_q:
+            return {
+                "original_question": question,
+                "improved_question": "",
+                "resolutions": [],
+                "detected_tables": [],
+            }
+
+        resolutions: list[str] = []
+        working_q = raw_q
+
+        # 1. Fix common conversational BI typos deterministically
+        TYPO_MAP = {
+            r"\britio\b": "ratio",
+            r"\braio\b": "ratio",
+            r"\brio\b": "ratio",
+            r"\bdeparements?\b": "department",
+            r"\bdeparments?\b": "department",
+            r"\bcollages?\b": "college",
+            r"\bsalery\b": "salary",
+            r"\benrollements?\b": "enrollment",
+            r"\bphilosphy\b": "philosophy",
+            r"\bpsycholgy\b": "psychology",
+            r"\bexpendature\b": "expenditure",
+        }
+        for pat, rep in TYPO_MAP.items():
+            if re.search(pat, working_q, flags=re.IGNORECASE):
+                working_q = re.sub(pat, rep, working_q, flags=re.IGNORECASE)
+
+        # 2. Resolve follow-up context if applicable
+        resolved_follow, is_foll, _, _ = cls._resolve_follow_up_context(
+            working_q, conversation_history, workspace, None
+        )
+        if is_foll and resolved_follow != working_q:
+            resolutions.append(f"Expanded follow-up context → \"{resolved_follow}\"")
+            working_q = resolved_follow
+
+        # 3. Resolve partial categorical values (e.g. 'philosophy' -> 'History & Philosophy')
+        cat_matches = cls._detect_categorical_value_matches(working_q, workspace)
+        for cm in cat_matches:
+            phrase = cm.get("matched_phrase", "")
+            full_val = cm.get("value", "")
+            tbl_name = cm.get("table", "")
+            col_name = cm.get("column", "")
+            if phrase and full_val and full_val.lower() not in working_q.lower():
+                col_label = col_name.replace("_name", "").replace("_", " ")
+                working_q = re.sub(
+                    rf"\b{re.escape(phrase)}\b",
+                    f"'{full_val}' ({col_label})",
+                    working_q,
+                    count=1,
+                    flags=re.IGNORECASE,
+                )
+                resolutions.append(
+                    f"Matched '{phrase}' → {tbl_name}.{col_name} = '{full_val}'"
+                )
+
+        # 4. Detect partial column mentions and note exact schema column mappings
+        COL_SYNONYM_MAP = [
+            (r"\binternal\s+(?:score|marks?)\b", "internal_assessment_score (enrollments_marks)", "average internal_assessment_score"),
+            (r"\bfinal\s+(?:exam|score|marks?)\b", "final_exam_score (enrollments_marks)", "average final_exam_score"),
+            (r"\bmidterm(?:\s+score|\s+marks?)?\b", "midterm_score (enrollments_marks)", "average midterm_score"),
+            (r"\boutstanding(?:\s+fees?|\s+balance)?\b", "balance_outstanding (fee_invoices)", "total balance_outstanding"),
+            (r"\blibrary\s+fees?\b", "technology_library_fee (fee_invoices)", "total technology_library_fee"),
+            (r"\b(?:hostel|mess)\s+fees?\b", "hostel_mess_fee (fee_invoices)", "total hostel_mess_fee"),
+            (r"\bscholarships?(?:\s+discounts?)?\b", "scholarship_discount (fee_invoices)", "total scholarship_discount"),
+        ]
+        for pat, col_desc, replacement_phrase in COL_SYNONYM_MAP:
+            if re.search(pat, working_q, flags=re.IGNORECASE) and col_desc.split(" ")[0] not in working_q.lower():
+                working_q = re.sub(pat, replacement_phrase, working_q, count=1, flags=re.IGNORECASE)
+                resolutions.append(f"Mapped metric → {col_desc}")
+
+        # Ensure the prompt starts with a clear analytical verb and specifies a grouping if none was given
+        if not re.match(r"^(show|compare|list|what|how|break|drill|top|bottom|trend|analyze)\b", working_q, flags=re.IGNORECASE):
+            working_q = f"Show {working_q}"
+
+        detected_tables = cls._detect_relevant_tables(working_q, workspace, {})
+
+        # 5. Optional LLM polish if configured, while preserving exact resolved entity quotes
+        if llm_router is not None and llm_router.is_configured():
+            try:
+                sys_prompt = (
+                    "You are Data_Talk's BI Prompt Enhancer. Polish the user's analytical question so it is clear, "
+                    "concise, and unambiguous for SQL compilation.\n"
+                    "CRITICAL RULES:\n"
+                    "1. Keep ALL single-quoted category names (such as 'History & Philosophy' or 'College of Engineering & Computing') and exact column names verbatim.\n"
+                    "2. Keep it to a single direct sentence (no explanations or bullet points).\n"
+                    "3. Return JSON: {\"improved_question\": \"...\"}"
+                )
+                usr_prompt = (
+                    f"Active Tables: {', '.join(detected_tables or [t.name for t in workspace.active_tables()])}\n"
+                    f"Draft Resolved Question: {working_q}"
+                )
+                res = llm_router.complete_json("improve_prompt", sys_prompt, usr_prompt)
+                cand = cls._normalize_prompt_text(str(res.get("improved_question") or ""))
+                # Ensure LLM kept any resolved exact category values
+                if cand and len(cand) > 5 and all(cm["value"].lower() in cand.lower() for cm in cat_matches):
+                    working_q = cand
+            except Exception:
+                pass
+
+        return {
+            "original_question": question,
+            "improved_question": working_q,
+            "resolutions": resolutions,
+            "detected_tables": detected_tables,
+        }
 
     @classmethod
     def _generate_suggested_follow_ups(
@@ -1982,6 +2661,8 @@ class QueryAgent:
             sort_col = business_metrics[0] if business_metrics else num_cols[0]
             sorted_df = df.sort_values(by=sort_col, ascending=False)
             top_seg = str(sorted_df.iloc[0][dim_col])
+            drill_opts = cls._generate_drill_down_options(df, workspace, join_plan.required_tables)
+            first_drill_lbl = drill_opts[0]["label"].lower() if drill_opts else "department"
 
             if any(k in dim_col.lower() for k in ("category", "product", "sku")):
                 return [
@@ -1990,7 +2671,6 @@ class QueryAgent:
                     "Why did revenue change? Period-over-period variance",
                 ]
             if any(k in dim_col.lower() for k in ("region", "country", "geo")):
-                drill_opts = cls._generate_drill_down_options(df, workspace)
                 breakdown_target = drill_opts[0]["label"] if drill_opts else ("product category" if workspace.get_table("products") else "category")
                 return [
                     f"Break down {top_seg} by {breakdown_target}",
@@ -1998,7 +2678,6 @@ class QueryAgent:
                     "Show monthly trend for top region",
                 ]
             if any(k in dim_col.lower() for k in ("month", "date", "year")):
-                drill_opts = cls._generate_drill_down_options(df, workspace)
                 breakdown_target = drill_opts[0]["label"] if drill_opts else (
                     "College" if workspace.get_table("colleges") else (
                         "Department" if workspace.get_table("departments") else (
@@ -2012,9 +2691,9 @@ class QueryAgent:
                     "Show top contributing drivers for peak period",
                 ]
             return [
-                f"Drill down into {top_seg}",
-                "Show monthly trend for this breakdown",
-                "Compare against prior year / waterfall analysis",
+                f"Drill down into {top_seg} by {first_drill_lbl}",
+                f"Break down by {first_drill_lbl}",
+                f"Show trend over time for {top_seg}",
             ]
 
         return [
@@ -2028,8 +2707,9 @@ class QueryAgent:
         cls,
         df: pd.DataFrame,
         workspace: OKFWorkspace,
+        involved_tables: list[str] | None = None,
     ) -> list[dict[str, str]]:
-        """Identify available dimensions to drill into from the current result."""
+        """Identify hierarchy-aware and schema-driven dimensions to drill into from the current result."""
         if df.empty:
             return []
 
@@ -2039,28 +2719,104 @@ class QueryAgent:
             if str(c).lower().endswith(("_year", "_id", "_code", "_tier", "_quarter", "_month", "_day"))
             or str(c).lower() in ("year", "payment_year", "hire_year", "academic_year", "calendar_year", "birth_year", "fiscal_year", "id", "code", "quarter", "month", "day")
         ]
-        non_num_cols = [c.lower() for c in df.columns if c not in num_cols or c in calendar_id_dims]
-        current_dim = non_num_cols[0] if non_num_cols else ""
+        existing_dims = [str(c).lower() for c in df.columns if c not in num_cols or c in calendar_id_dims]
+        current_dim = existing_dims[0] if existing_dims else ""
+        inv_set = set(involved_tables or [])
 
-        candidates = [
+        # Hierarchy awareness: never suggest coarse parent levels when already viewing a child level
+        # Hierarchy: colleges -> departments -> degree_programs -> courses
+        blocked_parents: set[str] = set()
+        if "department" in current_dim:
+            blocked_parents.add("college_name")
+        elif "program" in current_dim:
+            blocked_parents.update({"college_name", "department_name"})
+        elif "course" in current_dim:
+            blocked_parents.update({"college_name", "department_name", "program_name"})
+
+        # Context-ordered candidates
+        is_faculty_context = "faculty" in inv_set and "students" not in inv_set and "enrollments_marks" not in inv_set
+        is_fee_context = "fee_invoices" in inv_set
+        is_marks_context = "enrollments_marks" in inv_set or "courses" in inv_set
+
+        candidates: list[tuple[str, str, str]] = [
             ("category", "Product Category", "products"),
             ("region", "Geographic Region", "customers"),
             ("customer_tier", "Customer Tier", "customers"),
             ("sales_channel", "Sales Channel", "orders"),
             ("order_month", "Monthly Trend", "orders"),
-            ("college_name", "College", "colleges"),
             ("department_name", "Department", "departments"),
-            ("gender", "Gender", "students"),
+            ("program_name", "Degree Program", "degree_programs"),
         ]
+        if is_faculty_context:
+            candidates.extend([
+                ("academic_rank", "Academic Rank", "faculty"),
+                ("employment_status", "Employment Status", "faculty"),
+                ("college_name", "College", "colleges"),
+            ])
+        elif is_fee_context:
+            candidates.extend([
+                ("payment_status", "Payment Status", "fee_invoices"),
+                ("payment_mode", "Payment Mode", "fee_invoices"),
+                ("gender", "Gender", "students"),
+                ("degree_level", "Degree Level", "degree_programs"),
+                ("college_name", "College", "colleges"),
+            ])
+        elif is_marks_context:
+            candidates.extend([
+                ("course_title", "Course", "courses"),
+                ("gender", "Gender", "students"),
+                ("degree_level", "Degree Level", "degree_programs"),
+                ("college_name", "College", "colleges"),
+            ])
+        else:
+            candidates.extend([
+                ("gender", "Gender", "students"),
+                ("degree_level", "Degree Level", "degree_programs"),
+                ("academic_rank", "Academic Rank", "faculty"),
+                ("course_title", "Course", "courses"),
+                ("payment_status", "Payment Status", "fee_invoices"),
+                ("college_name", "College", "colleges"),
+            ])
 
-        options = []
+        options: list[dict[str, str]] = []
+        seen_dims: set[str] = set()
+
         for dim_key, label, tbl_name in candidates:
-            if dim_key in current_dim:
+            if dim_key in blocked_parents:
+                continue
+            if any(dim_key in ed or ed in dim_key for ed in existing_dims):
+                continue
+            if dim_key in seen_dims:
                 continue
             if workspace.get_table(tbl_name):
+                seen_dims.add(dim_key)
                 options.append({"dimension": dim_key, "label": label, "table": tbl_name})
 
-        return options[:4]
+        # Dynamic schema fallback for any custom uploaded datasets
+        if len(options) < 5:
+            SKIP_DYN = {
+                "first_name", "last_name", "email", "phone", "phone_number",
+                "roll_number", "date_of_birth", "address", "remarks", "syllabus_summary",
+            }
+            for tbl in workspace.active_tables():
+                for col in tbl.columns:
+                    c_low = col.name.lower()
+                    if col.is_blocked or col.is_pii or col.is_primary_key or col.is_foreign_key:
+                        continue
+                    if c_low in SKIP_DYN or c_low in seen_dims or c_low in blocked_parents or c_low.endswith(("_id", "_code")):
+                        continue
+                    if any(c_low in ed or ed in c_low for ed in existing_dims):
+                        continue
+                    if any(ty in col.data_type.upper() for ty in ("CHAR", "TEXT", "VARCHAR", "STRING")) and 2 <= col.distinct_count <= 50:
+                        seen_dims.add(c_low)
+                        pretty_lbl = col.name.replace("_name", "").replace("_", " ").title()
+                        options.append({"dimension": col.name, "label": pretty_lbl, "table": tbl.name})
+                        if len(options) >= 5:
+                            break
+                if len(options) >= 5:
+                    break
+
+        return options[:5]
 
     @classmethod
     def _is_dataset_overview_question(cls, question: str) -> bool:

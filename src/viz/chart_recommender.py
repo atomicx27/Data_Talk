@@ -71,6 +71,12 @@ class ChartRecommender:
             return True
         return False
 
+    @staticmethod
+    def _is_part_to_whole_share_col(col_name: str) -> bool:
+        """Return True if column is a compositional share/ratio percentage that sums to 100% across a subgroup."""
+        c = str(col_name).lower()
+        return c.endswith(("_ratio_pct", "_share_pct")) or c in ("ratio_pct", "share_pct", "gender_ratio_pct")
+
     @classmethod
     def _select_preferred_metric(cls, num_cols: list[str], question: str = "") -> str:
         if not num_cols:
@@ -164,14 +170,27 @@ class ChartRecommender:
         # Multi-metric breakdown / composition check (e.g. Male/Female/Other or New/Returning/Churned)
         total_cols = [
             c for c in num_cols
-            if any(k in str(c).lower() for k in ("total_count", "grand_total", "all_students", "total_students"))
+            if any(k in str(c).lower() for k in ("total_count", "row_count", "grand_total", "all_students", "total_students"))
         ]
         non_total_num = [c for c in num_cols if c not in total_cols]
         pct_breakdowns = [
             c for c in non_total_num
             if any(k in str(c).lower() for k in ("pct", "percent", "margin", "rate", "ratio"))
         ]
-        count_breakdowns = [c for c in non_total_num if c not in pct_breakdowns]
+        raw_count_breakdowns = [c for c in non_total_num if c not in pct_breakdowns]
+        # If there are non-count business metrics (e.g. tuition_fee, salary, marks), exclude auxiliary *_count columns
+        # so a business metric is never stacked with a record count column.
+        has_non_count_business = any(
+            not str(c).lower().endswith("_count") and str(c).lower() != "count"
+            for c in raw_count_breakdowns
+        )
+        if has_non_count_business:
+            count_breakdowns = [
+                c for c in raw_count_breakdowns
+                if not str(c).lower().endswith("_count") and str(c).lower() != "count"
+            ]
+        else:
+            count_breakdowns = raw_count_breakdowns
 
         is_breakdown_intent = any(
             k in q_low
@@ -187,6 +206,7 @@ class ChartRecommender:
 
         preferred_metric = cls._select_preferred_metric(num_cols, question)
         is_non_additive = cls._is_non_additive_metric(preferred_metric)
+        is_unstackable_rate = is_non_additive and not cls._is_part_to_whole_share_col(preferred_metric)
 
         # If 1D comparison across 2+ financial/value metrics (e.g. Expenditure vs Earning, Revenue vs Refund), use Grouped Bar Chart
         fin_comparison_cols = [
@@ -226,9 +246,10 @@ class ChartRecommender:
             time_nunique = df[time_col].nunique() if (time_col and time_col in df.columns) else 0
             has_explicit_time_query = any(k in q_low for k in ("year", "trend", "over time", "yoy", "annual", "yearly", "monthly", "timeline"))
             # Power BI / Data Analyst Rule:
-            # 1. Non-additive metrics (AVG salary, GPA, rates) must NEVER stack!
+            # 1. Non-additive rates/averages (AVG salary, GPA, margin) must NEVER stack!
+            #    (Part-to-whole composition shares like *_ratio_pct / *_share_pct DO sum to 100% across the 2nd dimension and CAN stack.)
             # 2. Explicit time-trend queries ("year on year", "trend") or > 8 time periods should use a Line chart instead of stacking 19 years of rainbow bars!
-            if is_non_additive:
+            if is_unstackable_rate:
                 if has_time_dim:
                     return "line"
                 sec_nunique = df[dim_cols[1]].nunique() if dim_cols[1] in df.columns else 1
@@ -238,6 +259,9 @@ class ChartRecommender:
 
             if has_time_dim and (has_explicit_time_query or time_nunique > 8):
                 return "line"
+
+            if cls._is_part_to_whole_share_col(preferred_metric) and df[dim_cols[0]].nunique() <= 10:
+                return "stacked_bar_100"
 
             if is_breakdown_intent or any(k in q_low for k in ("by", "breakdown", "per", "across", "wise", "student", "college", "grade", "trend")):
                 if df[dim_cols[0]].nunique() > 5 or len(df) > 8:
@@ -260,8 +284,13 @@ class ChartRecommender:
                 return "horizontal_bar" if len(df) > 8 else "bar"
             return "combo"
 
-        if len(df) > 10 and dim_cols:
-            return "horizontal_bar"
+        if dim_cols:
+            if len(df) > 10:
+                return "horizontal_bar"
+            if len(df) >= 6 and len(dim_cols) == 1 and not is_comparison_intent:
+                avg_lbl_len = df[dim_cols[0]].astype(str).str.len().mean()
+                if avg_lbl_len > 22:
+                    return "horizontal_bar"
 
         return "bar"
 
@@ -337,17 +366,28 @@ class ChartRecommender:
 
         x = x_col or (dim_cols[0] if dim_cols else df.columns[0])
 
-        # Detect multi-metric breakdown candidates (e.g., Male/Female/Other) excluding grand totals
+        # Detect multi-metric breakdown candidates (e.g., Male/Female/Other) excluding grand totals and auxiliary row counts
         total_cols = [
             c for c in num_cols
-            if any(k in str(c).lower() for k in ("total_count", "grand_total", "all_students", "total_students"))
+            if any(k in str(c).lower() for k in ("total_count", "row_count", "grand_total", "all_students", "total_students"))
         ]
         non_total_num = [c for c in num_cols if c not in total_cols and c != x]
         pct_breakdowns = [
             c for c in non_total_num
             if any(k in str(c).lower() for k in ("pct", "percent", "margin", "rate", "ratio"))
         ]
-        count_breakdowns = [c for c in non_total_num if c not in pct_breakdowns]
+        raw_count_breakdowns = [c for c in non_total_num if c not in pct_breakdowns]
+        has_non_count_business = any(
+            not str(c).lower().endswith("_count") and str(c).lower() != "count"
+            for c in raw_count_breakdowns
+        )
+        if has_non_count_business:
+            count_breakdowns = [
+                c for c in raw_count_breakdowns
+                if not str(c).lower().endswith("_count") and str(c).lower() != "count"
+            ]
+        else:
+            count_breakdowns = raw_count_breakdowns
 
         preferred_single_metric = cls._select_preferred_metric(num_cols, title)
         is_demo_pct_split = len(pct_breakdowns) >= 2 and any(
@@ -388,6 +428,7 @@ class ChartRecommender:
 
         primary_y = ys[0]
         is_non_additive_primary = cls._is_non_additive_metric(primary_y)
+        is_unstackable_primary = is_non_additive_primary and not cls._is_part_to_whole_share_col(primary_y)
 
         if chosen_type == "combo" and len(num_cols) >= 2:
             pct_cols = [
@@ -451,7 +492,7 @@ class ChartRecommender:
         elif chosen_type == "stacked_bar":
             color_col = dim_cols[1] if len(dim_cols) >= 2 else None
             if color_col:
-                effective_barmode = "group" if is_non_additive_primary else "stack"
+                effective_barmode = "group" if is_unstackable_primary else "stack"
                 fig = px.bar(
                     df,
                     x=x,
@@ -491,7 +532,7 @@ class ChartRecommender:
                     x=x,
                     y=primary_y,
                     color=color_col,
-                    barmode="group" if is_non_additive_primary else "stack",
+                    barmode="group" if is_unstackable_primary else "stack",
                     color_discrete_sequence=OKABE_ITO_PALETTE,
                 )
             else:
@@ -516,7 +557,7 @@ class ChartRecommender:
                     if clean.endswith(" %"):
                         clean = clean[:-2] + " %"
                     trace.name = clean
-            if not (color_col and is_non_additive_primary):
+            if not (color_col and is_unstackable_primary):
                 fig.update_layout(barnorm="percent", yaxis=dict(ticksuffix="%"))
 
         elif chosen_type == "stacked_horizontal_bar":
@@ -528,7 +569,7 @@ class ChartRecommender:
                     y=x,
                     color=color_col,
                     orientation="h",
-                    barmode="group" if is_non_additive_primary else "stack",
+                    barmode="group" if is_unstackable_primary else "stack",
                     color_discrete_sequence=OKABE_ITO_PALETTE,
                 )
             else:
@@ -769,6 +810,13 @@ class ChartRecommender:
                     text_auto=".2s" if len(ys) == 1 else False,
                 )
 
+        # Dynamic height scaling for high-category horizontal bar, heatmap, and funnel charts
+        n_y_cats = df[x].nunique() if (x in df.columns) else len(df)
+        if chosen_type in ("horizontal_bar", "stacked_horizontal_bar", "heatmap", "funnel") and n_y_cats > 10:
+            chart_height = max(380, min(920, 110 + n_y_cats * 26))
+        else:
+            chart_height = 380
+
         fig.update_layout(
             title=dict(text="", font=dict(size=12, color="#94a3b8"), x=0.01)
             if not title
@@ -781,8 +829,18 @@ class ChartRecommender:
             legend=dict(orientation="h", yanchor="bottom", y=1.04, xanchor="right", x=1),
             hoverlabel=dict(bgcolor="#0f172a", font_size=12, font_family="Inter, sans-serif"),
             bargap=0.28,
-            height=380,
+            height=chart_height,
         )
-        fig.update_xaxes(automargin=True)
+        if (
+            chosen_type in ("bar", "stacked_bar", "stacked_bar_100", "combo", "line", "area", "waterfall")
+            and x in df.columns
+        ):
+            max_lbl_len = max((len(str(v)) for v in df[x].dropna()), default=0)
+            if max_lbl_len > 18 and n_y_cats >= 4:
+                fig.update_xaxes(tickangle=-25, automargin=True)
+            else:
+                fig.update_xaxes(automargin=True)
+        else:
+            fig.update_xaxes(automargin=True)
         fig.update_yaxes(automargin=True)
         return fig

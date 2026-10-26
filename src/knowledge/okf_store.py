@@ -287,17 +287,115 @@ class OKFStore:
             if not connected:
                 G = self.build_graph(workspace, include_pending=True)
 
-        # Steiner tree approximation over connected subsets
-        path_nodes: set[str] = set(valid_targets)
+        # Chasm-aware, cycle-free Steiner tree construction
+        # Order target tables so FACT tables and granular child dimensions are connected
+        # before coarse parent dimensions (e.g., departments before colleges).
+        def _target_priority(t_name: str) -> tuple[int, int, str]:
+            t_obj = workspace.get_table(t_name)
+            role_rank = 0 if (t_obj and t_obj.table_role == TableRole.FACT) else 1
+            # Prefer tables that have outgoing N:1 FKs (granular child tables) before coarse parent tables
+            out_fks = sum(
+                1
+                for r in workspace.relationships
+                if r.source_table == t_name and r.status != JoinStatus.REJECTED
+            )
+            return (role_rank, -out_fks, t_name)
+
+        ordered_targets = sorted(valid_targets, key=_target_priority)
+
+        def _score_candidate_path(
+            path: list[str], existing_edges: list[RelationshipEdge]
+        ) -> float:
+            """Score a path between nodes, penalizing 1:N fan-out reversals and N:1 <- 1:N chasm turns."""
+            cost = 0.0
+            edges_along: list[RelationshipEdge] = []
+            # Nodes that are already reached as PK targets (N:1) in the existing join tree
+            existing_pk_targets = {e.target_table for e in existing_edges}
+
+            for i in range(len(path) - 1):
+                u_node, v_node = path[i], path[i + 1]
+                ed = G.get_edge_data(u_node, v_node)
+                base_w = float(ed.get("weight", 1.0)) if ed else 1.0
+                rel_obj: RelationshipEdge | None = ed.get("edge_obj") if ed else None
+                if rel_obj is not None:
+                    edges_along.append(rel_obj)
+                    # Forward N:1 (source -> target) preserves grain; reverse 1:N risks fan-out
+                    if rel_obj.source_table == u_node and rel_obj.target_table == v_node:
+                        cost += base_w * 1.0
+                    else:
+                        cost += base_w * 1.35
+                        # If u_node was already reached via N:1 (e.g. students -> colleges)
+                        # and we now traverse 1:N out of u_node (colleges <- departments),
+                        # that creates an N:1:N chasm fan-out at u_node!
+                        if u_node in existing_pk_targets:
+                            cost += 8.0
+                else:
+                    cost += base_w
+
+            # Also penalize head-to-head chasm turns within the candidate path itself:
+            # A --(N:1)--> C <--(1:N)-- B where both edges have target_table == C.
+            for i in range(len(edges_along) - 1):
+                mid_node = path[i + 1]
+                e1, e2 = edges_along[i], edges_along[i + 1]
+                if e1.target_table == mid_node and e2.target_table == mid_node:
+                    cost += 8.0
+            return cost
+
+        path_nodes: set[str] = set()
         path_edges: list[RelationshipEdge] = []
         seen_edge_ids: set[str] = set()
 
-        for u, v in combinations(valid_targets, 2):
-            if G.has_node(u) and G.has_node(v) and nx.has_path(G, u, v):
-                shortest = nx.shortest_path(G, source=u, target=v, weight="weight")
-                path_nodes.update(shortest)
-                for i in range(len(shortest) - 1):
-                    edge_data = G.get_edge_data(shortest[i], shortest[i + 1])
+        if ordered_targets:
+            tree_nodes: set[str] = {ordered_targets[0]}
+            path_nodes.add(ordered_targets[0])
+            remaining = [t for t in ordered_targets[1:] if G.has_node(t)]
+
+            while remaining:
+                # Connect targets in specificity order (FACT -> granular child dim -> coarse parent dim)
+                # while still picking the lowest-cost chasm-free path from the current tree.
+                best_target = None
+                best_path: list[str] | None = None
+                best_score = float("inf")
+
+                for idx, target in enumerate(remaining):
+                    if target in tree_nodes:
+                        best_target = target
+                        best_path = [target]
+                        best_score = -1.0
+                        break
+                    for src in tree_nodes:
+                        if not (G.has_node(src) and nx.has_path(G, src, target)):
+                            continue
+                        try:
+                            cand_paths = list(nx.all_simple_paths(G, source=src, target=target, cutoff=4))
+                        except Exception:
+                            cand_paths = [nx.shortest_path(G, source=src, target=target, weight="weight")]
+                        if not cand_paths:
+                            cand_paths = [nx.shortest_path(G, source=src, target=target, weight="weight")]
+
+                        for cp in cand_paths:
+                            # Priority penalty (idx * 2.5) ensures granular child dimensions (e.g. departments)
+                            # are connected via N:1 hierarchy before coarse parent shortcuts (e.g. colleges).
+                            score = _score_candidate_path(cp, path_edges) + (idx * 2.5)
+                            if src != ordered_targets[0]:
+                                score -= 0.02
+                            if score < best_score:
+                                best_score = score
+                                best_path = cp
+                                best_target = target
+
+                if best_target is None or best_path is None:
+                    # Remaining targets are in a disconnected component; add next target as a new seed
+                    next_seed = remaining.pop(0)
+                    tree_nodes.add(next_seed)
+                    path_nodes.add(next_seed)
+                    continue
+
+                remaining.remove(best_target)
+                path_nodes.update(best_path)
+                tree_nodes.update(best_path)
+                for i in range(len(best_path) - 1):
+                    edge_data = G.get_edge_data(best_path[i], best_path[i + 1])
                     if edge_data and "edge_obj" in edge_data:
                         rel: RelationshipEdge = edge_data["edge_obj"]
                         if rel.id not in seen_edge_ids:

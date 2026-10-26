@@ -123,6 +123,10 @@ class ChatQueryRequest(BaseModel):
     cost_shock_pct: float = 0.0
 
 
+class ImprovePromptRequest(BaseModel):
+    question: str = Field(..., max_length=4000)
+
+
 class ChartBuildRequest(BaseModel):
     rows: list[dict[str, Any]] = Field(..., max_length=5000)
     chart_type: str

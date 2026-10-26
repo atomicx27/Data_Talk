@@ -115,16 +115,28 @@ tables:
     min_value: null
     max_value: null
     sample_values:
-    - Summer Session 2019
-    - Summer Session 2025
+    - Fall Semester 2021
+    - Spring Semester 2023
+    - Spring Semester 2019
+    - Fall Semester 2019
+    - Spring Semester 2021
+    - Spring Semester 2022
+    - Summer Session 2023
+    - Fall Semester 2025
     - Fall Semester 2018
     - Summer Session 2020
     - Summer Session 2022
+    - Fall Semester 2020
+    - Fall Semester 2023
+    - Fall Semester 2024
+    - Summer Session 2019
+    - Summer Session 2025
+    - Summer Session 2021
+    - Fall Semester 2022
     - Spring Semester 2020
     - Spring Semester 2024
     - Summer Session 2024
     - Spring Semester 2025
-    - Spring Semester 2019
     value_meanings: {}
   - name: start_date
     data_type: VARCHAR
@@ -140,6 +152,17 @@ tables:
     min_value: null
     max_value: null
     sample_values:
+    - '2019-08-25'
+    - '2022-06-01'
+    - '2022-08-25'
+    - '2024-08-25'
+    - '2025-06-01'
+    - '2023-06-01'
+    - '2025-08-25'
+    - '2021-06-01'
+    - '2018-08-25'
+    - '2019-06-01'
+    - '2021-01-15'
     - '2019-01-15'
     - '2020-08-25'
     - '2024-01-15'
@@ -147,9 +170,10 @@ tables:
     - '2022-01-15'
     - '2023-01-15'
     - '2025-01-15'
-    - '2018-08-25'
-    - '2019-06-01'
-    - '2021-01-15'
+    - '2020-01-15'
+    - '2020-06-01'
+    - '2023-08-25'
+    - '2024-06-01'
     value_meanings: {}
   - name: end_date
     data_type: VARCHAR
@@ -165,16 +189,28 @@ tables:
     min_value: null
     max_value: null
     sample_values:
+    - '2022-05-15'
+    - '2023-08-10'
+    - '2019-08-10'
+    - '2022-08-10'
+    - '2023-12-20'
+    - '2024-08-10'
+    - '2020-08-10'
+    - '2024-12-20'
+    - '2020-12-20'
+    - '2020-05-15'
+    - '2021-05-15'
+    - '2022-12-20'
+    - '2023-05-15'
+    - '2024-05-15'
+    - '2025-05-15'
+    - '2025-12-20'
     - '2018-12-20'
     - '2019-05-15'
     - '2019-12-20'
     - '2021-12-20'
     - '2025-08-10'
-    - '2022-05-15'
-    - '2023-08-10'
     - '2021-08-10'
-    - '2020-08-10'
-    - '2024-12-20'
     value_meanings: {}
   - name: is_active
     data_type: BIGINT
@@ -604,7 +640,63 @@ tables:
     distinct_count: 56
     min_value: null
     max_value: null
-    sample_values: []
+    sample_values:
+    - Room 308
+    - Room 102
+    - Room 205
+    - Room 411
+    - Room 111
+    - Room 211
+    - Room 311
+    - Room 314
+    - Room 309
+    - Room 302
+    - Room 306
+    - Room 401
+    - Room 202
+    - Room 412
+    - Room 212
+    - Room 406
+    - Room 305
+    - Room 106
+    - Room 114
+    - Room 312
+    - Room 301
+    - Room 206
+    - Room 109
+    - Room 313
+    - Room 409
+    - Room 307
+    - Room 107
+    - Room 110
+    - Room 204
+    - Room 203
+    - Room 414
+    - Room 404
+    - Room 112
+    - Room 209
+    - Room 408
+    - Room 403
+    - Room 207
+    - Room 113
+    - Room 101
+    - Room 105
+    - Room 413
+    - Room 410
+    - Room 208
+    - Room 213
+    - Room 407
+    - Room 108
+    - Room 210
+    - Room 405
+    - Room 103
+    - Room 310
+    - Room 402
+    - Room 304
+    - Room 201
+    - Room 303
+    - Room 214
+    - Room 104
     value_meanings: {}
   - name: schedule_slot
     data_type: VARCHAR
@@ -807,7 +899,71 @@ tables:
     distinct_count: 64
     min_value: null
     max_value: null
-    sample_values: []
+    sample_values:
+    - MS-CS
+    - BS-ECE
+    - MS-MAE
+    - BS-BIO
+    - BS-MATH
+    - MBA-FIN
+    - BBA-MGT
+    - BBA-ISA
+    - MS-NURS
+    - BA-ENG
+    - BA-POLS
+    - BA-CI
+    - BA-SPED
+    - MS-ARCH
+    - BS-NURS
+    - MA-ENG
+    - MA-HIST
+    - MS-URB
+    - BS-MAE
+    - MS-PUBH
+    - BS-PUBP
+    - LLM-CRIM
+    - LLB-INTL
+    - MA-CI
+    - MA-COUN
+    - MS-CMGT
+    - MS-ECE
+    - MS-MATH
+    - MBA-MGT
+    - BS-BMS
+    - BA-HIST
+    - LLB-JUR
+    - LLM-JUR
+    - LLM-INTL
+    - BA-EDL
+    - MA-SPED
+    - MS-CEE
+    - MS-CHEM
+    - MS-PHAR
+    - BS-CS
+    - MS-BIO
+    - MS-PHYS
+    - BBA-ECON
+    - MBA-ECON
+    - BA-PSYC
+    - MA-PSYC
+    - MA-POLS
+    - LLM-PUBP
+    - BS-CRIM
+    - MA-EDL
+    - BS-ARCH
+    - BBA-FIN
+    - MBA-ISA
+    - BS-PHAR
+    - BS-URB
+    - BS-DES
+    - BS-CMGT
+    - BS-CEE
+    - BS-CHEM
+    - BS-PHYS
+    - MS-BMS
+    - BS-PUBH
+    - BA-COUN
+    - MS-DES
     value_meanings: {}
   - name: program_name
     data_type: VARCHAR
@@ -822,7 +978,71 @@ tables:
     distinct_count: 64
     min_value: null
     max_value: null
-    sample_values: []
+    sample_values:
+    - Master of Science in Electrical & Computer Engineering
+    - Master of Science in Chemistry & Biochemistry
+    - Bachelor of Science in Physics & Astronomy
+    - Master of Science in Mathematics & Statistics
+    - Bachelor of Science in Nursing Practice
+    - Master of Science in Pharmacy & Pharmaceutical Sciences
+    - Bachelor of Arts in Political Science & International Relations
+    - Master of Arts in Counseling & Human Services
+    - Master of Science in Urban & Regional Planning
+    - Master of Science in Computer Science
+    - Master of Business Administration in Accounting & Finance
+    - Master of Business Administration in Information Systems & Analytics
+    - Master of Science in Nursing Practice
+    - Bachelor of Science in Public Health & Epidemiology
+    - Bachelor of Arts in Psychology & Behavioral Science
+    - Master of Laws in International & Trade Law
+    - Bachelor of Arts in Counseling & Human Services
+    - Master of Science in Industrial & Graphic Design
+    - Bachelor of Science in Mechanical & Aerospace Engineering
+    - Bachelor of Science in Chemistry & Biochemistry
+    - Master of Business Administration in Management & Marketing
+    - Bachelor of Business Administration in Economics
+    - Master of Science in Public Health & Epidemiology
+    - Master of Arts in History & Philosophy
+    - Bachelor of Science in Public Policy & Administration
+    - Bachelor of Laws in International & Trade Law
+    - Master of Arts in Curriculum & Instruction
+    - Master of Science in Architecture & Interior Design
+    - Bachelor of Science in Construction Management
+    - Bachelor of Science in Electrical & Computer Engineering
+    - Bachelor of Science in Mathematics & Statistics
+    - Bachelor of Arts in English & Comparative Literature
+    - Master of Science in Construction Management
+    - Bachelor of Science in Computer Science
+    - Bachelor of Science in Biological Sciences
+    - Bachelor of Arts in History & Philosophy
+    - Bachelor of Arts in Curriculum & Instruction
+    - Bachelor of Science in Architecture & Interior Design
+    - Bachelor of Science in Industrial & Graphic Design
+    - Master of Science in Civil & Environmental Engineering
+    - Bachelor of Business Administration in Management & Marketing
+    - Bachelor of Science in Biomedical Sciences
+    - Bachelor of Science in Pharmacy & Pharmaceutical Sciences
+    - Bachelor of Laws in Jurisprudence & Legal Studies
+    - Bachelor of Science in Criminology & Criminal Justice
+    - Master of Arts in Educational Leadership & Policy
+    - Bachelor of Science in Urban & Regional Planning
+    - Master of Science in Mechanical & Aerospace Engineering
+    - Bachelor of Science in Civil & Environmental Engineering
+    - Master of Science in Physics & Astronomy
+    - Master of Business Administration in Economics
+    - Master of Science in Biomedical Sciences
+    - Master of Arts in Political Science & International Relations
+    - Master of Laws in Jurisprudence & Legal Studies
+    - Master of Laws in Public Policy & Administration
+    - Master of Laws in Criminology & Criminal Justice
+    - Bachelor of Arts in Educational Leadership & Policy
+    - Master of Arts in Special Education & Diversity
+    - Master of Science in Biological Sciences
+    - Bachelor of Business Administration in Accounting & Finance
+    - Bachelor of Business Administration in Information Systems & Analytics
+    - Master of Arts in English & Comparative Literature
+    - Master of Arts in Psychology & Behavioral Science
+    - Bachelor of Arts in Special Education & Diversity
     value_meanings: {}
   - name: degree_level
     data_type: VARCHAR
@@ -936,7 +1156,39 @@ tables:
     distinct_count: 32
     min_value: null
     max_value: null
-    sample_values: []
+    sample_values:
+    - MATH
+    - PSYC
+    - MAE
+    - BIO
+    - ISA
+    - NURS
+    - CI
+    - DES
+    - CEE
+    - FIN
+    - POLS
+    - JUR
+    - INTL
+    - URB
+    - CMGT
+    - PHYS
+    - MGT
+    - CRIM
+    - ECE
+    - ECON
+    - PUBP
+    - COUN
+    - ARCH
+    - BMS
+    - PUBH
+    - ENG
+    - HIST
+    - EDL
+    - CS
+    - CHEM
+    - PHAR
+    - SPED
     value_meanings: {}
   - name: department_name
     data_type: VARCHAR
@@ -951,7 +1203,39 @@ tables:
     distinct_count: 32
     min_value: null
     max_value: null
-    sample_values: []
+    sample_values:
+    - Electrical & Computer Engineering
+    - English & Comparative Literature
+    - Political Science & International Relations
+    - Jurisprudence & Legal Studies
+    - Mechanical & Aerospace Engineering
+    - Civil & Environmental Engineering
+    - Mathematics & Statistics
+    - Accounting & Finance
+    - Economics
+    - Biomedical Sciences
+    - Public Policy & Administration
+    - International & Trade Law
+    - Special Education & Diversity
+    - Chemistry & Biochemistry
+    - Psychology & Behavioral Science
+    - Pharmacy & Pharmaceutical Sciences
+    - Counseling & Human Services
+    - Urban & Regional Planning
+    - Biological Sciences
+    - Physics & Astronomy
+    - Industrial & Graphic Design
+    - Information Systems & Analytics
+    - Nursing Practice
+    - History & Philosophy
+    - Curriculum & Instruction
+    - Architecture & Interior Design
+    - Construction Management
+    - Computer Science
+    - Management & Marketing
+    - Public Health & Epidemiology
+    - Criminology & Criminal Justice
+    - Educational Leadership & Policy
     value_meanings: {}
   - name: head_of_department
     data_type: VARCHAR
@@ -966,7 +1250,39 @@ tables:
     distinct_count: 32
     min_value: null
     max_value: null
-    sample_values: []
+    sample_values:
+    - Dr. Alan Turing-Smith
+    - Dr. Isambard Brunel
+    - Dr. Adam Smith-Taylor
+    - Dr. Gustave Eiffel-Ross
+    - Dr. Richard Feynman-Grant
+    - Dr. Virginia Woolf-Brooks
+    - Prof. Walter Gropius-Clark
+    - Dr. Nikola Tesla-Ward
+    - Dr. William Osler
+    - Dr. Alexander Fleming-Shaw
+    - Dr. Edward Gibbon-Hill
+    - Dr. Hugo Grotius-Vance
+    - Dr. Carl Jung-Stevens
+    - Dr. Hannah Arendt-Price
+    - Prof. Frank Wright-Stone
+    - Dr. Woodrow Wilson-Kent
+    - Dr. Cesare Beccaria-Hall
+    - Dr. Rosalind Franklin-Cole
+    - Dr. Carl Gauss-Miller
+    - Dr. Warren Buffet-Keynes
+    - Dr. John Snow-Davies
+    - Dr. Horace Mann-Foster
+    - Dr. Maria Montessori-Blake
+    - Dr. Jane Jacobs-Turner
+    - Dr. Frank Whittle
+    - Dr. Marie Curie-Lowe
+    - Dr. Grace Hopper-Young
+    - Dr. Carl Rogers-Evans
+    - Dr. Peter Drucker-Lee
+    - Dr. Florence Nightingale-Cross
+    - Dr. Oliver Wendell-Holmes
+    - Dr. John Dewey-Morris
     value_meanings: {}
   - name: office_location
     data_type: VARCHAR
@@ -981,7 +1297,39 @@ tables:
     distinct_count: 32
     min_value: null
     max_value: null
-    sample_values: []
+    sample_values:
+    - Observatory Hall 115
+    - Management Tower 405
+    - Law Center 201
+    - Studio Pavilion 401
+    - Engineering Lab 105
+    - Health Pavilion 301
+    - Humanities Hall 110
+    - Studio Pavilion 205
+    - Tech Bldg 210
+    - Smith Hall 215
+    - Education Bldg 110
+    - Engineering Lab 220
+    - Infrastructure Center 112
+    - Clinical Center 201
+    - Humanities Hall 201
+    - Law Center 310
+    - Design Loft 310
+    - Management Tower 501
+    - Health Pavilion 415
+    - Governance Tower 301
+    - Law Center 115
+    - Life Sciences 401
+    - Euler Center 310
+    - Pharma Lab 110
+    - Civic Center 105
+    - Curie Hall 202
+    - Business Tech 302
+    - Behavioral Lab 312
+    - Education Bldg 315
+    - Tech Bldg 301
+    - Education Bldg 201
+    - Child Development 101
     value_meanings: {}
   - name: budget_allocated
     data_type: BIGINT
@@ -1077,16 +1425,28 @@ tables:
     min_value: null
     max_value: null
     sample_values:
-    - '2025-08-20'
     - '2024-08-20'
-    - '2023-08-20'
-    - '2022-08-20'
     - '2025-01-10'
-    - '2024-01-10'
-    - '2021-08-20'
-    - '2023-01-10'
+    - '2019-08-20'
     - '2022-01-10'
+    - '2022-08-20'
+    - '2023-01-10'
+    - '2020-01-10'
+    - '2022-05-25'
+    - '2019-05-25'
+    - '2023-08-20'
     - '2020-08-20'
+    - '2021-01-10'
+    - '2024-05-25'
+    - '2025-05-25'
+    - '2025-08-20'
+    - '2020-05-25'
+    - '2021-05-25'
+    - '2023-05-25'
+    - '2021-08-20'
+    - '2024-01-10'
+    - '2018-08-20'
+    - '2019-01-10'
     value_meanings: {}
   - name: attendance_rate
     data_type: DOUBLE
@@ -1636,16 +1996,29 @@ tables:
     min_value: null
     max_value: null
     sample_values:
-    - '2025-01-25'
-    - '2024-01-25'
-    - '2023-01-25'
-    - '2022-01-25'
-    - '2021-01-25'
     - '2025-09-10'
+    - '2021-01-25'
     - '2024-09-10'
-    - '2023-09-10'
+    - '2018-09-10'
+    - '2019-01-25'
+    - '2019-09-10'
+    - '2022-10-01'
+    - '2021-10-01'
+    - '2024-01-25'
+    - '2024-10-01'
+    - '2019-10-01'
+    - '2020-01-25'
+    - '2020-10-01'
+    - '2018-10-01'
+    - '2025-10-01'
     - '2022-09-10'
+    - '2020-09-10'
     - '2021-09-10'
+    - '2023-10-01'
+    - '2025-01-25'
+    - '2022-01-25'
+    - '2023-01-25'
+    - '2023-09-10'
     value_meanings: {}
   - name: payment_method
     data_type: VARCHAR
@@ -1707,14 +2080,20 @@ tables:
     sample_values:
     - Table Name
     - faculty
+    - TOTAL RECORDS
+    - '467474'
+    - academic_terms
+    - courses
+    - student_enrollments
     - RELATIONAL TABLE DIRECTORY & ARCHITECTURE
-    - departments
-    - degree_programs
-    - Apex Metropolitan University — Enterprise Academic
-    - colleges
     - course_sections
     - student_fee_invoices
-    - 'Complete Relational Database Ledger (2018–2025) • '
+    - Apex Metropolitan University — Enterprise Academic Database
+    - colleges
+    - students
+    - Complete Relational Database Ledger (2018–2025) • 467,474 Total Linked Records
+    - departments
+    - degree_programs
     value_meanings: {}
   - name: Unnamed_2
     data_type: VARCHAR
@@ -1730,16 +2109,17 @@ tables:
     min_value: null
     max_value: null
     sample_values:
-    - '344054'
+    - '12800'
+    - '105260'
+    - '421'
+    - '192'
+    - '8'
+    - '32'
     - Total Records
     - '64'
     - '22'
     - '4621'
-    - '192'
-    - '12800'
-    - '105260'
-    - '421'
-    - '8'
+    - '344054'
     value_meanings: {}
   - name: Unnamed_3
     data_type: VARCHAR
@@ -1755,16 +2135,18 @@ tables:
     min_value: null
     max_value: null
     sample_values:
+    - '105260'
     - faculty_id
+    - department_id
+    - section_id
     - term_id
     - student_id
     - enrollment_id
     - course_id
-    - '105260'
-    - department_id
-    - section_id
     - Primary Key
     - college_id
+    - program_id
+    - invoice_id
     value_meanings: {}
   - name: Unnamed_4
     data_type: VARCHAR
@@ -1804,16 +2186,19 @@ tables:
     min_value: null
     max_value: null
     sample_values:
-    - Academic departments, division chairs, office hubs
-    - Constituent academic colleges, deans, campus sites
-    - Student profiles, demographics, cohort admission t
+    - Constituent academic colleges, deans, campus sites, and contacts
+    - Student profiles, demographics, cohort admission terms, and enrollment status
     - Functional Description
-    - Course master catalog with credit hours, course le
     - '421'
-    - Fall, Spring, and Summer terms covering the 2018–2
-    - Billed tuition, institutional fees, payments, bala
-    - Undergraduate and postgraduate degree offerings an
-    - Faculty directory, professorial ranks, hire dates,
+    - Fall, Spring, and Summer terms covering the 2018–2025 multi-year cycle
+    - Billed tuition, institutional fees, payments, balances, and collection status
+    - Academic departments, division chairs, office hubs, and annual budgets
+    - Undergraduate and postgraduate degree offerings and graduation credit requiremen
+    - Faculty directory, professorial ranks, hire dates, and compensation records
+    - Term-specific class schedules, room allocations, section numbers, and seat capac
+    - Academic grade ledger with internal continuous assessment, final marks, GPA,
+      and
+    - Course master catalog with credit hours, course level tiers, and syllabus descri
     value_meanings: {}
   quality_alerts:
   - Column 'Unnamed_0' has a high NULL rate (100.0%).
@@ -2522,4 +2907,4 @@ what_if_parameters: []
 pinned_widgets: []
 domain_tag: ''
 domain_title: ''
-updated_at: '2026-10-25T18:26:08.294254+00:00'
+updated_at: '2026-10-26T15:16:04.546043+00:00'

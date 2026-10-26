@@ -1795,6 +1795,21 @@ function renderChatView() {
         ? `<span class="meta-chip meta-chip-accent" title="${escapeHtml(resp.follow_up_context || 'Refined from prior context')}"><svg class="icon" style="width:11px;height:11px"><use href="#i-arrow-right"/></svg> Refined Follow-Up</span>`
         : '';
 
+      const resolvedContextBanner =
+        resp.follow_up_context || (resp.resolved_question && resp.resolved_question !== resp.user_question)
+          ? `<div class="resolved-context-pill" title="${escapeHtml(resp.resolved_question || resp.follow_up_context || '')}">
+               <svg class="icon" style="width:11px;height:11px;color:var(--accent-primary)"><use href="#i-sparkles"/></svg>
+               <span>${escapeHtml(resp.follow_up_context || `Interpreted as: ${resp.resolved_question}`)}</span>
+             </div>`
+          : '';
+
+      const cols = entry.columns || [];
+      const firstDimCol = cols.find((c) => typeof (entry.rows?.[0]?.[c]) === 'string') || cols[0];
+      const topSegmentVal =
+        firstDimCol && (entry.rows || []).length >= 2 && typeof entry.rows[0]?.[firstDimCol] === 'string'
+          ? String(entry.rows[0][firstDimCol]).trim()
+          : '';
+
       const drillDownBtn = (resp.drill_down_dimensions || []).length
         ? `
           <div class="drilldown-dropdown-wrap">
@@ -1802,24 +1817,41 @@ function renderChatView() {
               <svg class="icon" style="width:13px;height:13px"><use href="#i-cpu"/></svg> Drill Down
             </button>
             <div class="drilldown-menu" id="drilldown_menu_${idx}">
-              <div style="padding:6px 12px; font-size:11px; font-weight:700; color:var(--text-muted); border-bottom:1px solid var(--border-color);">DRILL DOWN BY</div>
+              <div class="drilldown-section-label">Break All Down By</div>
               ${resp.drill_down_dimensions
                 .map(
                   (d) => `
-                <button type="button" class="drilldown-opt-btn" data-idx="${idx}" data-dim="${escapeHtml(d.dimension)}" data-label="${escapeHtml(d.label)}">
-                  <svg class="icon" style="width:12px;height:12px;color:var(--primary-color)"><use href="#i-arrow-right"/></svg>
-                  ${escapeHtml(d.label)}
+                <button type="button" class="drilldown-opt-btn" data-idx="${idx}" data-mode="breakdown" data-dim="${escapeHtml(d.dimension)}" data-label="${escapeHtml(d.label)}">
+                  <svg class="icon" style="width:12px;height:12px;color:var(--accent-primary)"><use href="#i-arrow-right"/></svg>
+                  <span>All by <strong>${escapeHtml(d.label)}</strong></span>
                 </button>
               `
                 )
                 .join('')}
+              ${
+                topSegmentVal
+                  ? `
+                <div class="drilldown-section-label" style="margin-top:4px; border-top:1px solid var(--border-subtle, rgba(255,255,255,0.08));">Drill Into Top (${escapeHtml(topSegmentVal.slice(0, 22))}${topSegmentVal.length > 22 ? '…' : ''})</div>
+                ${resp.drill_down_dimensions
+                  .slice(0, 3)
+                  .map(
+                    (d) => `
+                  <button type="button" class="drilldown-opt-btn" data-idx="${idx}" data-mode="segment" data-segment="${escapeHtml(topSegmentVal)}" data-dim="${escapeHtml(d.dimension)}" data-label="${escapeHtml(d.label)}">
+                    <svg class="icon" style="width:12px;height:12px;color:var(--accent-emerald, #10b981)"><use href="#i-sparkles"/></svg>
+                    <span><strong>${escapeHtml(topSegmentVal.slice(0, 18))}${topSegmentVal.length > 18 ? '…' : ''}</strong> by ${escapeHtml(d.label)}</span>
+                  </button>
+                `
+                  )
+                  .join('')}
+              `
+                  : ''
+              }
             </div>
           </div>
         `
         : '';
 
       const tablePreviewRows = (entry.rows || []).slice(0, 10);
-      const cols = entry.columns || [];
       const totalRowsCount = entry.row_count || (entry.rows || []).length;
       const isTableChart = entry.chart_type === 'table' || !entry.plotly_spec;
       const chartBoxHtml = isTableChart
@@ -1889,9 +1921,12 @@ function renderChatView() {
       return `
         <article class="chat-card" data-entry-idx="${idx}">
           <div class="chat-question-header">
-            <div class="chat-q-left">
-              <span class="chat-q-avatar"><svg class="icon" style="width:14px;height:14px"><use href="#i-chat"/></svg></span>
-              <h3 class="chat-question-title">${escapeHtml(resp.user_question || '')}</h3>
+            <div class="chat-q-left" style="flex-direction:column; align-items:flex-start; gap:2px;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span class="chat-q-avatar"><svg class="icon" style="width:14px;height:14px"><use href="#i-chat"/></svg></span>
+                <h3 class="chat-question-title">${escapeHtml(resp.user_question || '')}</h3>
+              </div>
+              ${resolvedContextBanner}
             </div>
             <div class="chat-q-actions">
               ${compilerBadge}
@@ -1965,25 +2000,34 @@ function renderChatView() {
               plotEl.insertAdjacentElement('beforebegin', bannerEl);
             }
             const drillDims = (entry.response && entry.response.drill_down_dimensions) || [];
-            const primaryDrillLabel = drillDims.length ? drillDims[0].label : 'Subcategory';
+            const drillButtonsHtml = (drillDims.length ? drillDims.slice(0, 4) : [{ label: 'Subcategory' }])
+              .map(
+                (d, dIdx) => `
+                <button type="button" class="btn ${dIdx === 0 ? 'btn-primary' : 'btn-secondary'} btn-xs btn-click-drill-dim" data-dim-label="${escapeHtml(d.label)}" style="border-radius:14px;">
+                  🔍 By ${escapeHtml(d.label)}
+                </button>
+              `
+              )
+              .join('');
             bannerEl.style.display = 'flex';
             bannerEl.innerHTML = `
               <span>📌 Selected: <strong>${escapeHtml(clickedVal)}</strong></span>
-              <div style="display:flex; gap:6px; align-items:center;">
-                <button type="button" class="btn btn-primary btn-xs btn-click-drill-region" style="border-radius:14px;">
-                  🔍 Drill by ${escapeHtml(primaryDrillLabel)}
-                </button>
+              <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+                ${drillButtonsHtml}
                 <button type="button" class="btn btn-secondary btn-xs btn-click-trend" style="border-radius:14px;">
                   📈 Trend Over Time
                 </button>
                 <button type="button" class="btn btn-ghost btn-xs" onclick="this.closest('.plotly-click-banner').style.display='none'">✕</button>
               </div>
             `;
-            bannerEl.querySelector('.btn-click-drill-region')?.addEventListener('click', () => {
-              const q = `Drill down into ${clickedVal} by ${primaryDrillLabel}`;
-              const inputEl = document.getElementById('chatQuestionInput');
-              if (inputEl) inputEl.value = q;
-              submitChatQuestion(q);
+            bannerEl.querySelectorAll('.btn-click-drill-dim').forEach((drillBtn) => {
+              drillBtn.addEventListener('click', () => {
+                const targetLabel = drillBtn.dataset.dimLabel || 'Subcategory';
+                const q = `Drill down into ${clickedVal} by ${targetLabel}`;
+                const inputEl = document.getElementById('chatQuestionInput');
+                if (inputEl) inputEl.value = q;
+                submitChatQuestion(q);
+              });
             });
             bannerEl.querySelector('.btn-click-trend')?.addEventListener('click', () => {
               const q = `Monthly trend for ${clickedVal}`;
@@ -2025,7 +2069,7 @@ function renderChatView() {
           body: JSON.stringify({
             rows: entry.rows,
             chart_type: newType,
-            title: entry.response.user_question,
+            title: entry.response.resolved_question || entry.response.user_question,
           }),
         });
         entry.chart_type = newType;
@@ -2118,11 +2162,16 @@ function renderChatView() {
   });
 
   stream.querySelectorAll('.drilldown-opt-btn').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
+    btn.addEventListener('click', () => {
       const dimLabel = btn.dataset.label;
+      const mode = btn.dataset.mode || 'breakdown';
+      const segment = btn.dataset.segment || '';
       const menu = btn.closest('.drilldown-menu');
       if (menu) menu.classList.remove('open');
-      const drillQuery = `Break that down by ${dimLabel}`;
+      const drillQuery =
+        mode === 'segment' && segment
+          ? `Drill down into ${segment} by ${dimLabel}`
+          : `Break that down by ${dimLabel}`;
       const inputEl = document.getElementById('chatQuestionInput');
       if (inputEl) inputEl.value = drillQuery;
       submitChatQuestion(drillQuery);
@@ -2894,6 +2943,42 @@ document.addEventListener('DOMContentLoaded', async () => {
     chatInput.value = '';
     chatInput.style.height = 'auto';
     await submitChatQuestion(q);
+  });
+
+  // Improve Prompt Button (schema-grounded entity & column resolution)
+  const improveBtn = document.getElementById('chatImprovePromptBtn');
+  improveBtn?.addEventListener('click', async () => {
+    if (!chatInput) return;
+    const rawQ = (chatInput.value || '').trim();
+    if (!rawQ) {
+      showToast('Type a question first to improve it');
+      chatInput.focus();
+      return;
+    }
+    const origHtml = improveBtn.innerHTML;
+    try {
+      improveBtn.disabled = true;
+      improveBtn.innerHTML = `<svg class="icon spin" style="width:13px;height:13px"><use href="#i-refresh"/></svg><span>Improving…</span>`;
+      const res = await apiRequest('/api/chat/improve-prompt', {
+        method: 'POST',
+        body: JSON.stringify({ question: rawQ }),
+      });
+      if (res && res.improved_question) {
+        chatInput.value = res.improved_question;
+        chatInput.style.height = 'auto';
+        chatInput.style.height = `${Math.min(140, chatInput.scrollHeight)}px`;
+        chatInput.focus();
+        const details = (res.resolutions || []).length
+          ? `✨ ${res.resolutions.join(' · ')}`
+          : '✨ Prompt refined for schema-grounded SQL compilation';
+        showToast(details);
+      }
+    } catch (err) {
+      showToast(`Prompt improve failed: ${err.message}`);
+    } finally {
+      improveBtn.disabled = false;
+      improveBtn.innerHTML = origHtml;
+    }
   });
 
   // Teach AI Form inside Lineage Modal

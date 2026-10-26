@@ -125,17 +125,17 @@ class StatisticalProfiler:
             except Exception:
                 pass
 
-            # Sample values ONLY for low-cardinality non-PII columns
+            # Sample values for low/medium-cardinality non-PII columns (up to 100 distinct values)
             if col.is_pii:
                 col.sample_values = ["<REDACTED_PII_COLUMN>"]
-            elif 0 < col.distinct_count <= 30:
+            elif 0 < col.distinct_count <= 100:
                 try:
                     samp_sql = (
                         f"SELECT CAST({q_col} AS VARCHAR) AS val, COUNT(*) AS freq "
                         f"FROM {q_tbl} WHERE {q_col} IS NOT NULL "
-                        f"GROUP BY {q_col} ORDER BY freq DESC LIMIT 10"
+                        f"GROUP BY {q_col} ORDER BY freq DESC LIMIT 50"
                     )
-                    samp_df = connector.execute_query(samp_sql, max_rows=10)
+                    samp_df = connector.execute_query(samp_sql, max_rows=50)
                     raw_vals = samp_df["val"].tolist() if not samp_df.empty else []
                     sanitized, pii_found = PrivacyFirewall.sanitize_profile_samples(
                         col.name, raw_vals, col.distinct_count
