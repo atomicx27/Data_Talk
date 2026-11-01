@@ -1,4 +1,4 @@
-# Data_Talk Enterprise BI (`v2.7.0`)
+# Data_Talk Enterprise BI (`v2.8.0`)
 
 **Governed Conversational Business Intelligence, Semantic Layer Studio, Multi-Database Federation, Multi-Fact Comparison Engine & Bidirectional DAX $\leftrightarrow$ SQL Compiler**
 
@@ -48,6 +48,12 @@ Unlike generic "Text-to-SQL" wrappers that hallucinate on massive or cryptic sch
   - **Execution Mode Transparency**: Transparent live pill badges on every chat card (`✨ LLM (<model>)` vs. `⚙️ Heuristic Engine (<reason>)`) and `<> Explain` modal detailing whether queries were solved by an LLM or the deterministic heuristic compiler.
   - **Compound FK & Role Healing**: Automatic classification healing for `FACT` vs. `DIMENSION` roles and compound suffix foreign key inference (`program_id` $\rightarrow$ `degree_programs.program_id`, `section_id` $\rightarrow$ `course_sections.section_id`, `term_id` $\rightarrow$ `academic_terms.term_id`).
   - **Agent Onboarding Skill**: Packaged agent development context and debugging playbook in `.gemini/skills/data-talk-dev/SKILL.md` and `.agents/skills/data-talk-dev/SKILL.md`.
+- **09. Chart Thread Studio, Externalized Prompts & Hot-Reloading (`v2.8.0`)**
+  - **Chart Thread Studio (`thread_studio.html`)**: Deep-dive conversational thread isolated to a specific chart, opening in a dedicated new browser tab/window or embedded drawer. Strictly queries against the active chart's dataset rows with deterministic concentration metrics, mean/spread statistics, and dynamic follow-up suggestions.
+  - **Externalized Prompt Templates & Dynamic Manager (`prompts/`)**: All 8 core LLM prompt templates externalized into cleanly structured markdown files (`sql_compiler.md`, `self_healing_critic.md`, `follow_up_resolver.md`, `prompt_improver.md`, `dataset_overview.md`, `chart_thread_enrichment.md`, `measure_compiler.md`, `dax_transpiler.md`).
+  - **Zero-Restart Hot-Reloading (`PromptManager`)**: Automatically detects file modifications on disk via `mtime` so edits apply instantly on the next user query without server restarts, backed by regex-based JSON-safe formatting and hardcoded fallback safety.
+  - **Mandatory Ranking Metric Exposure**: Query compiler integrity rule ensuring top-N, bottom-N, and ranked queries always expose the ranking metric in the final SELECT list alongside breakdown dimensions so users see why entities were selected.
+  - **Root Cause Diagnostics & Custom Date Ranges**: Interactive Period-over-Period variance decomposition with automatic dimension recommendations and multi-table join synthesis.
 
 ---
 
