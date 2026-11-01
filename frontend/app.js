@@ -15,6 +15,7 @@ let CMD_FILTERED_ITEMS = [];
 const VIEW_TITLES = {
   chat: 'Ask Data',
   dashboard: 'Pinboard',
+  verified_queries: 'Query Memory',
   connect: 'Data sources',
   joins: 'Relationships',
   interview: 'Business rules',
@@ -466,6 +467,8 @@ function switchView(viewName) {
       renderERDiagram();
     } else if (viewName === 'dashboard') {
       refreshDashboardSimulation();
+    } else if (viewName === 'verified_queries') {
+      renderVerifiedQueriesView();
     }
   };
 
@@ -564,6 +567,9 @@ function renderGlobalTelemetry() {
   document.getElementById('badgeInterview').textContent = `${answeredQs.length}/${qs.length}`;
   document.getElementById('badgeMeasures').textContent = `${measures.length}`;
   document.getElementById('badgePins').textContent = `${pins.length}`;
+  const vqList = ws.verified_queries || [];
+  const vqBadge = document.getElementById('badgeVerifiedQueries');
+  if (vqBadge) vqBadge.textContent = `${vqList.length}`;
 
   const stepCompletion = {
     connect: tables.length > 0,
@@ -1874,9 +1880,12 @@ function renderChatView() {
         .join('');
 
       const isDiagnostic = Boolean(resp.is_diagnostic || resp.audit_receipt);
+      const isVerifiedMemory = resp.compiler_mode === 'verified_memory';
       const isLlmCompiled = resp.compiler_mode === 'llm';
       const compilerBadge = isDiagnostic
         ? `<span class="meta-chip" style="background:rgba(59,130,246,0.14); color:#3b82f6; border:1px solid rgba(59,130,246,0.35); font-weight:600;" title="${escapeHtml(resp.compiler_detail || 'Diagnostic Root-Cause Engine')}"><svg class="icon" style="width:11px;height:11px"><use href="#i-trend-down"/></svg> ${escapeHtml(resp.compiler_detail || 'Diagnostic Engine')}</span>`
+        : isVerifiedMemory
+        ? `<span class="pii-badge" style="background:rgba(14,165,233,0.16); color:#0284c7; border:1px solid rgba(14,165,233,0.4); font-weight:600;" title="${escapeHtml(resp.compiler_detail || 'Executed from Verified Query Memory')}"><svg class="icon" style="width:11px;height:11px"><use href="#i-zap"/></svg> Verified Memory</span>`
         : isLlmCompiled
         ? `<span class="pii-badge pii-safe" style="background:rgba(16,185,129,0.14); color:#10b981; border:1px solid rgba(16,185,129,0.35);" title="${escapeHtml(resp.compiler_detail || 'Compiled via LLM')}"><svg class="icon" style="width:11px;height:11px"><use href="#i-sparkles"/></svg> ${escapeHtml(resp.compiler_detail || 'LLM Compiler')}</span>`
         : `<span class="meta-chip" style="background:rgba(245,158,11,0.14); color:#d97706; border:1px solid rgba(245,158,11,0.35); font-weight:600;" title="${escapeHtml(resp.compiler_detail || 'Solved using built-in deterministic heuristic compiler')}"><svg class="icon" style="width:11px;height:11px"><use href="#i-cpu"/></svg> Heuristic Engine</span>`;
@@ -2172,6 +2181,13 @@ function renderChatView() {
               <button type="button" class="btn btn-secondary btn-xs btn-pin-chart" data-idx="${idx}">
                 <svg class="icon" style="width:13px;height:13px"><use href="#i-pin"/></svg> Pin
               </button>
+              <button type="button" class="btn btn-secondary btn-xs btn-save-verified-query" data-idx="${idx}" title="Save as verified query memory">
+                <svg class="icon" style="width:13px;height:13px"><use href="#i-zap"/></svg> Remember
+              </button>
+              ${isVerifiedMemory ? `
+              <button type="button" class="btn btn-ghost btn-xs btn-recompile-ai" data-idx="${idx}" title="Re-synthesize query using AI model" style="color:var(--accent-primary);">
+                <svg class="icon" style="width:12px;height:12px"><use href="#i-sparkles"/></svg> Re-run with AI
+              </button>` : ''}
             </div>
           </div>
 
@@ -2371,6 +2387,35 @@ function renderChatView() {
         showToast('Pinned chart to Pinboard');
       } catch (err) {
         showToast(`Error: ${err.message}`);
+      }
+    });
+  });
+
+  stream.querySelectorAll('.btn-save-verified-query').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const idx = Number(btn.dataset.idx);
+      const entry = history[idx];
+      const resp = entry.response;
+      openEditVerifiedQueryModal({
+        id: '',
+        question_pattern: resp.user_question || resp.resolved_question,
+        executed_query: resp.executed_query,
+        dax_equivalent: resp.compiled_dax_equivalent || '',
+        chart_type: entry.chart_type || 'bar',
+        query_dialect: resp.query_dialect || 'duckdb',
+      });
+    });
+  });
+
+  stream.querySelectorAll('.btn-recompile-ai').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const idx = Number(btn.dataset.idx);
+      const entry = history[idx];
+      const q = entry.response.user_question || entry.response.resolved_question;
+      if (q) {
+        const inputEl = document.getElementById('chatQuestionInput');
+        if (inputEl) inputEl.value = q;
+        submitChatQuestion(q, { force_recompile: true });
       }
     });
   });
@@ -2930,6 +2975,232 @@ async function refreshDashboardSimulation() {
 }
 
 // ============================================================================
+// 9.5 VERIFIED QUERY MEMORY (GOLDEN QUERY CACHE)
+// ============================================================================
+function renderVerifiedQueriesView() {
+  if (!APP_STATE) return;
+  const ws = APP_STATE.workspace || {};
+  const queries = ws.verified_queries || [];
+  const container = document.getElementById('verifiedQueriesGrid');
+  if (!container) return;
+
+  const searchInput = document.getElementById('vqSearchInput');
+  const term = (searchInput?.value || '').toLowerCase().trim();
+
+  const filtered = queries.filter((q) => {
+    if (!term) return true;
+    return (
+      (q.question_pattern || '').toLowerCase().includes(term) ||
+      (q.executed_query || '').toLowerCase().includes(term) ||
+      (q.dax_equivalent || '').toLowerCase().includes(term) ||
+      (q.chart_type || '').toLowerCase().includes(term)
+    );
+  });
+
+  if (filtered.length === 0) {
+    if (term) {
+      container.innerHTML = `
+        <div class="panel-card" style="text-align:center; padding:32px 20px;">
+          <svg class="icon" style="width:32px; height:32px; color:var(--text-muted); margin-bottom:8px;"><use href="#i-search"/></svg>
+          <div style="font-weight:600; font-size:15px;">No matching verified queries</div>
+          <p class="muted" style="margin-top:4px;">No saved queries match your search term "${escapeHtml(term)}".</p>
+        </div>`;
+    } else {
+      container.innerHTML = `
+        <div class="panel-card" style="text-align:center; padding:48px 24px; border:2px dashed var(--border-color); background:transparent;">
+          <div style="width:48px; height:48px; border-radius:50%; background:rgba(14,165,233,0.12); color:#0284c7; display:flex; align-items:center; justify-content:center; margin:0 auto 14px;">
+            <svg class="icon" style="width:24px; height:24px;"><use href="#i-zap"/></svg>
+          </div>
+          <h3 style="font-size:17px; font-weight:600; margin-bottom:6px;">No Verified Queries Saved Yet</h3>
+          <p class="muted" style="max-width:500px; margin:0 auto 16px; font-size:13.5px; line-height:1.5;">
+            Whenever you ask a question in <strong>Ask Data</strong> chat and the AI generates SQL/DAX, click the <strong>Remember</strong> button to bookmark that recipe into memory. Next time you ask, it runs instantly from memory!
+          </p>
+          <button type="button" class="btn btn-secondary btn-sm" id="btnCreateFirstVq">
+            <svg class="icon"><use href="#i-plus"/></svg> Add Manual Query
+          </button>
+        </div>`;
+      document.getElementById('btnCreateFirstVq')?.addEventListener('click', () => {
+        openEditVerifiedQueryModal();
+      });
+    }
+    return;
+  }
+
+  container.innerHTML = filtered
+    .map((vq) => {
+      const chartBadge = `<span class="meta-chip"><svg class="icon" style="width:11px;height:11px;"><use href="#i-bar"/></svg> Visual: ${escapeHtml(vq.chart_type || 'bar')}</span>`;
+      const dialectBadge = `<span class="meta-chip mono" style="font-size:11px;"><svg class="icon" style="width:11px;height:11px;"><use href="#i-database"/></svg> ${escapeHtml(vq.query_dialect || 'duckdb')}</span>`;
+      const countBadge = `<span class="meta-chip" style="background:rgba(14,165,233,0.12); color:#0284c7; border:1px solid rgba(14,165,233,0.3); font-weight:600;"><svg class="icon" style="width:11px;height:11px;"><use href="#i-zap"/></svg> Used ${vq.execution_count || 1} time${(vq.execution_count || 1) === 1 ? '' : 's'}</span>`;
+      const dateFormatted = vq.updated_at ? new Date(vq.updated_at).toLocaleDateString() : 'Recent';
+
+      return `
+        <div class="vq-card" data-id="${escapeHtml(vq.id)}">
+          <div class="vq-header">
+            <div class="vq-title-group">
+              <div class="vq-question">
+                <svg class="icon" style="width:16px; height:16px; color:#0284c7;"><use href="#i-zap"/></svg>
+                <span>${escapeHtml(vq.question_pattern)}</span>
+              </div>
+              <div class="vq-meta-row">
+                ${countBadge}
+                ${dialectBadge}
+                ${chartBadge}
+                <span class="muted" style="font-size:11.5px;">Updated ${escapeHtml(dateFormatted)}</span>
+              </div>
+            </div>
+            <div class="vq-actions">
+              <button type="button" class="btn btn-secondary btn-xs btn-test-vq" data-id="${escapeHtml(vq.id)}" title="Run live test on active connector">
+                <svg class="icon" style="width:12px;height:12px;"><use href="#i-play"/></svg> Test
+              </button>
+              <button type="button" class="btn btn-secondary btn-xs btn-edit-vq" data-id="${escapeHtml(vq.id)}" title="Edit question pattern or SQL/DAX">
+                <svg class="icon" style="width:12px;height:12px;"><use href="#i-edit"/></svg> Edit
+              </button>
+              <button type="button" class="btn btn-ghost btn-xs btn-delete-vq" data-id="${escapeHtml(vq.id)}" title="Delete from memory" style="color:var(--accent-rose);">
+                <svg class="icon" style="width:12px;height:12px;"><use href="#i-trash"/></svg> Delete
+              </button>
+            </div>
+          </div>
+
+          <details class="clean-disclosure" style="margin-top:2px;">
+            <summary style="font-size:12.5px; font-weight:500; cursor:pointer;">
+              <svg class="icon" style="width:13px;height:13px;"><use href="#i-code"/></svg> Inspect Verified SQL &amp; DAX
+            </summary>
+            <div style="display:flex; flex-direction:column; gap:8px; margin-top:8px;">
+              <div>
+                <div class="code-header" style="font-size:11px; margin-bottom:4px;">SQL (${escapeHtml(vq.query_dialect || 'duckdb')})</div>
+                <pre class="vq-code-preview">${escapeHtml(vq.executed_query || '')}</pre>
+              </div>
+              ${vq.dax_equivalent ? `
+              <div>
+                <div class="code-header" style="font-size:11px; margin-bottom:4px;">DAX Equivalent</div>
+                <pre class="vq-code-preview">${escapeHtml(vq.dax_equivalent || '')}</pre>
+              </div>` : ''}
+            </div>
+          </details>
+
+          <div id="testResultBox_${escapeHtml(vq.id)}" class="vq-test-preview" style="display:none;"></div>
+        </div>
+      `;
+    })
+    .join('');
+
+  // Event handlers for action buttons in cards
+  container.querySelectorAll('.btn-test-vq').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.id;
+      const resBox = document.getElementById(`testResultBox_${id}`);
+      if (!resBox) return;
+      const origHtml = btn.innerHTML;
+      try {
+        btn.disabled = true;
+        btn.innerHTML = `<svg class="icon spin" style="width:12px;height:12px;"><use href="#i-refresh"/></svg> Running...`;
+        const res = await apiRequest(`/api/verified-queries/${id}/test`, { method: 'POST' });
+        resBox.style.display = 'block';
+        if (res.success) {
+          resBox.style.background = 'rgba(16, 185, 129, 0.05)';
+          resBox.style.borderColor = 'rgba(16, 185, 129, 0.25)';
+          const sampleRows = (res.rows || []).slice(0, 3);
+          const sampleHtml = sampleRows.length
+            ? `<div style="overflow-x:auto; margin-top:6px;"><table class="data-table" style="font-size:11.5px; width:100%;">
+                <thead><tr>${res.columns.map((c) => `<th>${escapeHtml(c)}</th>`).join('')}</tr></thead>
+                <tbody>${sampleRows.map((r) => `<tr>${res.columns.map((c) => `<td>${escapeHtml(String(r[c] ?? ''))}</td>`).join('')}</tr>`).join('')}</tbody>
+              </table></div>`
+            : '<div class="muted">Query executed successfully (0 rows returned).</div>';
+          resBox.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center; color:var(--accent-emerald); font-weight:600;">
+              <span>✓ Test Passed: ${res.row_count} rows returned in ${res.elapsed_ms}ms</span>
+              <button type="button" class="btn btn-ghost btn-xs" onclick="this.parentElement.parentElement.style.display='none';">✕ Close</button>
+            </div>
+            ${sampleHtml}
+          `;
+        } else {
+          resBox.style.background = 'rgba(239, 68, 68, 0.08)';
+          resBox.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+          resBox.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center; color:var(--accent-rose); font-weight:600;">
+              <span>✗ Test Failed</span>
+              <button type="button" class="btn btn-ghost btn-xs" onclick="this.parentElement.parentElement.style.display='none';">✕ Close</button>
+            </div>
+            <div style="color:var(--text-secondary); margin-top:4px;">${escapeHtml(res.error || 'Unknown error')}</div>
+          `;
+        }
+      } catch (err) {
+        showToast(`Test error: ${err.message}`);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = origHtml;
+      }
+    });
+  });
+
+  container.querySelectorAll('.btn-edit-vq').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.id;
+      const target = queries.find((q) => q.id === id);
+      if (target) {
+        openEditVerifiedQueryModal(target);
+      }
+    });
+  });
+
+  container.querySelectorAll('.btn-delete-vq').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.id;
+      const target = queries.find((q) => q.id === id);
+      const pat = target?.question_pattern || 'this query';
+      if (!confirm(`Are you sure you want to remove "${pat}" from verified memory?`)) return;
+      try {
+        APP_STATE = await apiRequest(`/api/verified-queries/${id}`, { method: 'DELETE' });
+        showToast('Query removed from memory');
+        renderApp();
+        renderVerifiedQueriesView();
+      } catch (err) {
+        showToast(`Failed to delete: ${err.message}`);
+      }
+    });
+  });
+}
+
+function openEditVerifiedQueryModal(queryObj = null) {
+  const dialog = document.getElementById('editVerifiedQueryDialog');
+  if (!dialog) return;
+
+  const idIn = document.getElementById('editVqId');
+  const qIn = document.getElementById('editVqQuestion');
+  const sqlIn = document.getElementById('editVqSql');
+  const daxIn = document.getElementById('editVqDax');
+  const chartIn = document.getElementById('editVqChartType');
+  const dialectIn = document.getElementById('editVqDialect');
+  const testRes = document.getElementById('editVqTestResult');
+  const titleEl = document.getElementById('editVqDialogTitle');
+  const saveBtn = document.getElementById('saveEditVqBtn');
+
+  if (testRes) testRes.style.display = 'none';
+
+  if (queryObj && queryObj.id) {
+    if (titleEl) titleEl.textContent = 'Edit Verified Query';
+    if (saveBtn) saveBtn.textContent = 'Save Changes';
+    if (idIn) idIn.value = queryObj.id;
+    if (qIn) qIn.value = queryObj.question_pattern || '';
+    if (sqlIn) sqlIn.value = queryObj.executed_query || '';
+    if (daxIn) daxIn.value = queryObj.dax_equivalent || '';
+    if (chartIn) chartIn.value = queryObj.chart_type || 'bar';
+    if (dialectIn) dialectIn.value = queryObj.query_dialect || APP_STATE?.workspace?.dialect || 'duckdb';
+  } else {
+    if (titleEl) titleEl.textContent = 'Save to Query Memory';
+    if (saveBtn) saveBtn.textContent = 'Save to Memory';
+    if (idIn) idIn.value = '';
+    if (qIn) qIn.value = queryObj?.question_pattern || '';
+    if (sqlIn) sqlIn.value = queryObj?.executed_query || '';
+    if (daxIn) daxIn.value = queryObj?.dax_equivalent || '';
+    if (chartIn) chartIn.value = queryObj?.chart_type || 'bar';
+    if (dialectIn) dialectIn.value = queryObj?.query_dialect || APP_STATE?.workspace?.dialect || 'duckdb';
+  }
+
+  dialog.showModal();
+}
+
+// ============================================================================
 // 10. HELPERS & INITIALIZATION
 // ============================================================================
 function escapeHtml(str) {
@@ -2968,6 +3239,7 @@ function renderAllViews() {
   try { renderJoinsView(); } catch (e) { console.error('Error rendering joins view:', e); }
   try { renderInterviewView(); } catch (e) { console.error('Error rendering interview view:', e); }
   try { renderMeasuresView(); } catch (e) { console.error('Error rendering measures view:', e); }
+  try { renderVerifiedQueriesView(); } catch (e) { console.error('Error rendering verified queries view:', e); }
   try { renderChatView(); } catch (e) { console.error('Error rendering chat view:', e); }
   try { if (window.loadRootCauseOptions) window.loadRootCauseOptions(true); } catch (e) {}
 }
@@ -3016,9 +3288,10 @@ window.removeSource = async function (sourceId) {
   }
 };
 
-async function submitChatQuestion(questionText) {
+async function submitChatQuestion(questionText, options = {}) {
   const trimmed = (questionText || '').trim();
   if (!trimmed) return;
+  const forceRecompile = Boolean(options.force_recompile);
 
   const stream = document.getElementById('chatMessagesStream');
   const sendBtn = document.getElementById('chatSendBtn');
@@ -3035,7 +3308,7 @@ async function submitChatQuestion(questionText) {
           <span class="chat-q-avatar"><svg class="icon" style="width:14px;height:14px"><use href="#i-sparkles"/></svg></span>
           <h3 class="chat-question-title">${escapeHtml(trimmed)}</h3>
         </div>
-        <span class="meta-chip meta-chip-accent">Compiling SQL &amp; DAX…</span>
+        <span class="meta-chip meta-chip-accent">${forceRecompile ? 'Re-compiling via AI Model…' : 'Compiling SQL &amp; DAX…'}</span>
       </div>
       <div class="skeleton-line" style="width:78%"></div>
       <div class="skeleton-line" style="width:52%"></div>
@@ -3056,6 +3329,7 @@ async function submitChatQuestion(questionText) {
         revenue_shock_pct: Number(revSlider?.value || 0),
         cost_shock_pct: Number(costSlider?.value || 0),
         response_mode: mainMode,
+        force_recompile: forceRecompile,
       }),
     });
     APP_STATE = res.state;
@@ -4049,6 +4323,107 @@ document.addEventListener('DOMContentLoaded', async () => {
       const item = CMD_FILTERED_ITEMS[CMD_ACTIVE_INDEX];
       closeTopLayer(cmdDialog);
       if (item && item.action) item.action();
+    }
+  });
+
+  // Verified Query Memory Event Listeners
+  document.getElementById('addVerifiedQueryBtn')?.addEventListener('click', () => {
+    openEditVerifiedQueryModal();
+  });
+
+  document.getElementById('vqSearchInput')?.addEventListener('input', () => {
+    renderVerifiedQueriesView();
+  });
+
+  document.getElementById('cancelEditVqBtn')?.addEventListener('click', () => {
+    document.getElementById('editVerifiedQueryDialog')?.close();
+  });
+
+  document.getElementById('btnTestVqSql')?.addEventListener('click', async () => {
+    const sql = (document.getElementById('editVqSql')?.value || '').trim();
+    const resBox = document.getElementById('editVqTestResult');
+    if (!sql || !resBox) {
+      showToast('Enter SQL code to test');
+      return;
+    }
+    const testBtn = document.getElementById('btnTestVqSql');
+    const origHtml = testBtn.innerHTML;
+    try {
+      testBtn.disabled = true;
+      testBtn.innerHTML = `<svg class="icon spin" style="width:12px;height:12px"><use href="#i-refresh"/></svg> Testing...`;
+      const res = await apiRequest('/api/verified-queries/test-raw', {
+        method: 'POST',
+        body: JSON.stringify({ query: sql }),
+      });
+      resBox.style.display = 'block';
+      if (res.success) {
+        resBox.style.background = 'rgba(16, 185, 129, 0.08)';
+        resBox.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+        resBox.style.color = 'var(--accent-emerald)';
+        resBox.innerHTML = `✓ Query valid! Returned ${res.row_count} rows in ${res.elapsed_ms}ms (${(res.columns || []).join(', ')})`;
+      } else {
+        resBox.style.background = 'rgba(239, 68, 68, 0.08)';
+        resBox.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+        resBox.style.color = 'var(--accent-rose)';
+        resBox.innerHTML = `✗ Query error: ${escapeHtml(res.error || 'Execution failed')}`;
+      }
+    } catch (err) {
+      resBox.style.display = 'block';
+      resBox.style.color = 'var(--accent-rose)';
+      resBox.innerHTML = `✗ Test error: ${escapeHtml(err.message)}`;
+    } finally {
+      testBtn.disabled = false;
+      testBtn.innerHTML = origHtml;
+    }
+  });
+
+  document.getElementById('editVerifiedQueryForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const id = (document.getElementById('editVqId')?.value || '').trim();
+    const question_pattern = (document.getElementById('editVqQuestion')?.value || '').trim();
+    const executed_query = (document.getElementById('editVqSql')?.value || '').trim();
+    const dax_equivalent = (document.getElementById('editVqDax')?.value || '').trim();
+    const chart_type = document.getElementById('editVqChartType')?.value || 'bar';
+    const dialect = document.getElementById('editVqDialect')?.value || 'duckdb';
+    const submitBtn = document.getElementById('saveEditVqBtn');
+    const origHtml = submitBtn.innerHTML;
+
+    try {
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = `<svg class="icon spin" style="width:13px;height:13px"><use href="#i-refresh"/></svg> Saving...`;
+      if (id) {
+        APP_STATE = await apiRequest(`/api/verified-queries/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            question_pattern,
+            executed_query,
+            dax_equivalent,
+            chart_type,
+            query_dialect: dialect,
+          }),
+        });
+        showToast('Verified query updated');
+      } else {
+        APP_STATE = await apiRequest('/api/verified-queries', {
+          method: 'POST',
+          body: JSON.stringify({
+            question_pattern,
+            executed_query,
+            dax_equivalent,
+            chart_type,
+            query_dialect: dialect,
+          }),
+        });
+        showToast('Saved query to verified memory');
+      }
+      document.getElementById('editVerifiedQueryDialog')?.close();
+      renderApp();
+      renderVerifiedQueriesView();
+    } catch (err) {
+      showToast(`Save failed: ${err.message}`);
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = origHtml;
     }
   });
 

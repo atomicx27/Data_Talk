@@ -189,6 +189,28 @@ class PinnedWidget(BaseModel):
     pinned_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
+class VerifiedQuery(BaseModel):
+    """User-verified canonical Golden Query stored in Workspace memory.
+
+    When a user asks the same (or semantically equivalent) question in chat,
+    QueryAgent bypasses LLM/heuristic compilation and directly executes this
+    verified recipe to refresh live data instantly.
+    """
+
+    id: str
+    question_pattern: str
+    executed_query: str
+    dax_equivalent: str = ""
+    query_dialect: str = "duckdb"
+    chart_type: str = "bar"
+    x_col: str | None = None
+    y_cols: list[str] = Field(default_factory=list)
+    color_col: str | None = None
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    execution_count: int = 0
+
+
 class DataSourceConfig(BaseModel):
     """Configuration for an attached data source / database within the workspace."""
 
@@ -221,6 +243,7 @@ class OKFWorkspace(BaseModel):
     interview_questions: list[InterviewQuestion] = Field(default_factory=list)
     what_if_parameters: list[WhatIfParameter] = Field(default_factory=list)
     pinned_widgets: list[PinnedWidget] = Field(default_factory=list)
+    verified_queries: list[VerifiedQuery] = Field(default_factory=list)
     domain_tag: str = ""
     domain_title: str = ""
     updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())

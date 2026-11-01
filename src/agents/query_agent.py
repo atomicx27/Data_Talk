@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 from src.agents.llm_router import LLMRouter
 from src.agents.measure_compiler import MeasureCompiler
 from src.agents.prompt_manager import PromptManager
-from src.knowledge.okf_models import OKFWorkspace, SemanticMeasure, TableRole
+from src.knowledge.okf_models import OKFWorkspace, SemanticMeasure, TableRole, VerifiedQuery
 from src.knowledge.okf_store import JoinPlan, OKFStore
 from src.knowledge.rag_store import RAGStore
 from src.security.privacy_firewall import PrivacyFirewall
@@ -61,6 +61,8 @@ class QueryResponse(BaseModel):
     follow_up_context: str | None = None
     suggested_follow_ups: list[str] = Field(default_factory=list)
     drill_down_dimensions: list[dict[str, str]] = Field(default_factory=list)
+    verified_query_id: str | None = None
+    from_verified_memory: bool = False
 
 
 class QueryAgent:
@@ -79,6 +81,7 @@ class QueryAgent:
         llm_router: LLMRouter | None = None,
         what_if_overrides: dict[str, float] | None = None,
         conversation_history: list[dict[str, Any]] | None = None,
+        force_recompile: bool = False,
     ) -> tuple[QueryResponse, pd.DataFrame]:
         """Execute a natural language analytical query with hybrid OKF+RAG retrieval and 3x self-healing."""
         cls._ensure_categorical_samples(workspace, connector)
@@ -119,6 +122,69 @@ class QueryAgent:
                 resp_ov.suggested_follow_ups = cls._generate_suggested_follow_ups(df_ov, resolved_q, workspace, empty_plan)
             resp_ov.drill_down_dimensions = []
             return resp_ov, df_ov
+
+        # 0.5 Check Verified Query Memory (Golden Query Cache)
+        if not force_recompile:
+            matched_vq = cls._find_matching_verified_query(resolved_q, workspace)
+            if matched_vq is not None:
+                try:
+                    df_vq = connector.execute_query(
+                        matched_vq.executed_query,
+                        max_rows=10000,
+                        blocked_tables=workspace.blocked_table_names(),
+                        blocked_columns=workspace.blocked_column_names(),
+                    )
+                    matched_vq.execution_count += 1
+                    try:
+                        okf_store.save(workspace)
+                    except Exception:
+                        pass
+
+                    summary_text = cls._build_executive_summary(
+                        resolved_q, df_vq, [], [], llm_router, workspace
+                    )
+                    empty_plan = JoinPlan(
+                        required_tables=[],
+                        bridge_tables=[],
+                        join_edges=[],
+                        sql_join_clauses=[],
+                        has_fan_trap=False,
+                        fact_tables_involved=[],
+                        shared_dimensions=[],
+                        fan_trap_guidance="",
+                    )
+                    follow_ups = cls._generate_suggested_follow_ups(df_vq, resolved_q, workspace, empty_plan)
+                    drill_downs = cls._generate_drill_down_options(df_vq, workspace, [])
+
+                    resp_vq = QueryResponse(
+                        user_question=q_clean,
+                        resolved_question=resolved_q,
+                        success=True,
+                        executed_query=matched_vq.executed_query,
+                        compiled_dax_equivalent=matched_vq.dax_equivalent or "",
+                        query_dialect=matched_vq.query_dialect or connector.dialect,
+                        attempts_used=1,
+                        healing_trace=[f"⚡ Executed canonical recipe directly from Verified Query Memory (ID: {matched_vq.id})."],
+                        involved_tables=[],
+                        join_clauses_used=[],
+                        fan_trap_mitigated=False,
+                        measures_applied=[],
+                        business_rules_applied=[],
+                        clarification_suggestion=None,
+                        executive_summary=summary_text,
+                        recommended_chart_type=matched_vq.chart_type or "bar",
+                        compiler_mode="verified_memory",
+                        compiler_detail=f"Verified Query Memory (Matched: '{matched_vq.question_pattern}')",
+                        is_follow_up=is_follow_up,
+                        follow_up_context=follow_up_ctx,
+                        suggested_follow_ups=follow_ups,
+                        drill_down_dimensions=drill_downs,
+                        verified_query_id=matched_vq.id,
+                        from_verified_memory=True,
+                    )
+                    return resp_vq, df_vq
+                except Exception as vq_err:
+                    _LOGGER.warning("Verified query %s execution failed: %s; falling back to compiler", matched_vq.id, vq_err)
 
         # 1. Retrieve Hybrid RAG Context (Glossary, Business Rules, Few-Shot DAX/SQL)
         rag_bundle = rag_store.retrieve_context_bundle(resolved_q, top_k_per_collection=5)
@@ -2863,6 +2929,48 @@ class QueryAgent:
                     break
 
         return options[:5]
+
+    @classmethod
+    def _find_matching_verified_query(cls, question: str, workspace: OKFWorkspace) -> VerifiedQuery | None:
+        """Find a canonical verified query in workspace memory matching the user intent."""
+        vqs = getattr(workspace, "verified_queries", None)
+        if not vqs:
+            return None
+
+        clean_target = re.sub(r"[^\w\s]", "", question.lower()).strip()
+        words_target = set(clean_target.split())
+        if not words_target:
+            return None
+
+        best_match: VerifiedQuery | None = None
+        best_score: float = 0.0
+
+        for vq in vqs:
+            clean_pat = re.sub(r"[^\w\s]", "", vq.question_pattern.lower()).strip()
+            if not clean_pat:
+                continue
+
+            # Exact match (after normalization)
+            if clean_target == clean_pat:
+                return vq
+
+            # Character sequence similarity
+            seq_ratio = difflib.SequenceMatcher(None, clean_target, clean_pat).ratio()
+
+            # Word token overlap (Jaccard similarity)
+            words_pat = set(clean_pat.split())
+            union_len = len(words_target | words_pat)
+            jaccard = len(words_target & words_pat) / union_len if union_len > 0 else 0.0
+
+            score = (seq_ratio * 0.6) + (jaccard * 0.4)
+            if score > best_score:
+                best_score = score
+                best_match = vq
+
+        # Strict threshold (>= 0.88) to prevent false positives while allowing minor rephrasings
+        if best_score >= 0.88 and best_match is not None:
+            return best_match
+        return None
 
     @classmethod
     def _is_dataset_overview_question(cls, question: str) -> bool:

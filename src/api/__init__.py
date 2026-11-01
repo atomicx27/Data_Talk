@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 import src
 from src.api.deps import set_global_authenticator, set_global_runtime
-from src.api.routes import chat, connect, dashboard, export, interview, joins, measures, schema, system
+from src.api.routes import chat, connect, dashboard, export, interview, joins, measures, schema, system, verified_queries
 from src.api.runtime import AppRuntime
 from src.security.auth import (
     LOGIN_PAGE_HTML,
@@ -114,6 +114,7 @@ def create_app(
     app.include_router(measures.router)
     app.include_router(chat.router)
     app.include_router(dashboard.router)
+    app.include_router(verified_queries.router)
     app.include_router(export.router)
 
     # Auth routes

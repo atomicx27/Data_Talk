@@ -1,4 +1,4 @@
-# Data_Talk Enterprise BI (`v2.8.0`)
+# Data_Talk Enterprise BI (`v2.9.0`)
 
 **Governed Conversational Business Intelligence, Semantic Layer Studio, Multi-Database Federation, Multi-Fact Comparison Engine & Bidirectional DAX $\leftrightarrow$ SQL Compiler**
 
@@ -54,6 +54,11 @@ Unlike generic "Text-to-SQL" wrappers that hallucinate on massive or cryptic sch
   - **Zero-Restart Hot-Reloading (`PromptManager`)**: Automatically detects file modifications on disk via `mtime` so edits apply instantly on the next user query without server restarts, backed by regex-based JSON-safe formatting and hardcoded fallback safety.
   - **Mandatory Ranking Metric Exposure**: Query compiler integrity rule ensuring top-N, bottom-N, and ranked queries always expose the ranking metric in the final SELECT list alongside breakdown dimensions so users see why entities were selected.
   - **Root Cause Diagnostics & Custom Date Ranges**: Interactive Period-over-Period variance decomposition with automatic dimension recommendations and multi-table join synthesis.
+- **10. Verified Query Memory (Golden Query Cache) & Studio (`v2.9.0`)**
+  - **Conversational Query Caching**: Once an analyst verifies an AI-generated SQL/DAX answer, clicking **"Remember"** saves the canonical recipe into workspace memory (`okf.yaml` and `rag_memory.sqlite`).
+  - **Sub-20ms Live Data Refresh**: When users ask the same or semantically matching questions, Data_Talk bypasses the LLM/Heuristic compiler entirely and executes the verified canonical query directly on the live database. Live data is always 100% fresh with **$0 token cost** and zero compilation latency.
+  - **Fail-Safe Fallback & "Re-run with AI"**: Self-healing automatic fallback to the heuristic/LLM compiler if schema drift occurs, with a 1-click **"Re-run with AI"** option to bypass memory on demand.
+  - **Dedicated Query Memory Studio Tab**: Search, filter, live test runs with millisecond benchmarking (`▶ Test`), edit question trigger patterns and SQL/DAX recipes (`✏️ Edit`), and delete queries (`🗑️ Delete`).
 
 ---
 
@@ -139,6 +144,12 @@ All security settings can be customized via `.env` or container environment vari
 | `POST` | `/api/chat/chart` | Generates Plotly visualization for arbitrary tabular rows |
 | `POST` | `/api/chat/teach` | Learns human corrective feedback into the business rule RAG store |
 | `POST` | `/api/chat/clear` | Clears chat history for the current session workspace |
+| `GET` | `/api/verified-queries` | Returns all human-verified canonical Golden Queries in workspace memory |
+| `POST` | `/api/verified-queries` | Validates and persists a verified query recipe into memory |
+| `PUT` | `/api/verified-queries/{id}` | Updates a verified query's question pattern, SQL, DAX, or chart type |
+| `DELETE` | `/api/verified-queries/{id}` | Removes a verified query from workspace memory |
+| `POST` | `/api/verified-queries/{id}/test` | Tests live execution of a saved query with millisecond latency benchmarking |
+| `POST` | `/api/verified-queries/test-raw` | Tests dry-run execution of arbitrary SQL before saving |
 | `POST` | `/api/root-cause` | Period-over-period variance decomposition and waterfall generation |
 | `POST` | `/api/dashboard/pin` | Pins an analytics widget to the executive dashboard |
 | `DELETE` | `/api/dashboard/pin/{id}` | Removes a pinned widget |
@@ -152,7 +163,7 @@ All security settings can be customized via `.env` or container environment vari
 
 ## 🧪 Automated Testing & CI
 
-Run the complete 82-test automated test suite:
+Run the complete 101-test automated test suite:
 
 ```bash
 # Run all tests

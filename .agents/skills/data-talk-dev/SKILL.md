@@ -129,6 +129,15 @@ A comprehensive audit was performed using four specialized AI personas:
     - 🟠 `⚙️ Heuristic Engine` (amber, with hover tooltip explaining reason, e.g. `No LLM Key` or `Heuristic Fallback`) when compiled via offline heuristic rules.
   - Displayed the compiler engine details in the `<> Explain` lineage drawer.
 
+### Session 9: Verified Query Memory (Golden Query Cache) & Studio Tab
+- **Concept**: User-verified conversational query caching ("Golden Queries"). When an analyst verifies that generated SQL/DAX code is canonical, they can bookmark it directly into Workspace memory.
+- **Runtime Resolution**:
+  - `QueryAgent` performs pre-compilation intent matching (`_find_matching_verified_query`) against `workspace.verified_queries` using normalized exact string matching combined with token Jaccard similarity.
+  - On hit, bypasses the LLM/Heuristic compiler and runs the canonical recipe directly on the live database connector (sub-20ms live data refresh).
+  - Emits `compiler_mode = "verified_memory"` with `⚡ Verified Memory` badge and provides a `Re-run with AI` escape hatch (`force_recompile=True`).
+  - Added full REST API in `src/api/routes/verified_queries.py`: List, Create, Edit, Delete, and Test execution.
+  - Added dedicated **Query Memory** tab in frontend sidebar with search, test run preview, edit modal (modifying question trigger pattern, SQL, DAX, or chart type), and delete action.
+
 ---
 
 ## 3. Key Invariants & Rules for AI Agents Developing on This Repo

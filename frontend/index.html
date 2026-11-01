@@ -108,6 +108,11 @@
           <span class="nav-text">Pinboard</span>
           <span id="badgePins" class="nav-pill">0</span>
         </button>
+        <button class="nav-item" data-view="verified_queries">
+          <svg class="icon nav-icon"><use href="#i-zap"/></svg>
+          <span class="nav-text">Query Memory</span>
+          <span id="badgeVerifiedQueries" class="nav-pill">0</span>
+        </button>
 
         <div class="section-label section-label-spaced">
           Semantic model
@@ -779,6 +784,31 @@
 
           <div id="pinnedWidgetsGrid" class="pinned-widgets-grid"></div>
         </section>
+
+        <!-- ==================== VIEW: QUERY MEMORY ==================== -->
+        <section id="view-verified_queries" class="view-panel inactive" tabindex="-1" aria-hidden="true">
+          <div class="page-header">
+            <div>
+              <span class="eyebrow">Conversational Memory</span>
+              <h2 class="page-title">Query Memory</h2>
+              <p class="page-sub">Canonical Golden Queries saved from chat. When you ask matching questions, Data_Talk executes these verified recipes directly on live data with zero LLM latency.</p>
+            </div>
+            <div class="header-actions">
+              <button id="addVerifiedQueryBtn" class="btn btn-primary">
+                <svg class="icon"><use href="#i-plus"/></svg> New Query
+              </button>
+            </div>
+          </div>
+
+          <div class="query-memory-search-bar" style="display:flex; gap:12px; margin-bottom:16px;">
+            <div class="input-with-icon" style="flex:1;">
+              <svg class="icon"><use href="#i-search"/></svg>
+              <input id="vqSearchInput" type="text" class="input-text" placeholder="Search saved questions, tables, or SQL/DAX code..." />
+            </div>
+          </div>
+
+          <div id="verifiedQueriesGrid" class="verified-queries-grid"></div>
+        </section>
       </main>
     </div>
   </div>
@@ -1147,7 +1177,68 @@ ORDER BY net_revenue DESC;</textarea>
     </div>
   </dialog>
 
-  <!-- Ingestion Loading Progress Modal Overlay -->
+  <!-- ==================== MODAL: EDIT / NEW VERIFIED QUERY ==================== -->
+  <dialog id="editVerifiedQueryDialog" closedby="any" aria-labelledby="editVqDialogTitle" class="modal-dialog modal-lg">
+    <div class="modal-header">
+      <div>
+        <h2 id="editVqDialogTitle" class="modal-title">Edit Verified Query</h2>
+        <p class="modal-subtitle">Update the question trigger pattern or fine-tune the SQL and DAX recipe.</p>
+      </div>
+      <form method="dialog">
+        <button type="submit" class="btn btn-ghost btn-icon-only" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+      </form>
+    </div>
+    <form id="editVerifiedQueryForm" class="modal-body" style="display:flex; flex-direction:column; gap:14px;">
+      <input type="hidden" id="editVqId" value="" />
+      <div>
+        <label class="field-label" for="editVqQuestion">Question Trigger Pattern</label>
+        <input id="editVqQuestion" type="text" class="input-text" placeholder="e.g., Show faculty salary for each college" required />
+        <span class="field-hint" style="font-size:12px; color:var(--text-muted); margin-top:3px; display:block;">Natural language questions matching this prompt will run this query automatically.</span>
+      </div>
+
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px;">
+        <div>
+          <label class="field-label" for="editVqChartType">Default Visual</label>
+          <select id="editVqChartType" class="input-select">
+            <option value="bar">Bar Chart (Vertical)</option>
+            <option value="horizontal_bar">Bar Chart (Horizontal)</option>
+            <option value="line">Line Chart (Time-Series)</option>
+            <option value="area">Area Chart</option>
+            <option value="pie">Pie Chart</option>
+            <option value="donut">Donut Chart</option>
+            <option value="scatter">Scatter Plot</option>
+            <option value="table">Table Grid</option>
+            <option value="kpi">KPI Card</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label" for="editVqDialect">Query Dialect</label>
+          <input id="editVqDialect" type="text" class="input-text" value="duckdb" readonly />
+        </div>
+      </div>
+
+      <div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+          <label class="field-label" for="editVqSql" style="margin-bottom:0;">Verified SQL Recipe</label>
+          <button type="button" id="btnTestVqSql" class="btn btn-ghost btn-xs" style="color:var(--accent-primary);">
+            <svg class="icon" style="width:12px;height:12px;"><use href="#i-play"/></svg> Test Query
+          </button>
+        </div>
+        <textarea id="editVqSql" class="input-textarea mono" rows="6" placeholder="SELECT ..." required></textarea>
+        <div id="editVqTestResult" style="display:none; margin-top:8px; font-size:12px; padding:8px 12px; border-radius:6px; background:var(--bg-card); border:1px solid var(--border-color);"></div>
+      </div>
+
+      <div>
+        <label class="field-label" for="editVqDax">DAX Equivalent (Optional)</label>
+        <textarea id="editVqDax" class="input-textarea mono" rows="3" placeholder="EVALUATE SUMMARIZECOLUMNS(...)"></textarea>
+      </div>
+
+      <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:8px; margin-top:8px;">
+        <button type="button" class="btn btn-ghost" id="cancelEditVqBtn">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="saveEditVqBtn">Save to Memory</button>
+      </div>
+    </form>
+  </dialog>
   <div id="ingestionLoadingOverlay" class="ingestion-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="ingestionTitle">
     <div class="ingestion-card">
       <div class="ingestion-header">

@@ -52,6 +52,7 @@ def run_chat_query(
         llm_router=session.llm_router,
         what_if_overrides=overrides,
         conversation_history=history,
+        force_recompile=req.force_recompile,
     )
     effective_q = resp.resolved_question or req.question
     show_chart = QueryAgent.should_render_chart(

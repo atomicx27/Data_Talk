@@ -122,6 +122,7 @@ class ChatQueryRequest(BaseModel):
     revenue_shock_pct: float = 0.0
     cost_shock_pct: float = 0.0
     response_mode: str = "auto"  # auto | text_only | with_chart
+    force_recompile: bool = False
 
 
 class ChartThreadQueryRequest(BaseModel):
@@ -180,3 +181,29 @@ class WhatIfSimulateRequest(BaseModel):
 
 class ScratchpadQueryRequest(BaseModel):
     query: str = Field(..., max_length=20000)
+
+
+class VerifiedQueryCreateRequest(BaseModel):
+    question_pattern: str = Field(..., min_length=1, max_length=1000)
+    executed_query: str = Field(..., min_length=1, max_length=50000)
+    dax_equivalent: str = ""
+    query_dialect: str = "duckdb"
+    chart_type: str = "bar"
+    x_col: str | None = None
+    y_cols: list[str] = Field(default_factory=list)
+    color_col: str | None = None
+
+
+class VerifiedQueryUpdateRequest(BaseModel):
+    question_pattern: str | None = Field(None, min_length=1, max_length=1000)
+    executed_query: str | None = Field(None, min_length=1, max_length=50000)
+    dax_equivalent: str | None = None
+    query_dialect: str | None = None
+    chart_type: str | None = None
+    x_col: str | None = None
+    y_cols: list[str] | None = None
+    color_col: str | None = None
+
+
+class VerifiedQueryTestRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=50000)
