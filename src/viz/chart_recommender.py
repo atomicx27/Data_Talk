@@ -45,6 +45,8 @@ class ChartRecommender:
         "donut",
         "pie",
         "waterfall",
+        "rate_mix_scatter",
+        "dimension_divergence",
         "treemap",
         "sunburst",
         "heatmap",
@@ -75,33 +77,84 @@ class ChartRecommender:
     def _is_part_to_whole_share_col(col_name: str) -> bool:
         """Return True if column is a compositional share/ratio percentage that sums to 100% across a subgroup."""
         c = str(col_name).lower()
-        return c.endswith(("_ratio_pct", "_share_pct")) or c in ("ratio_pct", "share_pct", "gender_ratio_pct")
+        return (
+            c.endswith(("_ratio_pct", "_share_pct", "_ratio", "_share"))
+            or c in ("ratio_pct", "share_pct", "gender_ratio_pct", "gender_ratio", "ratio", "share")
+        )
 
     @classmethod
     def _select_preferred_metric(cls, num_cols: list[str], question: str = "") -> str:
         if not num_cols:
             return ""
+        if len(num_cols) == 1:
+            return num_cols[0]
+
+        import re
+
         q_low = (question or "").lower()
-        q_tokens = [w.strip("?,.:;()'\"") for w in q_low.split() if len(w.strip("?,.:;()'\"")) > 2]
-        business_metrics = [
-            c for c in num_cols
-            if not any(k in str(c).lower() for k in ("row_count", "total_count", "_count"))
+        wants_count = any(k in q_low for k in ("count", "headcount", "how many", "number of", "volume", "num records", "total records"))
+
+        def is_count_col(c: str) -> bool:
+            cl = str(c).lower()
+            return any(cl.endswith(p) for p in ("_count", "_cnt", "_qty", "_quantity", "_rows", "_records")) or cl in ("count", "cnt", "row_count", "total_count", "headcount", "qty", "volume")
+
+        # Universal metric concept mappings for semantic prioritization
+        KEYWORD_MAPPINGS = [
+            (("ratio", "ritio", "raio", "proportion", "share"), ("ratio", "pct", "share", "prop")),
+            (("rate", "rates"), ("rate", "pct")),
+            (("margin", "margins"), ("margin", "pct")),
+            (("grade", "grades", "mark", "marks", "score", "scores", "gpa", "cgpa"), ("mark", "grade", "score", "gpa", "cgpa")),
+            (("salary", "salaries", "compensation", "wage", "wages", "pay"), ("salary", "pay", "comp")),
+            (("revenue", "revenues", "sales", "turnover"), ("rev", "sales", "revenue")),
+            (("profit", "profits"), ("profit", "margin")),
+            (("cogs", "cost", "costs", "expense", "expenses"), ("cogs", "cost", "expense")),
+            (("fee", "fees", "tuition"), ("fee", "tuition")),
+            (("refund", "refunds"), ("refund",)),
+            (("discount", "discounts"), ("discount",)),
+            (("budget", "budgets", "expenditure"), ("budget", "expenditure")),
+            (("earnings", "earning"), ("earning", "earnings")),
         ]
-        matched_business = [
-            c for c in business_metrics
-            if any(k in str(c).lower() for k in q_tokens)
-        ]
-        if matched_business:
-            return matched_business[0]
-        if business_metrics and not any(k in q_low for k in ("count", "headcount", "how many", "number of")):
-            return business_metrics[0]
-        matched_any = [
-            c for c in num_cols
-            if any(k in str(c).lower() for k in q_tokens)
-        ]
-        if matched_any:
-            return matched_any[0]
-        return business_metrics[0] if business_metrics else num_cols[0]
+
+        scored: list[tuple[float, str]] = []
+        for idx, col in enumerate(num_cols):
+            c_str = str(col)
+            c_low = c_str.lower()
+            c_words = c_low.replace("_", " ")
+            score = 0.0
+
+            # 1. Exact phrase match: e.g. "gender ratio" in "compare the top2 colleges gender ratio..."
+            if c_words in q_low:
+                score += 150.0
+
+            # 2. Concept keyword alignment
+            for q_kws, c_kws in KEYWORD_MAPPINGS:
+                q_has = any(re.search(rf"\b{re.escape(k)}\b", q_low) for k in q_kws)
+                c_has = any(k in c_low for k in c_kws)
+                if q_has and c_has:
+                    score += 100.0
+
+            # 3. Individual token overlap
+            c_tokens = [t for t in c_low.split("_") if len(t) >= 3 and t not in ("total", "sum", "avg", "mean", "val", "all")]
+            token_matches = sum(1 for t in c_tokens if re.search(rf"\b{re.escape(t)}\b", q_low))
+            score += token_matches * 30.0
+
+            # 4. Count column handling
+            if is_count_col(col):
+                if wants_count:
+                    score += 80.0
+                else:
+                    score -= 40.0
+
+            # 5. Non-count business metric baseline boost
+            if not is_count_col(col):
+                score += 10.0
+
+            # Tie-break by original column order
+            score -= (idx * 0.01)
+            scored.append((score, col))
+
+        scored.sort(key=lambda x: -x[0])
+        return scored[0][1]
 
     @classmethod
     def recommend_chart_type(cls, df: pd.DataFrame, question: str = "") -> str:
@@ -492,7 +545,8 @@ class ChartRecommender:
         elif chosen_type == "stacked_bar":
             color_col = dim_cols[1] if len(dim_cols) >= 2 else None
             if color_col:
-                effective_barmode = "group" if is_unstackable_primary else "stack"
+                is_comp_intent = any(k in title_low for k in ("compare", "comparison", "vs", "versus", "between"))
+                effective_barmode = "group" if is_unstackable_primary or is_comp_intent else "stack"
                 fig = px.bar(
                     df,
                     x=x,
@@ -619,18 +673,65 @@ class ChartRecommender:
 
         elif chosen_type == "waterfall":
             val_col = "variance_delta" if "variance_delta" in df.columns else primary_y
+            if "period_prior" in df.columns and "period_current" in df.columns:
+                prior_tot = float(df["period_prior"].sum())
+                wf_x = ["Total Prior"] + df[x].astype(str).tolist() + ["Total Current"]
+                wf_y = [prior_tot] + df[val_col].tolist() + [0]
+                wf_measure = ["absolute"] + (["relative"] * len(df)) + ["total"]
+            else:
+                wf_x = df[x].astype(str).tolist()
+                wf_y = df[val_col].tolist()
+                wf_measure = ["relative"] * len(df)
+
             fig = go.Figure(
                 go.Waterfall(
                     name=str(val_col),
                     orientation="v",
-                    measure=["relative"] * len(df),
-                    x=df[x].astype(str).tolist(),
-                    y=df[val_col].tolist(),
+                    measure=wf_measure,
+                    x=wf_x,
+                    y=wf_y,
                     connector={"line": {"color": "#6B7280"}},
                     increasing={"marker": {"color": "#10B981"}},
                     decreasing={"marker": {"color": "#EF4444"}},
+                    totals={"marker": {"color": "#3B82F6"}},
                 )
             )
+
+        elif chosen_type == "rate_mix_scatter":
+            x_col = "mix_effect" if "mix_effect" in df.columns else x
+            y_col = "rate_effect" if "rate_effect" in df.columns else primary_y
+            seg_col = "segment" if "segment" in df.columns else x
+            fig = px.scatter(
+                df,
+                x=x_col,
+                y=y_col,
+                text=seg_col,
+                color="total_segment_impact" if "total_segment_impact" in df.columns else None,
+                color_continuous_scale="RdYlGn",
+                labels={
+                    x_col: "Mix Shift Effect (Volume/Share Shift)",
+                    y_col: "Rate Effect (Intrinsic Behavior)",
+                },
+            )
+            fig.update_traces(textposition="top center", marker=dict(size=12))
+            fig.add_hline(y=0, line_dash="dash", line_color="#9CA3AF")
+            fig.add_vline(x=0, line_dash="dash", line_color="#9CA3AF")
+
+        elif chosen_type == "dimension_divergence":
+            y_col = "segment" if "segment" in df.columns else x
+            x_col = "explanatory_score" if "explanatory_score" in df.columns else primary_y
+            sorted_df = df.sort_values(x_col, ascending=True)
+            fig = px.bar(
+                sorted_df,
+                x=x_col,
+                y=y_col,
+                orientation="h",
+                text=x_col,
+                color=x_col,
+                color_continuous_scale="Blues",
+                labels={x_col: "Explanatory Score (%)", y_col: "Dimension"},
+            )
+            fig.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
 
         elif chosen_type == "treemap":
             fig = px.treemap(

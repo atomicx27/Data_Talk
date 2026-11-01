@@ -7,6 +7,7 @@ from typing import Annotated, Any
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 
+from src.agents.query_agent import QueryResponse
 from src.agents.root_cause_agent import RootCauseAgent
 from src.api.deps import get_runtime, get_session
 from src.api.runtime import AppRuntime, SessionState
@@ -23,6 +24,17 @@ from src.viz.chart_recommender import ChartRecommender
 router = APIRouter(tags=["Dashboard"])
 
 
+@router.get("/api/root-cause/options")
+def get_root_cause_options(
+    runtime: Annotated[AppRuntime, Depends(get_runtime)],
+    session: Annotated[SessionState, Depends(get_session)],
+) -> dict[str, Any]:
+    ws_id = session.active_workspace_id
+    ws = runtime.get_workspace(ws_id)
+    conn = runtime.get_connector(ws_id)
+    return RootCauseAgent.discover_options(workspace=ws, connector=conn)
+
+
 @router.post("/api/root-cause")
 def run_root_cause_analysis(
     req: RootCauseRequest,
@@ -37,19 +49,84 @@ def run_root_cause_analysis(
         connector=conn,
         metric_col=req.metric_col,
         dimension=req.dimension,
+        algorithm=req.algorithm,
+        window_type=req.window_type,
+        date_col=req.date_col,
+        t0_start=req.t0_start,
+        t0_end=req.t0_end,
+        t1_start=req.t1_start,
+        t1_end=req.t1_end,
     )
     rc_df: pd.DataFrame = res["df"]
-    fig_wf = ChartRecommender.build_figure(
-        rc_df,
-        chart_type="waterfall",
-        title=f"Period-over-Period Variance of {req.metric_col} by {req.dimension}",
-        x_col="segment",
+    chart_type = res.get("chart_type", "waterfall")
+    dim_title = req.dimension if req.dimension else "All Dimensions"
+    title = f"Diagnostic Decomposition: {req.metric_col} by {dim_title}"
+
+    fig = None
+    if not rc_df.empty:
+        try:
+            fig = ChartRecommender.build_figure(
+                rc_df,
+                chart_type=chart_type,
+                title=title,
+                x_col="segment",
+            )
+        except Exception:
+            fig = None
+
+    audit = res.get("audit_receipt", {})
+    executed_sql = audit.get("executed_sql", "")
+    formula = audit.get("formula_latex", "")
+
+    # Build structured QueryResponse for Conversational BI chat stream
+    user_q = f"Explain variance in {req.metric_col} by {dim_title}"
+    if req.window_type == "custom" and req.t0_start and req.t1_end:
+        user_q += f" ({req.t0_start}..{req.t0_end} vs {req.t1_start}..{req.t1_end})"
+    else:
+        user_q += f" ({req.window_type.replace('_', ' ').title()})"
+
+    query_resp = QueryResponse(
+        user_question=user_q,
+        resolved_question=title,
+        success=True,
+        executed_query=executed_sql,
+        compiled_dax_equivalent=formula,
+        compiler_mode="deterministic",
+        compiler_detail=audit.get("algorithm", "Diagnostic Decomposition Engine"),
+        executive_summary=res["summary"],
+        recommended_chart_type=chart_type,
+        suggested_follow_ups=res.get("suggested_followups", []),
+        involved_tables=list(audit.get("tables_used", [])),
+        drill_down_dimensions=[],
     )
-    return {
-        "summary": res["summary"],
+
+    history = session.chat_history.setdefault(ws_id, [])
+    chat_entry = {
+        "id": f"rc_{len(history) + 1}",
+        "response": query_resp.model_dump(mode="json"),
         "rows": rc_df.to_dict(orient="records") if not rc_df.empty else [],
         "columns": [str(c) for c in rc_df.columns],
-        "plotly_spec": fig_to_json(fig_wf),
+        "row_count": len(rc_df),
+        "chart_type": chart_type,
+        "plotly_spec": fig_to_json(fig) if fig else None,
+        "thread": [],
+    }
+    chat_entry["response"]["is_diagnostic"] = True
+    chat_entry["response"]["kpi_ribbon"] = res.get("kpi_ribbon", {})
+    chat_entry["response"]["audit_receipt"] = audit
+    history.append(chat_entry)
+
+    return {
+        "entry": chat_entry,
+        "state": runtime.serialize_state(session),
+        "summary": res["summary"],
+        "rows": chat_entry["rows"],
+        "columns": chat_entry["columns"],
+        "chart_type": chart_type,
+        "plotly_spec": chat_entry["plotly_spec"],
+        "kpi_ribbon": res.get("kpi_ribbon", {}),
+        "audit_receipt": audit,
+        "suggested_followups": res.get("suggested_followups", []),
     }
 
 

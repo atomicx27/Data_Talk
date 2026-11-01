@@ -48,6 +48,7 @@
     <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
     <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M6.3 17.7l-1.4 1.4M19.1 4.9l-1.4 1.4"/></symbol>
     <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9z"/></symbol>
+    <symbol id="i-external-link" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></symbol>
     <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9z"/></symbol>
     <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></symbol>
     <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
@@ -303,6 +304,13 @@
                 </button>
               </form>
               <div class="composer-hint">
+                <div class="response-mode-group" id="mainChatModeGroup" role="radiogroup" aria-label="Main chat response format">
+                  <span style="font-size:11px; color:var(--text-muted); font-weight:600;">Format:</span>
+                  <button type="button" class="mode-pill active" data-mode="auto" title="Default: intelligent visual or text">✨ Auto</button>
+                  <button type="button" class="mode-pill" data-mode="text_only" title="Return text insight without generating a chart">💬 Text Only</button>
+                  <button type="button" class="mode-pill" data-mode="with_chart" title="Always generate an interactive visual chart">📊 With Chart</button>
+                </div>
+                <input type="hidden" id="mainChatResponseMode" value="auto" />
                 <span><kbd class="kbd">Enter</kbd> to send · <kbd class="kbd">Shift</kbd>+<kbd class="kbd">Enter</kbd> new line</span>
                 <span class="hide-sm">Answers are compiled to verified, read-only SQL</span>
               </div>
@@ -1078,6 +1086,65 @@ ORDER BY net_revenue DESC;</textarea>
         </button>
       </div>
     </form>
+  </dialog>
+
+  <!-- ==================== MODAL: SPLIT-VIEW CHART THREAD STUDIO ==================== -->
+  <dialog id="chartThreadDialog" closedby="any" aria-labelledby="splitThreadModalTitle" class="modal-dialog modal-split-thread">
+    <div class="modal-header">
+      <div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span class="chat-q-avatar" style="background:rgba(59,130,246,0.16); color:var(--accent-primary);"><svg class="icon" style="width:14px;height:14px"><use href="#i-chat"/></svg></span>
+          <h2 id="splitThreadModalTitle" class="modal-title">Chart Deep-Dive Thread</h2>
+        </div>
+        <p class="modal-subtitle">Ask focused questions on this visual's data or drill down into the warehouse — in text or with sub-charts.</p>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <button type="button" class="btn btn-secondary btn-xs" id="splitModalOpenTabBtn" title="Open this chart & thread in a full-screen Studio tab or window">
+          <svg class="icon" style="width:12px;height:12px;"><use href="#i-external-link"/></svg> Open in New Tab
+        </button>
+        <form method="dialog">
+          <button type="submit" class="btn btn-ghost btn-icon-only" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+        </form>
+      </div>
+    </div>
+    <div class="split-thread-layout">
+      <!-- Left Pane: Pinned Visual & Data Context -->
+      <div class="split-thread-left">
+        <div id="splitThreadSummary" class="chat-summary-text" style="font-size:13px; margin-bottom:10px;"></div>
+        <div id="splitThreadPlotBox" class="chart-box" style="min-height:320px;"></div>
+        <div id="splitThreadTableWrap" style="margin-top:12px;"></div>
+      </div>
+
+      <!-- Right Pane: Interactive Q&A Thread -->
+      <div class="split-thread-right">
+        <div id="splitThreadStarterChips" class="thread-starter-chips"></div>
+        <div id="splitThreadMessages" class="chart-thread-stream split-stream"></div>
+        <form id="splitThreadForm" class="chart-thread-composer">
+          <div class="thread-composer-top">
+            <div class="response-mode-group" id="splitThreadModeGroup" role="radiogroup" aria-label="Thread answer format">
+              <span style="font-size:11px; color:var(--text-muted); font-weight:600;">Answer:</span>
+              <button type="button" class="mode-pill active" data-mode="text_only" title="Default: concise text answer without extra charts">💬 Text Only</button>
+              <button type="button" class="mode-pill" data-mode="auto" title="Smart Auto: text for insights, chart for new breakdowns">✨ Auto</button>
+              <button type="button" class="mode-pill" data-mode="with_chart" title="Generate a visual chart for this answer">📊 With Chart</button>
+            </div>
+            <input type="hidden" id="splitThreadResponseMode" value="text_only" />
+          </div>
+          <div class="thread-composer-input-row">
+            <input
+              id="splitThreadInput"
+              type="text"
+              class="input-text"
+              placeholder="Ask about this chart (e.g., 'Compare top 2 segments', 'Which are above average?')…"
+              autocomplete="off"
+              required
+            />
+            <button type="submit" id="splitThreadSendBtn" class="btn btn-primary btn-sm">
+              <svg class="icon" style="width:14px;height:14px"><use href="#i-send"/></svg> Ask
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   </dialog>
 
   <!-- Ingestion Loading Progress Modal Overlay -->

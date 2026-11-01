@@ -848,24 +848,33 @@ def render_chat_view(
     # Root-Cause "Why Did X Change?" Decomposition Analyzer
     if workspace.active_tables():
         st.divider()
-        with st.expander("📉 Power BI-Style 'Why Did It Change?' Root-Cause Variance Decomposition"):
-            rc1, rc2, rc3 = st.columns([1, 1, 1])
+        with st.expander("📉 Dynamic 'Why Did It Change?' Root-Cause Variance Decomposition"):
+            rc_options = RootCauseAgent.discover_options(workspace, connector)
+            metric_choices = [m["column"] for m in rc_options.get("metrics", [])] or ["rev_net_usd", "profit_usd"]
+            dim_choices = [d["id"] for d in rc_options.get("dimensions", [])] or ["category", "region"]
+            algo_choices = ["Additive Waterfall (Totals)", "Rate vs. Mix Shift (Simpson's Paradox)", "Auto-Scan All Dimensions"]
+
+            rc1, rc2, rc3, rc4 = st.columns([1, 1, 1, 1])
             with rc1:
-                rc_metric = st.selectbox("Target Metric", ["rev_net_usd", "profit_usd", "rev_gross_lcy"])
+                rc_metric = st.selectbox("Target Metric", metric_choices)
             with rc2:
-                rc_dim = st.selectbox("Drill-Down Dimension", ["category", "region", "customer_tier", "sales_channel"])
+                rc_dim = st.selectbox("Dimension", dim_choices)
             with rc3:
-                run_rc = st.button("🔍 Explain Period-over-Period Variance", use_container_width=True)
+                rc_algo_choice = st.selectbox("Algorithm", algo_choices)
+            with rc4:
+                run_rc = st.button("🔍 Run Diagnostic", use_container_width=True)
 
             if run_rc:
-                rc_res = RootCauseAgent.analyze_variance(workspace, connector, metric_col=rc_metric, dimension=rc_dim)
+                algo_id = "additive" if "Additive" in rc_algo_choice else ("rate_mix" if "Rate" in rc_algo_choice else "auto_scan")
+                rc_res = RootCauseAgent.analyze_variance(workspace, connector, metric_col=rc_metric, dimension=rc_dim, algorithm=algo_id)
                 st.markdown(rc_res["summary"])
                 rc_df: pd.DataFrame = rc_res["df"]
+                chart_type = rc_res.get("chart_type", "waterfall")
                 if not rc_df.empty:
                     fig_wf = ChartRecommender.build_figure(
                         rc_df,
-                        chart_type="waterfall",
-                        title=f"Variance Breakdown of {rc_metric} by {rc_dim}",
+                        chart_type=chart_type,
+                        title=f"Diagnostic Variance Breakdown of {rc_metric}",
                         x_col="segment",
                     )
                     if fig_wf:

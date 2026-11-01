@@ -296,6 +296,50 @@ def test_non_additive_avg_salary_across_years_and_colleges_never_stacks():
     assert fig_bar.layout.barmode == "group"
 
 
+def test_universal_metric_selection_and_thread_table_scope():
+    """Verify universal metric selection prioritizes asked metrics (not auxiliary counts) and threads honor table scope."""
+    from src.viz.chart_recommender import ChartRecommender
+    from src.agents.query_agent import QueryAgent
+
+    # 1. Gender Ratio must be selected over gender_cnt when ratio is asked
+    cols1 = ["gender_cnt", "gender_ratio"]
+    chosen1 = ChartRecommender._select_preferred_metric(cols1, "compare the top2 colleges gender ratio who have the highest grades")
+    assert chosen1 == "gender_ratio"
+
+    # 2. Revenue must be selected over order_count when revenue is asked
+    cols2 = ["order_count", "total_revenue_usd", "total_orders"]
+    chosen2 = ChartRecommender._select_preferred_metric(cols2, "show monthly revenue trend")
+    assert chosen2 == "total_revenue_usd"
+
+    # 3. Margin % must be selected over row_count or sales
+    cols3 = ["row_count", "sales_volume", "margin_pct"]
+    chosen3 = ChartRecommender._select_preferred_metric(cols3, "which category has the highest margin?")
+    assert chosen3 == "margin_pct"
+
+    # 4. Count must be selected only when explicitly asked
+    cols4 = ["student_count", "avg_marks"]
+    chosen4 = ChartRecommender._select_preferred_metric(cols4, "how many students are in each college?")
+    assert chosen4 == "student_count"
+
+    # 5. Chart thread data scope notice when asked metric (grades) is absent from ready table
+    df_ready = pd.DataFrame([
+        {"college_name": "College of Engineering", "gender": "Female", "gender_cnt": 555, "gender_ratio": 0.33},
+        {"college_name": "College of Engineering", "gender": "Male", "gender_cnt": 566, "gender_ratio": 0.34},
+        {"college_name": "College of Business", "gender": "Female", "gender_cnt": 516, "gender_ratio": 0.33},
+        {"college_name": "College of Business", "gender": "Male", "gender_cnt": 503, "gender_ratio": 0.32},
+    ])
+    answer_md, _, _ = QueryAgent._analyze_chart_dataframe(
+        question="compare top2 colleges gender ratio who have the most highest grades",
+        parent_df=df_ready,
+    )
+    # Must display scope advisory notice explaining grades are not in the table
+    assert "> ℹ️ **Table Scope Notice:**" in answer_md
+    assert "does **not contain `Grades`**" in answer_md
+    # Must answer using the ready table's actual Gender Ratio
+    assert "Gender Ratio" in answer_md
+
+
+
 
 
 

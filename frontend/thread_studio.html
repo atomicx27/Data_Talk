@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chart Thread Studio — Data_Talk</title>
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem('dt-theme');
+        if (!t) t = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', t);
+      } catch (_) {}
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <link rel="stylesheet" href="/static/styles.css?v=2.0.4" />
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+      background: var(--bg-body);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+    }
+    .studio-app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      width: 100vw;
+    }
+    .studio-topbar {
+      height: 54px;
+      flex-shrink: 0;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 20px;
+      gap: 16px;
+    }
+    .studio-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .studio-logo-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: var(--radius-sm);
+      background: rgba(59, 130, 246, 0.15);
+      color: var(--accent-primary, #3b82f6);
+      font-weight: 700;
+      font-size: 13px;
+    }
+    .studio-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 600px;
+    }
+    .studio-top-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .studio-grid {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      height: calc(100vh - 54px);
+      overflow: hidden;
+    }
+    @media (max-width: 1024px) {
+      .studio-grid {
+        grid-template-columns: 1fr;
+        overflow-y: auto;
+      }
+    }
+    .studio-left-pane {
+      height: 100%;
+      overflow-y: auto;
+      padding: 24px;
+      border-right: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .studio-right-pane {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: var(--bg-surface);
+    }
+    .studio-thread-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .studio-thread-stream {
+      flex: 1;
+      overflow-y: auto;
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .studio-composer-area {
+      padding: 14px 20px;
+      border-top: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+      background: var(--bg-surface);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .studio-plot-box {
+      min-height: 420px;
+      width: 100%;
+      border-radius: var(--radius-md);
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+      padding: 8px;
+    }
+    .table-responsive {
+      max-height: 280px;
+      overflow: auto;
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+    }
+  </style>
+</head>
+<body>
+  <div class="studio-app">
+    <!-- Top Bar -->
+    <header class="studio-topbar">
+      <div class="studio-brand">
+        <span class="studio-logo-badge">
+          <svg style="width:14px;height:14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          Chart Thread Studio
+        </span>
+        <span class="studio-title" id="studioTopQuestion">Loading visual...</span>
+      </div>
+      <div class="studio-top-actions">
+        <button type="button" class="btn btn-secondary btn-xs" id="studioCopySqlBtn" title="Copy SQL">
+          <svg style="width:12px;height:12px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          Copy SQL
+        </button>
+        <button type="button" class="btn btn-secondary btn-xs" id="studioExportCsvBtn" title="Download CSV">
+          <svg style="width:12px;height:12px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>
+          CSV
+        </button>
+        <button type="button" class="btn btn-ghost btn-xs" id="studioThemeToggle" title="Toggle Dark/Light Theme">🌓</button>
+        <button type="button" class="btn btn-ghost btn-xs" id="studioCloseBtn" title="Close this Studio window">✕ Close</button>
+      </div>
+    </header>
+
+    <!-- Main 2-Pane Full-Screen Grid -->
+    <main class="studio-grid">
+      <!-- Left Pane: Chart & Underlying Data -->
+      <section class="studio-left-pane">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+          <h2 id="studioVisualTitle" style="font-size:17px; font-weight:700; margin:0; color:var(--text-primary);">...</h2>
+          <div id="studioBadgesRow" style="display:flex; gap:6px; align-items:center;"></div>
+        </div>
+
+        <div id="studioSummaryBox" class="chat-summary-text" style="font-size:13.5px; line-height:1.6; padding:12px 14px; background:var(--bg-surface); border-radius:var(--radius-sm); border:1px solid var(--border-subtle);"></div>
+
+        <div id="studioPlotBox" class="studio-plot-box"></div>
+
+        <div id="studioTableWrapper">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <strong style="font-size:13px; color:var(--text-secondary);" id="studioTableRowCount">Underlying Data</strong>
+            <input type="text" id="studioTableSearch" class="input-text input-sm" style="width:200px;" placeholder="🔍 Search table..." />
+          </div>
+          <div class="table-responsive" id="studioTableContainer"></div>
+        </div>
+      </section>
+
+      <!-- Right Pane: Dedicated Thread Q&A Stream -->
+      <section class="studio-right-pane">
+        <div class="studio-thread-header">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <strong style="font-size:14px; color:var(--text-primary);">Discussion Thread</strong>
+            <span class="meta-chip meta-chip-accent" id="studioThreadCountBadge">0 turns</span>
+          </div>
+
+          <div class="response-mode-group" id="studioModeGroup" role="radiogroup">
+            <span style="font-size:11px; color:var(--text-muted); font-weight:600;">Answer:</span>
+            <button type="button" class="mode-pill active" data-mode="text_only">💬 Text Only</button>
+            <button type="button" class="mode-pill" data-mode="auto">✨ Auto</button>
+            <button type="button" class="mode-pill" data-mode="with_chart">📊 With Chart</button>
+          </div>
+        </div>
+
+        <div id="studioStarterChips" class="thread-starter-chips" style="padding:10px 20px; border-bottom:1px solid var(--border-subtle);"></div>
+
+        <div class="studio-thread-stream" id="studioThreadStream">
+          <div class="thread-empty-state">
+            💬 Ask any question about this visual's ready data or drill down further into the warehouse.
+            Answers default to <strong>concise text</strong> unless you toggle <strong>With Chart</strong>.
+          </div>
+        </div>
+
+        <form class="studio-composer-area" id="studioThreadForm">
+          <div class="thread-composer-input-row">
+            <input
+              type="text"
+              class="input-text"
+              id="studioThreadInput"
+              placeholder="Ask about this chart (e.g. 'Compare top 2', 'Which segments are above average?')…"
+              autocomplete="off"
+              required
+            />
+            <button type="submit" class="btn btn-primary btn-sm" id="studioSendBtn">
+              <svg style="width:13px;height:13px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m5 12 7-7 7 7M12 19V5"/></svg>
+              Ask
+            </button>
+          </div>
+          <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--text-muted);">
+            <span>Press <kbd style="padding:1px 4px; border:1px solid var(--border-subtle); border-radius:3px;">Enter</kbd> to ask</span>
+            <span id="studioSyncStatus">● Synced with Dashboard</span>
+          </div>
+        </form>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const ENTRY_IDX = parseInt(urlParams.get('idx') || '0', 10);
+    let CURRENT_ENTRY = null;
+    let CURRENT_MODE = 'text_only';
+
+    function escapeHtml(str) {
+      return String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function formatMarkdownBold(text) {
+      if (!text) return '';
+      let html = escapeHtml(text)
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+        .replace(/`([^`]+)`/g, '<code class="mono">$1</code>');
+      html = html.replace(/^### (.+)$/gm, '<h4 style="margin:12px 0 6px 0; font-size:13.5px; color:var(--text-primary); font-weight:700;">$1</h4>');
+      html = html.replace(/^\s*-\s+(.+)$/gm, '<li style="margin-left:16px; margin-bottom:4px; font-size:12.5px; line-height:1.5;">$1</li>');
+      html = html.replace(/(<li.*<\/li>\n?)+/g, '<ul style="margin:6px 0; padding-left:4px;">$&</ul>');
+      html = html.replace(/\n\n+/g, '<div style="margin:8px 0;"></div>');
+      html = html.replace(/\n/g, '<br/>');
+      return html;
+    }
+
+    function applyPlotlyThemeLayout(baseLayout) {
+      const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+      const layout = JSON.parse(JSON.stringify(baseLayout || {}));
+      layout.paper_bgcolor = 'transparent';
+      layout.plot_bgcolor = 'transparent';
+      layout.font = { family: 'Inter, system-ui, sans-serif', color: isDark ? '#e2e8f0' : '#0f172a', size: 12 };
+      layout.autosize = true;
+      if (layout.xaxis) {
+        layout.xaxis.gridcolor = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)';
+        layout.xaxis.zerolinecolor = layout.xaxis.gridcolor;
+      }
+      if (layout.yaxis) {
+        layout.yaxis.gridcolor = isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)';
+        layout.yaxis.zerolinecolor = layout.yaxis.gridcolor;
+      }
+      return layout;
+    }
+
+    async function loadStudioData() {
+      // 1. Try accessing from window.opener first for zero latency
+      if (window.opener && window.opener.APP_STATE && window.opener.APP_STATE.chat_history) {
+        const hist = window.opener.APP_STATE.chat_history;
+        if (hist[ENTRY_IDX]) {
+          CURRENT_ENTRY = hist[ENTRY_IDX];
+          renderStudioView();
+          return;
+        }
+      }
+
+      // 2. Fallback to API
+      try {
+        const res = await fetch('/api/system/state', { credentials: 'include' });
+        if (res.ok) {
+          const state = await res.json();
+          const hist = state.chat_history || [];
+          CURRENT_ENTRY = hist[ENTRY_IDX] || hist[0];
+          renderStudioView();
+        }
+      } catch (err) {
+        console.error('Failed to load state for studio:', err);
+      }
+    }
+
+    function renderStudioView() {
+      if (!CURRENT_ENTRY) return;
+      const resp = CURRENT_ENTRY.response || {};
+      const qText = resp.user_question || 'Chart Discussion Thread';
+
+      document.getElementById('studioTopQuestion').textContent = qText;
+      document.getElementById('studioVisualTitle').textContent = qText;
+      document.getElementById('studioSummaryBox').innerHTML = formatMarkdownBold(resp.executive_summary || '');
+
+      // Badges
+      const badgesEl = document.getElementById('studioBadgesRow');
+      badgesEl.innerHTML = `
+        <span class="meta-chip meta-chip-accent">${escapeHtml(resp.compiler_detail || 'Compiler')}</span>
+        ${(resp.involved_tables || []).map(t => `<span class="meta-chip">${escapeHtml(t)}</span>`).join('')}
+      `;
+
+      // Plot
+      const plotEl = document.getElementById('studioPlotBox');
+      if (CURRENT_ENTRY.plotly_spec && window.Plotly) {
+        const themed = applyPlotlyThemeLayout(CURRENT_ENTRY.plotly_spec.layout);
+        if (themed.title) themed.title = { text: '' };
+        themed.height = 430;
+        window.Plotly.react(plotEl, CURRENT_ENTRY.plotly_spec.data, themed, { responsive: true, displayModeBar: false });
+      }
+
+      // Table
+      renderStudioTable();
+
+      // Thread
+      renderStudioThread();
+    }
+
+    function renderStudioTable() {
+      const rows = CURRENT_ENTRY?.rows || [];
+      const cols = CURRENT_ENTRY?.columns || (rows[0] ? Object.keys(rows[0]) : []);
+      const countEl = document.getElementById('studioTableRowCount');
+      countEl.textContent = `Underlying Data (${rows.length} rows)`;
+
+      const container = document.getElementById('studioTableContainer');
+      if (!cols.length || !rows.length) {
+        container.innerHTML = '<div style="padding:16px; color:var(--text-muted); font-size:12px;">No rows available.</div>';
+        return;
+      }
+
+      const rowsHtml = rows.slice(0, 30).map(r => `
+        <tr>
+          ${cols.map(c => `<td class="mono">${escapeHtml(r[c] !== null && r[c] !== undefined ? r[c] : '—')}</td>`).join('')}
+        </tr>
+      `).join('');
+
+      container.innerHTML = `
+        <table class="data-table" id="studioDataTable">
+          <thead>
+            <tr>${cols.map(c => `<th>${escapeHtml(c.replace(/_/g, ' ').toUpperCase())}</th>`).join('')}</tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      `;
+    }
+
+    function renderStudioThread() {
+      const threadList = CURRENT_ENTRY?.thread || [];
+      const countBadge = document.getElementById('studioThreadCountBadge');
+      countBadge.textContent = `${threadList.length} ${threadList.length === 1 ? 'turn' : 'turns'}`;
+
+      // Starter chips
+      const chipsEl = document.getElementById('studioStarterChips');
+      const rows = CURRENT_ENTRY?.rows || [];
+      const cols = CURRENT_ENTRY?.columns || [];
+      const dimCol = cols.find(c => typeof rows?.[0]?.[c] === 'string') || cols[0] || 'segment';
+      const s1 = rows?.[0]?.[dimCol] ? String(rows[0][dimCol]).trim() : '';
+      const s2 = rows?.[1]?.[dimCol] ? String(rows[1][dimCol]).trim() : '';
+
+      const starters = ['Summarize key takeaways from this chart'];
+      if (s1 && s2 && s1 !== s2) starters.push(`What is the difference between ${s1} and ${s2}?`);
+      starters.push('Which segments are above average?');
+      if (s1) starters.push(`What percentage share does ${s1} represent?`);
+
+      chipsEl.innerHTML = starters.map(s => `
+        <button type="button" class="thread-chip" data-prompt="${escapeHtml(s)}">💡 ${escapeHtml(s)}</button>
+      `).join('');
+
+      chipsEl.querySelectorAll('.thread-chip').forEach(btn => {
+        btn.addEventListener('click', () => {
+          submitStudioQuestion(btn.dataset.prompt);
+        });
+      });
+
+      // Stream
+      const streamEl = document.getElementById('studioThreadStream');
+      if (!threadList.length) {
+        streamEl.innerHTML = `
+          <div class="thread-empty-state">
+            💬 Ask any question about this visual's ready data or drill down further into the warehouse.
+            Answers default to <strong>concise text</strong> unless you toggle <strong>With Chart</strong>.
+          </div>
+        `;
+        return;
+      }
+
+      streamEl.innerHTML = threadList.map((turn, tIdx) => {
+        const isSql = turn.source_mode === 'sql_query';
+        const sourceBadge = isSql
+          ? `<span class="meta-chip" style="background:rgba(16,185,129,0.14); color:#10b981; border:1px solid rgba(16,185,129,0.3); font-size:10px;">⚡ Warehouse SQL Drill-Down</span>`
+          : `<span class="meta-chip" style="background:rgba(59,130,246,0.14); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); font-size:10px;">📊 Direct Chart Analysis</span>`;
+        const modeBadge = turn.include_chart
+          ? `<span class="meta-chip" style="font-size:10px;">📊 Visual</span>`
+          : `<span class="meta-chip" style="font-size:10px;">💬 Text Only</span>`;
+        const subPlotHtml = turn.include_chart && turn.plotly_spec
+          ? `<div id="studio_sub_${tIdx}" class="thread-subchart-box"></div>`
+          : '';
+
+        return `
+          <div class="thread-turn">
+            <div class="thread-q-row">
+              <span>Q: ${escapeHtml(turn.question || '')}</span>
+              <div style="display:flex; gap:4px; align-items:center;">
+                ${sourceBadge}
+                ${modeBadge}
+              </div>
+            </div>
+            <div class="thread-a-body">${formatMarkdownBold(turn.answer || '')}</div>
+            ${subPlotHtml}
+          </div>
+        `;
+      }).join('');
+
+      // Render Sub-charts
+      threadList.forEach((turn, tIdx) => {
+        if (!turn.include_chart || !turn.plotly_spec || !window.Plotly) return;
+        const subEl = document.getElementById(`studio_sub_${tIdx}`);
+        if (subEl) {
+          const themed = applyPlotlyThemeLayout(turn.plotly_spec.layout);
+          themed.height = 240;
+          if (themed.title) themed.title = { text: '' };
+          window.Plotly.react(subEl, turn.plotly_spec.data, themed, { responsive: true, displayModeBar: false });
+        }
+      });
+
+      streamEl.scrollTop = streamEl.scrollHeight;
+    }
+
+    async function submitStudioQuestion(qText) {
+      const trimmed = (qText || '').trim();
+      if (!trimmed) return;
+
+      const sendBtn = document.getElementById('studioSendBtn');
+      const inputEl = document.getElementById('studioThreadInput');
+      sendBtn.disabled = true;
+
+      // Optimistic loading bubble
+      const streamEl = document.getElementById('studioThreadStream');
+      const emptyState = streamEl.querySelector('.thread-empty-state');
+      if (emptyState) emptyState.remove();
+
+      const loadingDiv = document.createElement('div');
+      loadingDiv.className = 'thread-turn';
+      loadingDiv.innerHTML = `
+        <div class="thread-q-row"><span>Q: ${escapeHtml(trimmed)}</span></div>
+        <div class="thread-a-body"><span class="meta-chip meta-chip-accent">Analyzing chart data…</span></div>
+      `;
+      streamEl.appendChild(loadingDiv);
+      streamEl.scrollTop = streamEl.scrollHeight;
+
+      try {
+        const res = await fetch('/api/chat/thread', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            entry_index: ENTRY_IDX,
+            question: trimmed,
+            response_mode: CURRENT_MODE,
+          }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        CURRENT_ENTRY = data.entry;
+        renderStudioThread();
+
+        // Sync with dashboard in main window if open
+        if (window.opener) {
+          if (window.opener.APP_STATE) {
+            window.opener.APP_STATE.chat_history[ENTRY_IDX] = data.entry;
+          }
+          if (typeof window.opener.renderChatView === 'function') {
+            window.opener.renderChatView();
+          }
+        }
+      } catch (err) {
+        loadingDiv.innerHTML = `<div style="color:var(--text-danger, #ef4444); font-size:12px;">Thread error: ${escapeHtml(err.message)}</div>`;
+      } finally {
+        sendBtn.disabled = false;
+        if (inputEl) {
+          inputEl.value = '';
+          inputEl.focus();
+        }
+      }
+    }
+
+    // Event Listeners
+    document.addEventListener('DOMContentLoaded', () => {
+      loadStudioData();
+
+      // Mode pills
+      document.querySelectorAll('#studioModeGroup .mode-pill').forEach(pill => {
+        pill.addEventListener('click', () => {
+          CURRENT_MODE = pill.dataset.mode;
+          document.querySelectorAll('#studioModeGroup .mode-pill').forEach(p => p.classList.toggle('active', p === pill));
+        });
+      });
+
+      // Submit Form
+      document.getElementById('studioThreadForm')?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const inputEl = document.getElementById('studioThreadInput');
+        submitStudioQuestion(inputEl?.value || '');
+      });
+
+      // Table Search
+      document.getElementById('studioTableSearch')?.addEventListener('input', (e) => {
+        const query = e.target.value.toLowerCase().trim();
+        const rows = document.querySelectorAll('#studioDataTable tbody tr');
+        rows.forEach(tr => {
+          const text = tr.innerText.toLowerCase();
+          tr.style.display = (!query || text.includes(query)) ? '' : 'none';
+        });
+      });
+
+      // Copy SQL
+      document.getElementById('studioCopySqlBtn')?.addEventListener('click', () => {
+        const sql = CURRENT_ENTRY?.response?.executed_query || '';
+        if (sql) {
+          navigator.clipboard.writeText(sql);
+          alert('Copied executed SQL to clipboard!');
+        }
+      });
+
+      // Export CSV
+      document.getElementById('studioExportCsvBtn')?.addEventListener('click', () => {
+        const rows = CURRENT_ENTRY?.rows || [];
+        const cols = CURRENT_ENTRY?.columns || (rows[0] ? Object.keys(rows[0]) : []);
+        if (!rows.length) return;
+        const csv = [cols.join(','), ...rows.map(r => cols.map(c => `"${String(r[c] ?? '').replace(/"/g, '""')}"`).join(','))].join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `chart_data_${Date.now()}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      });
+
+      // Theme toggle
+      document.getElementById('studioThemeToggle')?.addEventListener('click', () => {
+        const cur = document.documentElement.getAttribute('data-theme') || 'dark';
+        const next = cur === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', next);
+        localStorage.setItem('dt-theme', next);
+        if (CURRENT_ENTRY && CURRENT_ENTRY.plotly_spec) {
+          const plotEl = document.getElementById('studioPlotBox');
+          const themed = applyPlotlyThemeLayout(CURRENT_ENTRY.plotly_spec.layout);
+          if (themed.title) themed.title = { text: '' };
+          themed.height = 430;
+          window.Plotly.react(plotEl, CURRENT_ENTRY.plotly_spec.data, themed, { responsive: true, displayModeBar: false });
+        }
+      });
+
+      // Close Window
+      document.getElementById('studioCloseBtn')?.addEventListener('click', () => {
+        window.close();
+      });
+    });
+  </script>
+</body>
+</html>

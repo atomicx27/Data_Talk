@@ -154,4 +154,16 @@ def create_app(
             return JSONResponse({"status": "healthy", "message": "Frontend not found"})
         return FileResponse(str(index_file))
 
+    # Dedicated Full-Page Chart Thread Studio route (opens in new tab/window)
+    @app.get("/thread-studio")
+    def serve_thread_studio(request: Request, idx: int = 0) -> Response:
+        if authenticator.config.token_mode:
+            sid = authenticator.resolve_session_id(request)
+            if not sid:
+                return HTMLResponse(LOGIN_PAGE_HTML.replace("__ERROR__", ""))
+        studio_file = FRONTEND_DIR / "thread_studio.html"
+        if not studio_file.exists():
+            return RedirectResponse(url=f"/?thread_idx={idx}")
+        return FileResponse(str(studio_file))
+
     return app

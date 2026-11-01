@@ -1669,8 +1669,93 @@ function renderMeasuresView() {
 }
 
 // ============================================================================
-// 8. VIEW: ASK DATA (CONVERSATIONAL BI & ROOT-CAUSE STUDIO)
+// 8. VIEW: ASK DATA (CONVERSATIONAL BI, ROOT-CAUSE & CHART THREAD STUDIO)
 // ============================================================================
+const OPEN_THREAD_CARD_INDICES = new Set();
+const CARD_THREAD_MODES = {};
+let ACTIVE_SPLIT_THREAD_IDX = null;
+
+function getCardThreadStarterPrompts(entry) {
+  const cols = entry?.columns || [];
+  const rows = entry?.rows || [];
+  const dimCol = cols.find((c) => typeof rows?.[0]?.[c] === 'string') || cols[0] || 'segment';
+  const seg1 = rows?.[0]?.[dimCol] ? String(rows[0][dimCol]).trim() : '';
+  const seg2 = rows?.[1]?.[dimCol] ? String(rows[1][dimCol]).trim() : '';
+
+  const starters = ['Summarize key takeaways from this chart'];
+  if (seg1 && seg2 && seg1 !== seg2) {
+    starters.push(`What is the difference between ${seg1} and ${seg2}?`);
+  } else {
+    starters.push('Compare top vs bottom segment');
+  }
+  starters.push('Which segments are above average?');
+  if (seg1) {
+    starters.push(`What percentage share does ${seg1} represent?`);
+  } else {
+    starters.push('Which segment is lowest and why?');
+  }
+  return starters;
+}
+
+function renderThreadTurnsHtml(threadList, cardIdx, prefix = 'inline') {
+  if (!threadList || !threadList.length) {
+    return `
+      <div class="thread-empty-state">
+        💬 Ask any question about this visual's numbers, compare specific bars/segments, or drill down further.
+        By default, answers are returned in <strong>concise text</strong> unless you toggle <strong>With Chart</strong>.
+      </div>
+    `;
+  }
+  return threadList
+    .map((turn, tIdx) => {
+      const isSql = turn.source_mode === 'sql_query';
+      const sourceBadge = isSql
+        ? `<span class="meta-chip" style="background:rgba(16,185,129,0.14); color:#10b981; border:1px solid rgba(16,185,129,0.3); font-size:10px;">⚡ Warehouse SQL Drill-Down</span>`
+        : `<span class="meta-chip" style="background:rgba(59,130,246,0.14); color:#3b82f6; border:1px solid rgba(59,130,246,0.3); font-size:10px;">📊 Direct Chart Analysis</span>`;
+      const modeBadge = turn.include_chart
+        ? `<span class="meta-chip" style="font-size:10px;">📊 Visual</span>`
+        : `<span class="meta-chip" style="font-size:10px;">💬 Text Only</span>`;
+      const subPlotHtml =
+        turn.include_chart && turn.plotly_spec
+          ? `<div id="plotly_thread_${prefix}_${cardIdx}_${tIdx}" class="thread-subchart-box"></div>`
+          : '';
+      return `
+        <div class="thread-turn" data-turn-idx="${tIdx}">
+          <div class="thread-q-row">
+            <span>Q: ${escapeHtml(turn.question || '')}</span>
+            <div style="display:flex; gap:4px; align-items:center;">
+              ${sourceBadge}
+              ${modeBadge}
+            </div>
+          </div>
+          <div class="thread-a-body">${formatMarkdownBold(turn.answer || '')}</div>
+          ${subPlotHtml}
+        </div>
+      `;
+    })
+    .join('');
+}
+
+function renderThreadSubCharts(threadList, cardIdx, prefix = 'inline') {
+  if (!threadList || !threadList.length || !window.Plotly) return;
+  threadList.forEach((turn, tIdx) => {
+    if (!turn.include_chart || !turn.plotly_spec) return;
+    const plotEl = document.getElementById(`plotly_thread_${prefix}_${cardIdx}_${tIdx}`);
+    if (!plotEl) return;
+    try {
+      const themedLayout = applyPlotlyThemeLayout(turn.plotly_spec.layout);
+      themedLayout.height = 240;
+      if (themedLayout.title) themedLayout.title = { text: '' };
+      window.Plotly.react(plotEl, turn.plotly_spec.data, themedLayout, {
+        responsive: true,
+        displayModeBar: false,
+      });
+    } catch (err) {
+      console.warn('Thread subchart render failed:', err);
+    }
+  });
+}
+
 function renderChatView() {
   if (!APP_STATE) return;
   const stream = document.getElementById('chatMessagesStream');
@@ -1742,7 +1827,9 @@ function renderChatView() {
         area: 'Stacked Area Chart',
         donut: 'Donut Ring Chart',
         pie: 'Pie Chart',
-        waterfall: 'Variance Waterfall',
+        waterfall: 'Variance Waterfall Bridge',
+        rate_mix_scatter: 'Rate vs. Mix Quadrant Scatter',
+        dimension_divergence: 'Dimension Divergence Ranking',
         treemap: 'Hierarchical Treemap',
         sunburst: 'Interactive Sunburst',
         heatmap: '2D Cross-Tab Heatmap',
@@ -1752,29 +1839,33 @@ function renderChatView() {
         scatter: 'Correlation Scatter Plot',
         table: 'Data Catalog Table',
       };
-      const chartTypes = isSingleRow
-        ? ['kpi', 'table']
-        : APP_STATE.supported_chart_types || [
-            'bar',
-            'horizontal_bar',
-            'stacked_bar',
-            'stacked_bar_100',
-            'stacked_horizontal_bar',
-            'combo',
-            'line',
-            'area',
-            'donut',
-            'pie',
-            'waterfall',
-            'treemap',
-            'sunburst',
-            'heatmap',
-            'radar',
-            'box',
-            'funnel',
-            'scatter',
-            'table',
-          ];
+      const baseSupported = APP_STATE.supported_chart_types || [
+        'waterfall',
+        'bar',
+        'horizontal_bar',
+        'rate_mix_scatter',
+        'dimension_divergence',
+        'stacked_bar',
+        'stacked_bar_100',
+        'stacked_horizontal_bar',
+        'combo',
+        'line',
+        'area',
+        'donut',
+        'pie',
+        'treemap',
+        'sunburst',
+        'heatmap',
+        'radar',
+        'box',
+        'funnel',
+        'scatter',
+        'table',
+      ];
+      const chartTypes = isSingleRow ? ['kpi', 'table'] : [...baseSupported];
+      if (entry.chart_type && !chartTypes.includes(entry.chart_type)) {
+        chartTypes.unshift(entry.chart_type);
+      }
       const chartOpts = chartTypes
         .map(
           (ct) =>
@@ -1782,10 +1873,21 @@ function renderChatView() {
         )
         .join('');
 
+      const isDiagnostic = Boolean(resp.is_diagnostic || resp.audit_receipt);
       const isLlmCompiled = resp.compiler_mode === 'llm';
-      const compilerBadge = isLlmCompiled
+      const compilerBadge = isDiagnostic
+        ? `<span class="meta-chip" style="background:rgba(59,130,246,0.14); color:#3b82f6; border:1px solid rgba(59,130,246,0.35); font-weight:600;" title="${escapeHtml(resp.compiler_detail || 'Diagnostic Root-Cause Engine')}"><svg class="icon" style="width:11px;height:11px"><use href="#i-trend-down"/></svg> ${escapeHtml(resp.compiler_detail || 'Diagnostic Engine')}</span>`
+        : isLlmCompiled
         ? `<span class="pii-badge pii-safe" style="background:rgba(16,185,129,0.14); color:#10b981; border:1px solid rgba(16,185,129,0.35);" title="${escapeHtml(resp.compiler_detail || 'Compiled via LLM')}"><svg class="icon" style="width:11px;height:11px"><use href="#i-sparkles"/></svg> ${escapeHtml(resp.compiler_detail || 'LLM Compiler')}</span>`
         : `<span class="meta-chip" style="background:rgba(245,158,11,0.14); color:#d97706; border:1px solid rgba(245,158,11,0.35); font-weight:600;" title="${escapeHtml(resp.compiler_detail || 'Solved using built-in deterministic heuristic compiler')}"><svg class="icon" style="width:11px;height:11px"><use href="#i-cpu"/></svg> Heuristic Engine</span>`;
+
+      const balanceBadge = (resp.audit_receipt?.balance_check?.status === 'VERIFIED_EXACT_BALANCE' || resp.audit_receipt?.balance_check?.status === 'EXACT_RECONCILIATION_VERIFIED')
+        ? `<span class="pii-badge pii-safe" style="background:rgba(16,185,129,0.14); color:#10b981; border:1px solid rgba(16,185,129,0.35);" title="Zero residual mathematically verified"><svg class="icon" style="width:11px;height:11px"><use href="#i-check"/></svg> Verified Balance</span>`
+        : '';
+
+      const simpsonsBadge = resp.kpi_ribbon?.simpsons_paradox
+        ? `<span class="meta-chip" style="background:rgba(239,68,68,0.15); color:#ef4444; border:1px solid rgba(239,68,68,0.35); font-weight:700;" title="Simpson's Paradox: Segment performance masked by mix shift"><svg class="icon" style="width:11px;height:11px"><use href="#i-alert-circle"/></svg> Simpson's Paradox</span>`
+        : '';
 
       const fanTrapBadge = resp.fan_trap_mitigated
         ? `<span class="pii-badge pii-safe" title="Pre-aggregated CTEs prevented multi-fact fan trap"><svg class="icon" style="width:11px;height:11px"><use href="#i-shield"/></svg>Multi-fact CTE</span>`
@@ -1853,10 +1955,68 @@ function renderChatView() {
 
       const tablePreviewRows = (entry.rows || []).slice(0, 10);
       const totalRowsCount = entry.row_count || (entry.rows || []).length;
-      const isTableChart = entry.chart_type === 'table' || !entry.plotly_spec;
+      const isTableChart = entry.chart_type === 'table' || !entry.plotly_spec || Boolean(entry.hide_chart);
       const chartBoxHtml = isTableChart
         ? `<div id="plotly_chat_${idx}" class="chart-box" style="display:none;"></div>`
         : `<div id="plotly_chat_${idx}" class="chart-box"></div>`;
+
+      const threadList = entry.thread || [];
+      const isThreadOpen = OPEN_THREAD_CARD_INDICES.has(idx);
+      const cardThreadMode = CARD_THREAD_MODES[idx] || 'text_only';
+      const threadStarters = getCardThreadStarterPrompts(entry);
+      const inlineThreadPanelHtml = `
+        <div class="chart-thread-panel ${isThreadOpen ? '' : 'hidden'}" id="chart_thread_panel_${idx}">
+          <div class="chart-thread-header">
+            <div class="chart-thread-title">
+              <svg class="icon" style="width:14px;height:14px;color:var(--accent-primary)"><use href="#i-chat"/></svg>
+              <span>Chart Discussion Thread (${threadList.length})</span>
+            </div>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <button type="button" class="btn btn-secondary btn-xs btn-open-tab-thread" data-idx="${idx}" title="Open chart & thread in full-screen Studio tab or window">
+                <svg class="icon" style="width:12px;height:12px"><use href="#i-external-link"/></svg> Open in New Tab
+              </button>
+              <button type="button" class="btn btn-secondary btn-xs btn-split-thread" data-idx="${idx}" title="Pop out side-by-side Split View">
+                ⤢ Split View
+              </button>
+              <button type="button" class="btn btn-ghost btn-xs btn-thread-close" data-idx="${idx}" title="Collapse thread">✕</button>
+            </div>
+          </div>
+          <div class="thread-starter-chips">
+            ${threadStarters
+              .map(
+                (sp) =>
+                  `<button type="button" class="thread-chip inline-thread-chip" data-idx="${idx}" data-prompt="${escapeHtml(sp)}">💡 ${escapeHtml(sp)}</button>`
+              )
+              .join('')}
+          </div>
+          <div class="chart-thread-stream" id="chart_thread_stream_${idx}">
+            ${renderThreadTurnsHtml(threadList, idx, 'inline')}
+          </div>
+          <form class="chart-thread-composer inline-thread-form" data-idx="${idx}">
+            <div class="thread-composer-top">
+              <div class="response-mode-group" role="radiogroup" aria-label="Thread answer format">
+                <span style="font-size:11px; color:var(--text-muted); font-weight:600;">Answer:</span>
+                <button type="button" class="mode-pill inline-thread-mode-pill ${cardThreadMode === 'text_only' ? 'active' : ''}" data-idx="${idx}" data-mode="text_only">💬 Text Only</button>
+                <button type="button" class="mode-pill inline-thread-mode-pill ${cardThreadMode === 'auto' ? 'active' : ''}" data-idx="${idx}" data-mode="auto">✨ Auto</button>
+                <button type="button" class="mode-pill inline-thread-mode-pill ${cardThreadMode === 'with_chart' ? 'active' : ''}" data-idx="${idx}" data-mode="with_chart">📊 With Chart</button>
+              </div>
+            </div>
+            <div class="thread-composer-input-row">
+              <input
+                type="text"
+                class="input-text inline-thread-input"
+                id="inline_thread_input_${idx}"
+                placeholder="Ask a question about this chart (e.g. 'Compare top 2', 'Which are above average?')…"
+                autocomplete="off"
+                required
+              />
+              <button type="submit" class="btn btn-primary btn-xs" id="inline_thread_send_${idx}">
+                <svg class="icon" style="width:13px;height:13px"><use href="#i-send"/></svg> Ask
+              </button>
+            </div>
+          </form>
+        </div>
+      `;
 
       const miniTableHtml =
         cols.length && tablePreviewRows.length
@@ -1916,23 +2076,90 @@ function renderChatView() {
         `
         : '';
 
+      let kpiRibbonHtml = '';
+      if (resp.kpi_ribbon && (resp.kpi_ribbon.prior_total !== undefined || resp.kpi_ribbon.top_dimension)) {
+        const kpi = resp.kpi_ribbon;
+        const deltaColor = (kpi.net_delta || 0) >= 0 ? '#10B981' : '#EF4444';
+        const simpsonsAlert = kpi.simpsons_paradox
+          ? `<div class="badge badge-error" style="grid-column: 1 / -1; justify-content: center; font-size: 12px; padding: 6px; margin-bottom: 2px;">🚨 Simpson's Paradox Detected: Segment Performance Masked by Cohort Mix Shift</div>`
+          : '';
+        kpiRibbonHtml = `
+          <div class="rc-kpi-ribbon" style="margin: 10px 0;">
+            ${simpsonsAlert}
+            <div class="rc-kpi-card">
+              <div class="rc-kpi-label">Prior Baseline</div>
+              <div class="rc-kpi-val">${typeof kpi.prior_total === 'number' ? kpi.prior_total.toLocaleString() : (kpi.prior_total ?? 'N/A')}</div>
+            </div>
+            <div class="rc-kpi-card">
+              <div class="rc-kpi-label">Current Period</div>
+              <div class="rc-kpi-val">${typeof kpi.curr_total === 'number' ? kpi.curr_total.toLocaleString() : (kpi.curr_total ?? 'N/A')}</div>
+            </div>
+            <div class="rc-kpi-card">
+              <div class="rc-kpi-label">Net Delta</div>
+              <div class="rc-kpi-val" style="color: ${deltaColor};">${(kpi.net_delta || 0) > 0 ? '+' : ''}${typeof kpi.net_delta === 'number' ? kpi.net_delta.toLocaleString() : (kpi.net_delta ?? 'N/A')}${kpi.pct_delta !== undefined ? ` (${kpi.pct_delta > 0 ? '+' : ''}${kpi.pct_delta}%)` : ''}</div>
+            </div>
+            <div class="rc-kpi-card">
+              <div class="rc-kpi-label">${kpi.top_dimension ? 'Top Dimension' : 'Top Driver'}</div>
+              <div class="rc-kpi-val" style="font-size: 13px; color: var(--accent-primary);">${escapeHtml(kpi.top_dimension || kpi.top_driver || 'N/A')}</div>
+            </div>
+          </div>
+        `;
+      }
+
+      let auditDrawerHtml = '';
+      if (resp.audit_receipt && (resp.audit_receipt.executed_sql || resp.audit_receipt.formula_latex)) {
+        const audit = resp.audit_receipt;
+        const balanceBadgeStatus = (audit.balance_check?.status === 'VERIFIED_EXACT_BALANCE' || audit.balance_check?.status === 'EXACT_RECONCILIATION_VERIFIED')
+          ? '<span class="rc-rec-badge">✓ Exact 0.00 Balance Verified</span>'
+          : (audit.balance_check?.status ? '<span class="badge badge-warning">Rounding Diff</span>' : '');
+
+        auditDrawerHtml = `
+          <details class="rc-audit-details" style="margin-top: 10px;">
+            <summary class="rc-audit-summary">
+              <span>🔍 How this was calculated: Audit Receipts, SQL &amp; Integrity Proof</span>
+              ${balanceBadgeStatus}
+            </summary>
+            <div class="rc-audit-body">
+              <div style="font-size: 12px; margin-bottom: 8px;">
+                <strong>Algorithm:</strong> ${escapeHtml(audit.algorithm || 'Diagnostic Engine')} &middot;
+                <strong>Evaluated Rows:</strong> ${audit.rows_evaluated || 0} &middot;
+                <strong>Date Lineage:</strong> ${escapeHtml(audit.date_source || 'Default Anchor')}
+              </div>
+              ${audit.formula_latex ? `<div style="font-size: 12px; font-family: monospace; background: var(--bg-surface-elevated, rgba(255,255,255,0.03)); padding: 8px; border-radius: 4px; margin-bottom: 8px;">📐 Formula: ${escapeHtml(audit.formula_latex)}</div>` : ''}
+              ${audit.join_lineage ? `<div style="font-size: 11px; color: var(--text-muted); margin-bottom: 6px;">🔗 Join Lineage: ${escapeHtml(audit.join_lineage)}</div>` : ''}
+            </div>
+          </details>
+        `;
+      }
+
       const tablesUsed = (resp.involved_tables || []).length ? resp.involved_tables : [];
 
       return `
-        <article class="chat-card" data-entry-idx="${idx}">
+        <article class="chat-card ${isDiagnostic ? 'chat-card-diagnostic' : ''}" data-entry-idx="${idx}">
           <div class="chat-question-header">
             <div class="chat-q-left" style="flex-direction:column; align-items:flex-start; gap:2px;">
               <div style="display:flex; align-items:center; gap:8px;">
-                <span class="chat-q-avatar"><svg class="icon" style="width:14px;height:14px"><use href="#i-chat"/></svg></span>
+                <span class="chat-q-avatar" style="${isDiagnostic ? 'background:rgba(59,130,246,0.15); color:var(--accent-primary);' : ''}"><svg class="icon" style="width:14px;height:14px"><use href="${isDiagnostic ? '#i-trend-down' : '#i-chat'}"/></svg></span>
                 <h3 class="chat-question-title">${escapeHtml(resp.user_question || '')}</h3>
               </div>
               ${resolvedContextBanner}
             </div>
             <div class="chat-q-actions">
               ${compilerBadge}
+              ${balanceBadge}
+              ${simpsonsBadge}
               ${fanTrapBadge}
               ${followUpBadge}
               ${drillDownBtn}
+              <button type="button" class="btn btn-secondary btn-xs btn-thread-toggle ${threadList.length ? 'has-messages' : ''}" data-idx="${idx}" title="Ask questions about this chart inside a scoped thread">
+                💬 ${threadList.length ? `Thread (${threadList.length})` : 'Ask Chart'}
+              </button>
+              <button type="button" class="btn btn-secondary btn-xs btn-open-tab-thread" data-idx="${idx}" title="Open chart and thread in a dedicated full-screen Studio tab or window">
+                <svg class="icon" style="width:12px;height:12px"><use href="#i-external-link"/></svg> Open in New Tab
+              </button>
+              <button type="button" class="btn btn-secondary btn-xs btn-split-thread" data-idx="${idx}" title="Open Chart + Thread in Split-View Studio modal">
+                ⤢ Split View
+              </button>
               <button type="button" class="btn btn-secondary btn-xs btn-copy-sql" data-idx="${idx}" title="Copy compiled SQL">
                 <svg class="icon" style="width:13px;height:13px"><use href="#i-copy"/></svg> SQL
               </button>
@@ -1948,13 +2175,20 @@ function renderChatView() {
             </div>
           </div>
 
+          ${kpiRibbonHtml}
+
           <div class="chat-summary-text">${formatMarkdownBold(resp.executive_summary || '')}</div>
 
           <div class="chat-toolbar">
-            <div class="chat-toolbar-left">
+            <div class="chat-toolbar-left" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
               <select class="input-select input-sm chart-type-switcher" data-idx="${idx}" aria-label="Chart type" style="width:190px;">
                 ${chartOpts}
               </select>
+              ${
+                entry.hide_chart
+                  ? `<button type="button" class="btn btn-secondary btn-xs btn-show-hidden-chart" data-idx="${idx}">📊 Show Visual Chart</button>`
+                  : ''
+              }
             </div>
             <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
               ${tablesUsed.map((t) => `<span class="meta-chip">${escapeHtml(t)}</span>`).join('')}
@@ -1962,7 +2196,9 @@ function renderChatView() {
           </div>
 
           ${chartBoxHtml}
+          ${inlineThreadPanelHtml}
           ${miniTableHtml}
+          ${auditDrawerHtml}
           ${suggestionsHtml}
         </article>
       `;
@@ -1971,8 +2207,11 @@ function renderChatView() {
 
   // Render Plotly charts with theme-aware layout
   history.forEach((entry, idx) => {
+    renderThreadSubCharts(entry.thread || [], idx, 'inline');
     const plotEl = document.getElementById(`plotly_chat_${idx}`);
-    if (plotEl && entry.plotly_spec && window.Plotly) {
+    if (plotEl && entry.hide_chart) {
+      plotEl.style.display = 'none';
+    } else if (plotEl && entry.plotly_spec && window.Plotly) {
       try {
         const themedLayout = applyPlotlyThemeLayout(entry.plotly_spec.layout);
         // Remove duplicate inner title that collides with horizontal legend since card header displays it
@@ -2201,6 +2440,296 @@ function renderChatView() {
       }
     });
   });
+
+  // 4. Inline Chart Thread Toggles, Mode Pills, Starter Chips & Form Submit
+  stream.querySelectorAll('.btn-thread-toggle').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const idx = Number(btn.dataset.idx);
+      const panel = document.getElementById(`chart_thread_panel_${idx}`);
+      if (!panel) return;
+      const isHidden = panel.classList.contains('hidden');
+      if (isHidden) {
+        OPEN_THREAD_CARD_INDICES.add(idx);
+        panel.classList.remove('hidden');
+        const inputEl = document.getElementById(`inline_thread_input_${idx}`);
+        if (inputEl) inputEl.focus();
+      } else {
+        OPEN_THREAD_CARD_INDICES.delete(idx);
+        panel.classList.add('hidden');
+      }
+    });
+  });
+
+  stream.querySelectorAll('.btn-thread-close').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const idx = Number(btn.dataset.idx);
+      OPEN_THREAD_CARD_INDICES.delete(idx);
+      const panel = document.getElementById(`chart_thread_panel_${idx}`);
+      if (panel) panel.classList.add('hidden');
+    });
+  });
+
+  stream.querySelectorAll('.btn-open-tab-thread').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const idx = Number(btn.dataset.idx);
+      window.open(`/thread-studio?idx=${idx}`, '_blank');
+    });
+  });
+
+  stream.querySelectorAll('.btn-split-thread').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const idx = Number(btn.dataset.idx);
+      openSplitThreadModal(idx);
+    });
+  });
+
+  stream.querySelectorAll('.btn-show-hidden-chart').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const idx = Number(btn.dataset.idx);
+      const entry = history[idx];
+      if (!entry) return;
+      entry.hide_chart = false;
+      if (!entry.plotly_spec || entry.chart_type === 'none') {
+        try {
+          APP_STATE = await apiRequest('/api/chat/chart', {
+            method: 'POST',
+            body: JSON.stringify({ entry_index: idx, chart_type: 'bar' }),
+          });
+          if (APP_STATE.chat_history?.[idx]) {
+            APP_STATE.chat_history[idx].hide_chart = false;
+          }
+        } catch (err) {
+          showToast(`Chart error: ${err.message}`);
+        }
+      }
+      renderChatView();
+    });
+  });
+
+  stream.querySelectorAll('.inline-thread-mode-pill').forEach((pill) => {
+    pill.addEventListener('click', () => {
+      const idx = Number(pill.dataset.idx);
+      const mode = pill.dataset.mode || 'text_only';
+      CARD_THREAD_MODES[idx] = mode;
+      const group = pill.closest('.response-mode-group');
+      if (group) {
+        group.querySelectorAll('.inline-thread-mode-pill').forEach((p) => {
+          p.classList.toggle('active', p === pill);
+        });
+      }
+    });
+  });
+
+  stream.querySelectorAll('.inline-thread-chip').forEach((chip) => {
+    chip.addEventListener('click', async () => {
+      const idx = Number(chip.dataset.idx);
+      const promptText = chip.dataset.prompt || '';
+      if (!promptText) return;
+      const mode = CARD_THREAD_MODES[idx] || 'text_only';
+      await submitChartThreadQuestion(idx, promptText, mode);
+    });
+  });
+
+  stream.querySelectorAll('.inline-thread-form').forEach((form) => {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const idx = Number(form.dataset.idx);
+      const inputEl = document.getElementById(`inline_thread_input_${idx}`);
+      const q = (inputEl?.value || '').trim();
+      if (!q) return;
+      if (inputEl) inputEl.value = '';
+      const mode = CARD_THREAD_MODES[idx] || 'text_only';
+      await submitChartThreadQuestion(idx, q, mode);
+    });
+  });
+}
+
+async function submitChartThreadQuestion(entryIdx, questionText, responseMode = 'text_only') {
+  const trimmed = (questionText || '').trim();
+  if (!trimmed) return;
+
+  OPEN_THREAD_CARD_INDICES.add(entryIdx);
+  const inlineSendBtn = document.getElementById(`inline_thread_send_${entryIdx}`);
+  const splitSendBtn = document.getElementById('splitThreadSendBtn');
+  if (inlineSendBtn) inlineSendBtn.disabled = true;
+  if (splitSendBtn) splitSendBtn.disabled = true;
+
+  // Optimistic loading indicator in active thread stream
+  const inlineStream = document.getElementById(`chart_thread_stream_${entryIdx}`);
+  if (inlineStream) {
+    const emptyEl = inlineStream.querySelector('.thread-empty-hint');
+    if (emptyEl) emptyEl.remove();
+    const loadingTurn = document.createElement('div');
+    loadingTurn.className = 'thread-turn thread-turn-loading';
+    loadingTurn.innerHTML = `
+      <div class="thread-q-bubble">
+        <span class="thread-q-label">You</span>
+        <div class="thread-q-text">${escapeHtml(trimmed)}</div>
+      </div>
+      <div class="thread-a-bubble">
+        <span class="meta-chip meta-chip-accent">Analyzing chart data…</span>
+      </div>
+    `;
+    inlineStream.appendChild(loadingTurn);
+    inlineStream.scrollTop = inlineStream.scrollHeight;
+  }
+
+  if (ACTIVE_SPLIT_THREAD_IDX === entryIdx) {
+    const splitStream = document.getElementById('splitThreadMessages');
+    if (splitStream) {
+      const emptyEl = splitStream.querySelector('.thread-empty-hint');
+      if (emptyEl) emptyEl.remove();
+      const loadingTurn = document.createElement('div');
+      loadingTurn.className = 'thread-turn thread-turn-loading';
+      loadingTurn.innerHTML = `
+        <div class="thread-q-bubble">
+          <span class="thread-q-label">You</span>
+          <div class="thread-q-text">${escapeHtml(trimmed)}</div>
+        </div>
+        <div class="thread-a-bubble">
+          <span class="meta-chip meta-chip-accent">Analyzing chart data…</span>
+        </div>
+      `;
+      splitStream.appendChild(loadingTurn);
+      splitStream.scrollTop = splitStream.scrollHeight;
+    }
+  }
+
+  try {
+    const res = await apiRequest('/api/chat/thread', {
+      method: 'POST',
+      body: JSON.stringify({
+        entry_index: entryIdx,
+        question: trimmed,
+        response_mode: responseMode,
+      }),
+    });
+    APP_STATE = res.state;
+    renderChatView();
+    const updatedInlineStream = document.getElementById(`chart_thread_stream_${entryIdx}`);
+    if (updatedInlineStream) {
+      updatedInlineStream.scrollTop = updatedInlineStream.scrollHeight;
+    }
+    if (ACTIVE_SPLIT_THREAD_IDX === entryIdx) {
+      renderSplitThreadModalContent(entryIdx);
+    }
+  } catch (err) {
+    showToast(`Thread error: ${err.message}`);
+    renderChatView();
+    if (ACTIVE_SPLIT_THREAD_IDX === entryIdx) {
+      renderSplitThreadModalContent(entryIdx);
+    }
+  } finally {
+    if (inlineSendBtn) inlineSendBtn.disabled = false;
+    if (splitSendBtn) splitSendBtn.disabled = false;
+  }
+}
+
+function openSplitThreadModal(entryIdx) {
+  ACTIVE_SPLIT_THREAD_IDX = entryIdx;
+  const dialog = document.getElementById('chartThreadDialog');
+  if (!dialog) return;
+  if (!dialog.open) {
+    dialog.showModal();
+  }
+  renderSplitThreadModalContent(entryIdx);
+  const inputEl = document.getElementById('splitThreadInput');
+  if (inputEl) inputEl.focus();
+}
+
+function renderSplitThreadModalContent(entryIdx) {
+  const history = APP_STATE?.chat_history || [];
+  const entry = history[entryIdx];
+  if (!entry) return;
+
+  const resp = entry.response || {};
+  const titleEl = document.getElementById('splitThreadModalTitle');
+  if (titleEl) {
+    titleEl.textContent = resp.user_question || 'Chart Deep-Dive Thread';
+  }
+
+  const summaryEl = document.getElementById('splitThreadSummary');
+  if (summaryEl) {
+    summaryEl.innerHTML = formatMarkdownBold(resp.executive_summary || '');
+  }
+
+  const plotBox = document.getElementById('splitThreadPlotBox');
+  if (plotBox) {
+    if (entry.plotly_spec && window.Plotly) {
+      plotBox.style.display = 'block';
+      try {
+        const themedLayout = applyPlotlyThemeLayout(entry.plotly_spec.layout);
+        if (themedLayout.title) themedLayout.title = { text: '' };
+        window.Plotly.react(plotBox, entry.plotly_spec.data, themedLayout, {
+          responsive: true,
+          displayModeBar: false,
+        });
+      } catch (err) {
+        console.warn('Split modal Plotly error:', err);
+      }
+    } else {
+      plotBox.style.display = 'none';
+    }
+  }
+
+  const tableWrap = document.getElementById('splitThreadTableWrap');
+  if (tableWrap) {
+    const cols = entry.columns || [];
+    const rows = (entry.rows || []).slice(0, 12);
+    if (cols.length && rows.length) {
+      tableWrap.innerHTML = `
+        <div style="font-size:11.5px; font-weight:600; color:var(--text-secondary); margin-bottom:6px;">
+          Underlying Data (${entry.row_count || entry.rows.length} rows)
+        </div>
+        <div class="table-responsive" style="max-height:220px; border:1px solid var(--border-color); border-radius:var(--radius-md); overflow:auto;">
+          <table class="data-table">
+            <thead>
+              <tr>${cols.map((c) => `<th>${escapeHtml(c.replace(/_/g, ' ').toUpperCase())}</th>`).join('')}</tr>
+            </thead>
+            <tbody>
+              ${rows
+                .map(
+                  (r) =>
+                    `<tr>${cols.map((c) => `<td class="mono">${escapeHtml(formatCellVal(r[c]))}</td>`).join('')}</tr>`
+                )
+                .join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    } else {
+      tableWrap.innerHTML = '';
+    }
+  }
+
+  // Starter chips in Split View
+  const chipsContainer = document.getElementById('splitThreadStarterChips');
+  if (chipsContainer) {
+    const starters = getCardThreadStarterPrompts(entry);
+    chipsContainer.innerHTML = starters
+      .map(
+        (sp) =>
+          `<button type="button" class="thread-chip split-starter-chip" data-prompt="${escapeHtml(sp)}">💡 ${escapeHtml(sp)}</button>`
+      )
+      .join('');
+    chipsContainer.querySelectorAll('.split-starter-chip').forEach((chip) => {
+      chip.addEventListener('click', async () => {
+        const promptText = chip.dataset.prompt || '';
+        const mode = document.getElementById('splitThreadResponseMode')?.value || 'text_only';
+        await submitChartThreadQuestion(entryIdx, promptText, mode);
+      });
+    });
+  }
+
+  // Thread messages in Split View
+  const msgContainer = document.getElementById('splitThreadMessages');
+  if (msgContainer) {
+    const threadList = entry.thread || [];
+    msgContainer.innerHTML = renderThreadTurnsHtml(threadList, entryIdx, 'split');
+    renderThreadSubCharts(threadList, entryIdx, 'split');
+    msgContainer.scrollTop = msgContainer.scrollHeight;
+  }
 }
 
 function formatCellVal(v) {
@@ -2250,7 +2779,16 @@ function openLineageModal(entry) {
   document.getElementById('lineageDaxCode').textContent = resp.compiled_dax_equivalent || '';
 
   const badges = [];
-  if (resp.compiler_mode === 'llm') {
+  if (resp.is_diagnostic || resp.audit_receipt) {
+    badges.push(
+      `<span class="meta-chip" style="background:rgba(59,130,246,0.14); color:#3b82f6; border:1px solid rgba(59,130,246,0.35); font-weight:600;"><svg class="icon" style="width:11px;height:11px"><use href="#i-trend-down"/></svg> ${escapeHtml(resp.compiler_detail || 'Diagnostic Engine')}</span>`
+    );
+    if (resp.audit_receipt?.balance_check?.status === 'VERIFIED_EXACT_BALANCE' || resp.audit_receipt?.balance_check?.status === 'EXACT_RECONCILIATION_VERIFIED') {
+      badges.push(
+        `<span class="pii-badge pii-safe" style="background:rgba(16,185,129,0.14); color:#10b981; border:1px solid rgba(16,185,129,0.35);"><svg class="icon" style="width:11px;height:11px"><use href="#i-check"/></svg>Verified 0.00 Balance</span>`
+      );
+    }
+  } else if (resp.compiler_mode === 'llm') {
     badges.push(
       `<span class="pii-badge pii-safe" style="background:rgba(16,185,129,0.14); color:#10b981; border:1px solid rgba(16,185,129,0.35);"><svg class="icon" style="width:11px;height:11px"><use href="#i-sparkles"/></svg> ${escapeHtml(resp.compiler_detail || 'LLM Compiler')}</span>`
     );
@@ -2267,11 +2805,22 @@ function openLineageModal(entry) {
   badges.push(`<span class="meta-chip">Attempts: ${resp.attempts_used || 1}</span>`);
   document.getElementById('lineageBadgesRow').innerHTML = badges.join(' ');
 
-  document.getElementById('lineageMetaDetails').innerHTML = `
-    <div><strong>Compilation engine:</strong> <code class="mono">${escapeHtml(resp.compiler_detail || (resp.compiler_mode === 'llm' ? 'LLM' : 'Deterministic Heuristic Engine'))}</code></div>
-    <div style="margin-top:4px;"><strong>Tables used:</strong> <code class="mono">${escapeHtml((resp.involved_tables || []).join(', '))}</code></div>
-    <div style="margin-top:4px;"><strong>Approved join paths:</strong> <code class="mono">${escapeHtml((resp.join_clauses_used || []).join(' ; ') || 'Single-table query')}</code></div>
-  `;
+  if (resp.audit_receipt) {
+    const audit = resp.audit_receipt;
+    document.getElementById('lineageMetaDetails').innerHTML = `
+      <div><strong>Diagnostic Algorithm:</strong> <code class="mono">${escapeHtml(audit.algorithm || resp.compiler_detail || 'Diagnostic')}</code></div>
+      <div style="margin-top:4px;"><strong>Tables evaluated:</strong> <code class="mono">${escapeHtml((resp.involved_tables || []).join(', ') || 'Connected fact/dim tables')}</code></div>
+      <div style="margin-top:4px;"><strong>Temporal Lineage:</strong> <code class="mono">${escapeHtml(audit.date_source || 'Default Anchor')}</code></div>
+      ${audit.join_lineage ? `<div style="margin-top:4px;"><strong>Join Traversal:</strong> <code class="mono">${escapeHtml(audit.join_lineage)}</code></div>` : ''}
+      ${audit.balance_check?.status ? `<div style="margin-top:4px;"><strong>Reconciliation Status:</strong> <code class="mono">${escapeHtml(audit.balance_check.status)}</code></div>` : ''}
+    `;
+  } else {
+    document.getElementById('lineageMetaDetails').innerHTML = `
+      <div><strong>Compilation engine:</strong> <code class="mono">${escapeHtml(resp.compiler_detail || (resp.compiler_mode === 'llm' ? 'LLM' : 'Deterministic Heuristic Engine'))}</code></div>
+      <div style="margin-top:4px;"><strong>Tables used:</strong> <code class="mono">${escapeHtml((resp.involved_tables || []).join(', '))}</code></div>
+      <div style="margin-top:4px;"><strong>Approved join paths:</strong> <code class="mono">${escapeHtml((resp.join_clauses_used || []).join(' ; ') || 'Single-table query')}</code></div>
+    `;
+  }
 
   const dialog = document.getElementById('lineageDialog');
   if (dialog) dialog.showModal();
@@ -2420,6 +2969,7 @@ function renderAllViews() {
   try { renderInterviewView(); } catch (e) { console.error('Error rendering interview view:', e); }
   try { renderMeasuresView(); } catch (e) { console.error('Error rendering measures view:', e); }
   try { renderChatView(); } catch (e) { console.error('Error rendering chat view:', e); }
+  try { if (window.loadRootCauseOptions) window.loadRootCauseOptions(true); } catch (e) {}
 }
 
 async function loadDemoDataset() {
@@ -2497,6 +3047,7 @@ async function submitChatQuestion(questionText) {
 
   const revSlider = document.getElementById('revShockSlider');
   const costSlider = document.getElementById('costShockSlider');
+  const mainMode = document.getElementById('mainChatResponseMode')?.value || 'auto';
   try {
     const res = await apiRequest('/api/chat/query', {
       method: 'POST',
@@ -2504,6 +3055,7 @@ async function submitChatQuestion(questionText) {
         question: trimmed,
         revenue_shock_pct: Number(revSlider?.value || 0),
         cost_shock_pct: Number(costSlider?.value || 0),
+        response_mode: mainMode,
       }),
     });
     APP_STATE = res.state;
@@ -2519,6 +3071,47 @@ async function submitChatQuestion(questionText) {
 
 document.addEventListener('DOMContentLoaded', async () => {
   initModalDialogs();
+
+  // Main Chat Response Mode Selector (Auto / Text Only / With Chart)
+  document.querySelectorAll('#mainChatModeGroup .mode-pill').forEach((pill) => {
+    pill.addEventListener('click', () => {
+      const mode = pill.getAttribute('data-mode') || 'auto';
+      const hiddenIn = document.getElementById('mainChatResponseMode');
+      if (hiddenIn) hiddenIn.value = mode;
+      document.querySelectorAll('#mainChatModeGroup .mode-pill').forEach((p) => {
+        p.classList.toggle('active', p === pill);
+      });
+    });
+  });
+
+  // Split-View Thread Modal Mode Selector & Form Submit
+  document.querySelectorAll('#splitThreadModeGroup .mode-pill').forEach((pill) => {
+    pill.addEventListener('click', () => {
+      const mode = pill.getAttribute('data-mode') || 'text_only';
+      const hiddenIn = document.getElementById('splitThreadResponseMode');
+      if (hiddenIn) hiddenIn.value = mode;
+      document.querySelectorAll('#splitThreadModeGroup .mode-pill').forEach((p) => {
+        p.classList.toggle('active', p === pill);
+      });
+    });
+  });
+
+  document.getElementById('splitThreadForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (ACTIVE_SPLIT_THREAD_IDX === null || ACTIVE_SPLIT_THREAD_IDX === undefined) return;
+    const inputEl = document.getElementById('splitThreadInput');
+    const q = (inputEl?.value || '').trim();
+    if (!q) return;
+    if (inputEl) inputEl.value = '';
+    const mode = document.getElementById('splitThreadResponseMode')?.value || 'text_only';
+    await submitChartThreadQuestion(ACTIVE_SPLIT_THREAD_IDX, q, mode);
+  });
+
+  document.getElementById('splitModalOpenTabBtn')?.addEventListener('click', () => {
+    if (ACTIVE_SPLIT_THREAD_IDX !== null && ACTIVE_SPLIT_THREAD_IDX !== undefined) {
+      window.open(`/thread-studio?idx=${ACTIVE_SPLIT_THREAD_IDX}`, '_blank');
+    }
+  });
 
   // Theme toggle
   document.getElementById('themeToggleBtn')?.addEventListener('click', toggleTheme);
@@ -2562,10 +3155,26 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Collapsible Root-Cause Analyzer Drawer Toggle
   const rcDrawer = document.getElementById('rootCauseDrawer');
   document.getElementById('toggleRootCauseBtn')?.addEventListener('click', () => {
+    const isOpening = rcDrawer?.classList.contains('hidden');
     rcDrawer?.classList.toggle('hidden');
+    if (isOpening) {
+      loadRootCauseOptions(true);
+    }
   });
   document.getElementById('closeRootCauseBtn')?.addEventListener('click', () => {
     rcDrawer?.classList.add('hidden');
+  });
+
+  // Algorithm Selection Pills & Metric Change Listener
+  document.querySelectorAll('#rcAlgoPillGroup .rc-algo-pill').forEach((pill) => {
+    pill.addEventListener('click', () => {
+      const algo = pill.getAttribute('data-algo');
+      selectRootCauseAlgorithm(algo, true);
+    });
+  });
+
+  document.getElementById('rcMetricSelect')?.addEventListener('change', () => {
+    updateRootCauseRecommendation();
   });
 
   // Demo Dataset Buttons
@@ -2999,35 +3608,209 @@ document.addEventListener('DOMContentLoaded', async () => {
     showToast('Saved business rule to OKF & RAG');
   });
 
-  // Root-Cause Variance Form
+  // Dynamic Root-Cause Options State & Helpers
+  let CURRENT_RC_SCHEMA = null;
+
+  window.loadRootCauseOptions = async function(forceRefresh = false) {
+    if (CURRENT_RC_SCHEMA && !forceRefresh) return;
+    try {
+      const data = await apiRequest('/api/root-cause/options');
+      CURRENT_RC_SCHEMA = data;
+
+      // 1. Populate Metrics
+      const metricSelect = document.getElementById('rcMetricSelect');
+      if (metricSelect && data.metrics) {
+        metricSelect.innerHTML = data.metrics.map((m) => {
+          const selected = m.column === data.default_metric ? 'selected' : '';
+          return `<option value="${escapeHtml(m.column)}" data-agg="${m.agg}" ${selected}>${escapeHtml(m.label)} (${m.agg})</option>`;
+        }).join('');
+      }
+
+      // 2. Populate Dimensions
+      const dimSelect = document.getElementById('rcDimensionSelect');
+      if (dimSelect && data.dimensions) {
+        dimSelect.innerHTML = data.dimensions.map((d) => {
+          const selected = d.id === data.default_dimension ? 'selected' : '';
+          return `<option value="${escapeHtml(d.id)}" ${selected}>${escapeHtml(d.label)}</option>`;
+        }).join('');
+      }
+
+      // 3. Populate Comparison Horizons
+      const winSelect = document.getElementById('rcWindowSelect');
+      if (winSelect && data.temporal_options) {
+        winSelect.innerHTML = data.temporal_options.map((w, idx) => {
+          return `<option value="${escapeHtml(w.id)}" ${idx === 0 ? 'selected' : ''}>${escapeHtml(w.label)}</option>`;
+        }).join('');
+      }
+
+      // Pre-fill Custom Date Range if max_date is available
+      if (data.temporal_metadata && data.temporal_metadata.max_date) {
+        try {
+          const maxD = new Date(data.temporal_metadata.max_date.split(' ')[0]);
+          if (!isNaN(maxD.getTime())) {
+            const t1End = maxD.toISOString().slice(0, 10);
+            const t1StartD = new Date(maxD);
+            t1StartD.setDate(t1StartD.getDate() - 90);
+            const t1Start = t1StartD.toISOString().slice(0, 10);
+            const t0EndD = new Date(t1StartD);
+            t0EndD.setDate(t0EndD.getDate() - 1);
+            const t0End = t0EndD.toISOString().slice(0, 10);
+            const t0StartD = new Date(t0EndD);
+            t0StartD.setDate(t0StartD.getDate() - 90);
+            const t0Start = t0StartD.toISOString().slice(0, 10);
+
+            const t0s = document.getElementById('rcT0Start');
+            const t0e = document.getElementById('rcT0End');
+            const t1s = document.getElementById('rcT1Start');
+            const t1e = document.getElementById('rcT1End');
+            if (t0s && !t0s.value) t0s.value = t0Start;
+            if (t0e && !t0e.value) t0e.value = t0End;
+            if (t1s && !t1s.value) t1s.value = t1Start;
+            if (t1e && !t1e.value) t1e.value = t1End;
+          }
+        } catch (_) {}
+      }
+
+      // 4. Update Lineage Badge
+      const lineageBadge = document.getElementById('rcDateLineageBadge');
+      if (lineageBadge) {
+        if (data.has_temporal && data.temporal_metadata) {
+          const anchor = data.temporal_metadata.selected_anchor || '';
+          const isJoined = data.temporal_metadata.is_joined;
+          const joinInfo = isJoined ? ` <span class="badge badge-accent">Joined Table</span>` : '';
+          lineageBadge.innerHTML = `<span>📅 Temporal Anchor: <strong>${escapeHtml(anchor)}</strong>${joinInfo}</span>`;
+        } else {
+          lineageBadge.innerHTML = `<span class="tone-warning">ℹ️ No date column found in connected tables. Switched to Cohort Comparison mode.</span>`;
+        }
+      }
+
+      updateRootCauseRecommendation();
+    } catch (err) {
+      console.warn('Failed to load root cause options:', err);
+    }
+  };
+
+  // Toggle Custom Date Inputs when Comparison Horizon changes
+  document.getElementById('rcWindowSelect')?.addEventListener('change', (e) => {
+    const isCustom = e.target.value === 'custom';
+    const customFields = document.getElementById('rcCustomDateFields');
+    if (customFields) {
+      customFields.style.display = isCustom ? 'flex' : 'none';
+    }
+  });
+
+  window.updateRootCauseRecommendation = function() {
+    const metricSelect = document.getElementById('rcMetricSelect');
+    const selectedOpt = metricSelect?.selectedOptions[0];
+    const agg = selectedOpt?.getAttribute('data-agg') || 'SUM';
+    const badge = document.getElementById('rcAlgoRecBadge');
+
+    if (agg === 'AVG' || agg === 'RATIO') {
+      if (badge) badge.textContent = "✨ Recommended for Rates (Simpson's Paradox Solver)";
+      selectRootCauseAlgorithm('rate_mix', false);
+    } else {
+      if (badge) badge.textContent = "✨ Recommended for Totals (Additive Waterfall)";
+      selectRootCauseAlgorithm('additive', false);
+    }
+  };
+
+  window.selectRootCauseAlgorithm = function(algoId, isManual = true) {
+    const algoInput = document.getElementById('rcAlgorithmInput');
+    if (algoInput) algoInput.value = algoId;
+
+    document.querySelectorAll('#rcAlgoPillGroup .rc-algo-pill').forEach((pill) => {
+      pill.classList.toggle('active', pill.getAttribute('data-algo') === algoId);
+    });
+
+    const dimGroup = document.getElementById('rcDimensionGroup');
+    if (dimGroup) {
+      dimGroup.style.display = algoId === 'auto_scan' ? 'none' : 'block';
+    }
+  };
+
+  // Modernized Root-Cause Diagnostic Form - Dispatches directly to Chat Stream
   document.getElementById('rootCauseForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const metric_col = document.getElementById('rcMetricSelect').value;
-    const dimension = document.getElementById('rcDimensionSelect').value;
+    const metric_col = document.getElementById('rcMetricSelect')?.value;
+    const dimension = document.getElementById('rcDimensionSelect')?.value;
+    const algorithm = document.getElementById('rcAlgorithmInput')?.value || 'auto';
+    const window_type = document.getElementById('rcWindowSelect')?.value || 'last_90_vs_prior_90';
+
+    let t0_start = '';
+    let t0_end = '';
+    let t1_start = '';
+    let t1_end = '';
+
+    if (window_type === 'custom') {
+      t0_start = document.getElementById('rcT0Start')?.value || '';
+      t0_end = document.getElementById('rcT0End')?.value || '';
+      t1_start = document.getElementById('rcT1Start')?.value || '';
+      t1_end = document.getElementById('rcT1End')?.value || '';
+
+      if (!t0_start || !t0_end || !t1_start || !t1_end) {
+        showToast('Please enter all 4 dates for custom period comparison (Baseline T0 and Current T1).');
+        return;
+      }
+      if (t0_start > t0_end) {
+        showToast('Prior Baseline Start Date must be before End Date.');
+        return;
+      }
+      if (t1_start > t1_end) {
+        showToast('Current Period Start Date must be before End Date.');
+        return;
+      }
+    }
+
+    const submitBtn = document.getElementById('rcSubmitBtn');
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Diagnosing…';
+    }
+
     try {
       const res = await apiRequest('/api/root-cause', {
         method: 'POST',
-        body: JSON.stringify({ metric_col, dimension }),
+        body: JSON.stringify({
+          metric_col,
+          dimension,
+          algorithm,
+          window_type,
+          t0_start,
+          t0_end,
+          t1_start,
+          t1_end,
+        }),
       });
-      const box = document.getElementById('rootCauseResultBox');
-      box.innerHTML = `
-        <div class="chat-summary-text" style="margin-top:12px;">${formatMarkdownBold(res.summary || '')}</div>
-        <div id="rcWaterfallPlot" class="chart-box" style="min-height:280px; margin-top:10px;"></div>
-      `;
-      const plotEl = document.getElementById('rcWaterfallPlot');
-      if (plotEl && res.plotly_spec && window.Plotly) {
-        try {
-          const themedLayout = applyPlotlyThemeLayout(res.plotly_spec.layout);
-          window.Plotly.react(plotEl, res.plotly_spec.data, themedLayout, {
-            responsive: true,
-            displayModeBar: false,
-          });
-        } catch (rcErr) {
-          console.warn('Plotly waterfall error:', rcErr);
+
+      if (res.state) {
+        APP_STATE = res.state;
+      }
+
+      // Close the drawer so user sees the diagnostic result directly in the chat view
+      const drawer = document.getElementById('rootCauseDrawer');
+      if (drawer) {
+        drawer.classList.add('hidden');
+      }
+
+      renderChatView();
+
+      // Smooth scroll chat stream to the newly rendered card
+      const stream = document.getElementById('chatMessagesStream');
+      if (stream) {
+        const lastCard = stream.querySelector('.chat-card:last-child');
+        if (lastCard) {
+          lastCard.scrollIntoView({ behavior: 'smooth', block: 'end' });
         }
       }
+
+      showToast('Diagnostic complete! Visual and analysis generated in chat.');
     } catch (err) {
       showToast(`Variance error: ${err.message}`);
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = '🔍 Diagnose';
+      }
     }
   });
 

@@ -12,6 +12,7 @@ from src.api.deps import get_runtime, get_session
 from src.api.runtime import AppRuntime, SessionState
 from src.api.schemas import (
     ChartBuildRequest,
+    ChartThreadQueryRequest,
     ChatQueryRequest,
     ImprovePromptRequest,
     TeachRuleRequest,
@@ -53,13 +54,22 @@ def run_chat_query(
         conversation_history=history,
     )
     effective_q = resp.resolved_question or req.question
-    if resp.recommended_chart_type and resp.recommended_chart_type in ("table", "kpi", "none"):
+    show_chart = QueryAgent.should_render_chart(
+        question=req.question,
+        df=df,
+        response_mode=req.response_mode,
+        is_thread=False,
+    )
+    if not show_chart and req.response_mode == "text_only":
+        rec_chart = "none"
+        resp.recommended_chart_type = "none"
+    elif resp.recommended_chart_type and resp.recommended_chart_type in ("table", "kpi", "none"):
         rec_chart = resp.recommended_chart_type
     else:
         rec_chart = ChartRecommender.recommend_chart_type(df, effective_q)
         resp.recommended_chart_type = rec_chart
 
-    fig = ChartRecommender.build_figure(df, chart_type=rec_chart, title=effective_q)
+    fig = None if rec_chart == "none" else ChartRecommender.build_figure(df, chart_type=rec_chart, title=effective_q)
     rows = df.head(250).to_dict(orient="records") if not df.empty else []
     columns = [str(c) for c in df.columns]
 
@@ -70,11 +80,75 @@ def run_chat_query(
         "columns": columns,
         "row_count": len(df),
         "chart_type": rec_chart,
-        "plotly_spec": fig_to_json(fig),
+        "plotly_spec": fig_to_json(fig) if fig else None,
+        "response_mode": req.response_mode,
+        "hide_chart": not show_chart,
+        "thread": [],
     }
     history.append(chat_entry)
     return {
         "entry": chat_entry,
+        "state": runtime.serialize_state(session),
+    }
+
+
+@router.post("/thread")
+def run_chart_thread_query(
+    req: ChartThreadQueryRequest,
+    runtime: Annotated[AppRuntime, Depends(get_runtime)],
+    session: Annotated[SessionState, Depends(get_session)],
+) -> dict[str, Any]:
+    ws_id = session.active_workspace_id
+    ws = runtime.get_workspace(ws_id)
+    rag = runtime.get_rag_store(ws_id)
+    conn = runtime.get_connector(ws_id)
+    overrides = session.what_if_overrides.get(ws_id, {})
+    history = session.chat_history.setdefault(ws_id, [])
+
+    target_entry: dict[str, Any] | None = None
+    resolved_idx = req.entry_idx if req.entry_idx is not None else req.entry_index
+    if resolved_idx is not None and 0 <= resolved_idx < len(history):
+        target_entry = history[resolved_idx]
+    elif req.entry_id:
+        for item in history:
+            if item.get("id") == req.entry_id:
+                target_entry = item
+                break
+
+    parent_resp = (target_entry or {}).get("response", {})
+    parent_question = req.parent_question or parent_resp.get("resolved_question") or parent_resp.get("user_question", "")
+    parent_sql = req.parent_sql or parent_resp.get("executed_query", "")
+    parent_summary = req.parent_summary or parent_resp.get("executive_summary", "")
+    parent_rows = req.parent_rows if req.parent_rows else (target_entry or {}).get("rows", [])
+    parent_columns = req.parent_columns if req.parent_columns else (target_entry or {}).get("columns", [])
+    existing_thread = (target_entry or {}).get("thread", req.thread_history or [])
+
+    thread_msg = QueryAgent.answer_chart_thread_question(
+        question=req.question,
+        parent_question=parent_question,
+        parent_sql=parent_sql,
+        parent_summary=parent_summary,
+        parent_rows=parent_rows,
+        parent_columns=parent_columns,
+        thread_history=existing_thread,
+        response_mode=req.response_mode,
+        workspace=ws,
+        okf_store=runtime.okf_store,
+        rag_store=rag,
+        connector=conn,
+        llm_router=session.llm_router,
+        what_if_overrides=overrides,
+    )
+
+    if target_entry is not None:
+        thread_list = target_entry.setdefault("thread", [])
+        thread_msg["id"] = f"thr_{len(thread_list) + 1}"
+        thread_list.append(thread_msg)
+
+    return {
+        "turn": thread_msg,
+        "thread_message": thread_msg,
+        "entry": target_entry,
         "state": runtime.serialize_state(session),
     }
 

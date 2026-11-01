@@ -15,6 +15,7 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from src.agents.llm_router import LLMRouter
+from src.agents.prompt_manager import PromptManager
 from src.knowledge.okf_models import (
     CalculatedColumn,
     OKFWorkspace,
@@ -146,13 +147,22 @@ class MeasureCompiler:
             and any(k in replaced.upper() for k in ("CALCULATE", "FILTER", "ALL", "SAMEPERIODLASTYEAR", "DATEADD"))
         ):
             try:
+                fallback_sys = (
+                    "You are a senior BI compiler. Convert the given DAX expression into a single valid SQL "
+                    "aggregation expression using table.column notation. Return JSON: {\"sql_expression\": \"...\"}"
+                )
+                fallback_usr = f"Default table: {default_table}\nDAX: {cleaned}"
+                sys_prompt, usr_prompt = PromptManager.render(
+                    "dax_transpiler",
+                    fallback_system=fallback_sys,
+                    fallback_user=fallback_usr,
+                    default_table=default_table,
+                    dax_expression=cleaned,
+                )
                 resp = llm_router.complete_json(
                     purpose="dax_to_sql_transpile",
-                    system_prompt=(
-                        "You are a senior BI compiler. Convert the given DAX expression into a single valid SQL "
-                        "aggregation expression using table.column notation. Return JSON: {\"sql_expression\": \"...\"}"
-                    ),
-                    user_prompt=f"Default table: {default_table}\nDAX: {cleaned}",
+                    system_prompt=sys_prompt,
+                    user_prompt=usr_prompt,
                 )
                 if resp.get("sql_expression"):
                     return str(resp["sql_expression"])
@@ -349,14 +359,25 @@ class MeasureCompiler:
                 for t in workspace.active_tables()
             )
             try:
+                fallback_sys = (
+                    "You are an expert Power BI DAX and SQL architect. Given the schema and the user's "
+                    "natural language metric description, return JSON with keys "
+                    "`dax_expression` (valid DAX measure formula) and `sql_expression` (valid SQL aggregate)."
+                )
+                fallback_usr = f"Schema:\n{schema_summary}\nMeasure Name: {name}\nPrimary Table: {table_name}\nRequest: {nl_prompt}"
+                sys_prompt, usr_prompt = PromptManager.render(
+                    "measure_compiler",
+                    fallback_system=fallback_sys,
+                    fallback_user=fallback_usr,
+                    schema_summary=schema_summary,
+                    name=name,
+                    table_name=table_name,
+                    request_text=nl_prompt,
+                )
                 res = llm_router.complete_json(
                     purpose="nl_to_measure",
-                    system_prompt=(
-                        "You are an expert Power BI DAX and SQL architect. Given the schema and the user's "
-                        "natural language metric description, return JSON with keys "
-                        "`dax_expression` (valid DAX measure formula) and `sql_expression` (valid SQL aggregate)."
-                    ),
-                    user_prompt=f"Schema:\n{schema_summary}\nMeasure Name: {name}\nPrimary Table: {table_name}\nRequest: {nl_prompt}",
+                    system_prompt=sys_prompt,
+                    user_prompt=usr_prompt,
                 )
                 if res.get("dax_expression") and res.get("sql_expression"):
                     return str(res["dax_expression"]), str(res["sql_expression"])

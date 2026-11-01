@@ -121,6 +121,21 @@ class ChatQueryRequest(BaseModel):
     question: str = Field(..., max_length=4000)
     revenue_shock_pct: float = 0.0
     cost_shock_pct: float = 0.0
+    response_mode: str = "auto"  # auto | text_only | with_chart
+
+
+class ChartThreadQueryRequest(BaseModel):
+    entry_idx: int | None = None
+    entry_index: int | None = None
+    entry_id: str | None = None
+    question: str = Field(..., max_length=4000)
+    response_mode: str = "text_only"  # text_only | auto | with_chart
+    parent_question: str = ""
+    parent_sql: str = ""
+    parent_summary: str = ""
+    parent_rows: list[dict[str, Any]] = Field(default_factory=list, max_length=5000)
+    parent_columns: list[str] = Field(default_factory=list)
+    thread_history: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ImprovePromptRequest(BaseModel):
@@ -141,6 +156,13 @@ class TeachRuleRequest(BaseModel):
 class RootCauseRequest(BaseModel):
     metric_col: str = "rev_net_usd"
     dimension: str = "category"
+    algorithm: str = "auto"
+    window_type: str = "last_90_vs_prior_90"
+    date_col: str = ""
+    t0_start: str = ""
+    t0_end: str = ""
+    t1_start: str = ""
+    t1_end: str = ""
 
 
 class PinWidgetRequest(BaseModel):
