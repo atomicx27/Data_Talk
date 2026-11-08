@@ -14,6 +14,7 @@ Orchestrates the end-to-end "Talk to Data" flow:
 from __future__ import annotations
 
 import difflib
+import json
 import logging
 import re
 from typing import TYPE_CHECKING, Any
@@ -3629,6 +3630,45 @@ class QueryAgent:
         median_val = float(series.median()) if len(series) else 0.0
         max_idx = series.idxmax() if len(series) else None
         min_idx = series.idxmin() if len(series) else None
+
+        # 1. PRIMARY AI REASONING ENGINE: When an LLM is configured, pass the question & chart data directly!
+        if llm_router and llm_router.is_configured():
+            try:
+                sample_records = df.head(60).to_dict(orient="records")
+                sorted_desc_ai = df.assign(_v=series).sort_values("_v", ascending=False).reset_index(drop=True)
+                top_items_ai = [
+                    f"#{i+1}: {_format_row_label(r)} = {float(r['_v']):,.2f}"
+                    for i, (_, r) in enumerate(sorted_desc_ai.head(10).iterrows())
+                ]
+                sys_prompt = (
+                    "You are Data_Talk's Senior Conversational BI Chart Assistant. "
+                    "You are answering a user's question directly about a specific visual chart that they are viewing.\n"
+                    "CORE PRINCIPLES:\n"
+                    "1. Directly, conversationally, and accurately answer the user's specific question in the very first sentence.\n"
+                    "2. Understand natural human phrasing and typos (e.g. 'hight' or 'hights' means highest, '2nd hights' means 2nd highest / runner-up, 'gap' means difference).\n"
+                    "3. Ground your answer strictly in the provided chart table data and pre-computed rankings. Never invent numbers.\n"
+                    "4. If there are multiple categorical dimensions (e.g. College Name and Gender), specify both so the user knows exactly which bar or segment you are referring to.\n"
+                    "5. Format key numbers and entities in **bold** or `code`."
+                )
+                usr_prompt = (
+                    f"Parent Chart Context: {parent_question}\n"
+                    f"Chart Primary Metric: {val_label} (Sum: {total_val:,.2f}, Mean: {mean_val:,.2f}, Median: {median_val:,.2f})\n"
+                    f"Top Ranked Segments:\n" + "\n".join(f"- {it}" for it in top_items_ai) + "\n\n"
+                    f"All Chart Table Records (JSON):\n{json.dumps(sample_records, default=str)}\n\n"
+                    f"User Thread Question: {question}\n\n"
+                    "Provide a direct, helpful, and executive response:"
+                )
+                ai_text = llm_router.complete("chart_thread_qa", sys_prompt, usr_prompt)
+                if ai_text and len(ai_text.strip()) > 15:
+                    final_ans = (scope_advisory + ai_text.strip()) if scope_advisory and not ai_text.startswith("> ℹ️") else ai_text.strip()
+                    follow_ups = [
+                        f"Which {dim_label} segments are above average?",
+                        f"Compare top vs bottom {dim_label}",
+                        f"What percentage share does the top {dim_label} hold?",
+                    ]
+                    return final_ans, df, follow_ups
+            except Exception as exc:
+                _LOGGER.warning("Primary LLM chart thread Q&A encountered error, falling back to deterministic analyzer: %s", exc)
 
         # Detect specific segments mentioned in the user's question
         matched_indices: list[Any] = []
