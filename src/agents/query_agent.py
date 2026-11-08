@@ -3580,6 +3580,49 @@ class QueryAgent:
             ]
             return answer_md, df, follow_ups
 
+        def _format_row_label(r: Any) -> str:
+            main_val = str(r[dim_col]).strip()
+            if len(dim_cols) > 1:
+                extra_parts = [str(r[c]).strip() for c in dim_cols[1:] if c in r and pd.notna(r[c])]
+                if extra_parts:
+                    return f"{main_val} ({', '.join(extra_parts)})"
+            return main_val
+
+        # Normalize analytical, ranking, and common superlatives typos
+        ANALYTICAL_TYPO_MAP = {
+            r"\bhights\b": "highest",
+            r"\bhight\b": "highest",
+            r"\bhighests\b": "highest",
+            r"\bhigest\b": "highest",
+            r"\bheighest\b": "highest",
+            r"\bhieght\b": "highest",
+            r"\blowst\b": "lowest",
+            r"\blowes\b": "lowest",
+            r"\bbottomm\b": "bottom",
+            r"\bsecnd\b": "second",
+            r"\bsecon\b": "second",
+            r"\b2nd\b": "second",
+            r"\b3rd\b": "third",
+            r"\b4th\b": "fourth",
+            r"\b5th\b": "fifth",
+            r"\bratioo\b": "ratio",
+            r"\bavrage\b": "average",
+        }
+        for pat, rep in ANALYTICAL_TYPO_MAP.items():
+            q_low = re.sub(pat, rep, q_low)
+
+        # Multi-dimensional filtering: if a secondary dimension's exact value is in question, filter to that subset
+        if len(dim_cols) > 1:
+            for extra_dim in dim_cols[1:]:
+                unique_sub_vals = df[extra_dim].dropna().unique()
+                for sub_val in unique_sub_vals:
+                    sub_str = str(sub_val).strip().lower()
+                    if len(sub_str) >= 3 and re.search(rf"\b{re.escape(sub_str)}\b", q_low):
+                        sub_filtered = df[df[extra_dim].astype(str).str.lower() == sub_str].copy()
+                        if not sub_filtered.empty:
+                            df = sub_filtered
+                            break
+
         series = pd.to_numeric(df[val_col], errors="coerce").fillna(0.0)
         total_val = float(series.sum())
         mean_val = float(series.mean()) if len(series) else 0.0
@@ -3605,13 +3648,42 @@ class QueryAgent:
         working_df = df.copy()
         answer_md = ""
 
+        # Check for explicit ordinal rank queries (e.g., "2nd highest", "second top", "3rd lowest", "rank 2")
+        ORDINAL_WORD_MAP = {
+            "first": 1, "1st": 1,
+            "second": 2, "2nd": 2,
+            "third": 3, "3rd": 3,
+            "fourth": 4, "4th": 4,
+            "fifth": 5, "5th": 5,
+            "sixth": 6, "6th": 6,
+            "seventh": 7, "7th": 7,
+            "eighth": 8, "8th": 8,
+            "ninth": 9, "9th": 9,
+            "tenth": 10, "10th": 10,
+        }
+        ord_m = re.search(
+            r"\b(1st|first|2nd|second|3rd|third|4th|fourth|5th|fifth|6th|seventh|8th|ninth|10th|#\s*\d+|\brank\s*\d+)\b",
+            q_low,
+        )
+        target_k: int | None = None
+        if ord_m:
+            raw_matched_ord = ord_m.group(1).replace(" ", "")
+            if raw_matched_ord.startswith("#"):
+                target_k = int(raw_matched_ord[1:])
+            elif raw_matched_ord.startswith("rank"):
+                target_k = int(raw_matched_ord.replace("rank", ""))
+            elif raw_matched_ord in ORDINAL_WORD_MAP:
+                target_k = ORDINAL_WORD_MAP[raw_matched_ord]
+            elif raw_matched_ord[:-2].isdigit():
+                target_k = int(raw_matched_ord[:-2])
+
         # Case 1: Comparing 2 or more specific segments mentioned by user
         if len(matched_indices) >= 2:
             sub_df = df.loc[matched_indices].copy()
             working_df = sub_df
             r1 = sub_df.iloc[0]
             r2 = sub_df.iloc[1]
-            s1, s2 = str(r1[dim_col]), str(r2[dim_col])
+            s1, s2 = _format_row_label(r1), _format_row_label(r2)
             v1, v2 = float(pd.to_numeric(r1[val_col], errors="coerce") or 0.0), float(pd.to_numeric(r2[val_col], errors="coerce") or 0.0)
             diff = v1 - v2
             pct_diff = ((v1 - v2) / abs(v2) * 100.0) if v2 != 0 else 0.0
@@ -3632,12 +3704,12 @@ class QueryAgent:
             answer_md = "\n".join(lines)
 
         # Case 2: Asking about 1 specific segment in the chart
-        elif len(matched_indices) == 1:
+        elif len(matched_indices) == 1 and not (target_k and target_k >= 2):
             sorted_all = df.assign(_v=series).sort_values("_v", ascending=False).reset_index(drop=True)
             row = df.loc[matched_indices[0]]
-            seg_name = str(row[dim_col])
+            seg_name = _format_row_label(row)
             val = float(pd.to_numeric(row[val_col], errors="coerce") or 0.0)
-            rank_matches = sorted_all.index[sorted_all[dim_col].astype(str) == seg_name].tolist()
+            rank_matches = sorted_all.index[sorted_all[dim_col].astype(str) == str(row[dim_col])].tolist()
             rank = (rank_matches[0] + 1) if rank_matches else 1
             share = (val / total_val * 100.0) if total_val != 0 else 0.0
             vs_mean = val - mean_val
@@ -3648,7 +3720,7 @@ class QueryAgent:
                 if isinstance(row[c], (int, float))
                 else f"**{c.replace('_', ' ').title()}:** `{row[c]}`"
                 for c in df.columns
-                if c != dim_col
+                if c not in dim_cols
             ]
             answer_md = (
                 f"### 📌 Segment Spotlight: **{seg_name}**\n"
@@ -3659,12 +3731,55 @@ class QueryAgent:
             )
             working_df = df.loc[matched_indices].copy()
 
+        # Case 2.5: Specific Ordinal Rank Query (e.g. "2nd highest", "3rd lowest", "#2", "rank 2")
+        elif target_k is not None and target_k >= 2:
+            is_lowest_dir = any(k in q_low for k in ("lowest", "bottom", "minimum", "smallest", "least", "worst", "last"))
+            if is_lowest_dir:
+                sorted_ranked = df.assign(_v=series).sort_values("_v", ascending=True).reset_index(drop=True)
+                dir_label = "Lowest"
+                top_row = sorted_ranked.iloc[0]
+                top_label = _format_row_label(top_row)
+                top_val = float(top_row["_v"])
+            else:
+                sorted_ranked = df.assign(_v=series).sort_values("_v", ascending=False).reset_index(drop=True)
+                dir_label = "Highest"
+                top_row = sorted_ranked.iloc[0]
+                top_label = _format_row_label(top_row)
+                top_val = float(top_row["_v"])
+
+            idx_k = min(target_k - 1, len(sorted_ranked) - 1)
+            target_row = sorted_ranked.iloc[idx_k]
+            target_label = _format_row_label(target_row)
+            target_val = float(target_row["_v"])
+            target_share = (target_val / total_val * 100.0) if total_val != 0 else 0.0
+            gap_vs_top = target_val - top_val
+            gap_pct = ((target_val - top_val) / abs(top_val) * 100.0) if top_val != 0 else 0.0
+
+            ord_suffix = f"{target_k}th" if target_k in (4, 5, 6, 7, 8, 9, 10) else ("2nd" if target_k == 2 else ("3rd" if target_k == 3 else f"{target_k}th"))
+            medal = "🥈" if target_k == 2 else ("🥉" if target_k == 3 else f"#{target_k}")
+
+            items = [
+                f"`#{i+1}` **{_format_row_label(r)}** — `{float(r['_v']):,.2f}`"
+                + (" 👈 *(Selected)*" if i == idx_k else "")
+                for i, (_, r) in enumerate(sorted_ranked.head(max(5, target_k + 1)).iterrows())
+            ]
+
+            answer_md = (
+                f"### {medal} #{target_k} ({ord_suffix.title()} {dir_label}): **{target_label}**\n\n"
+                f"The **{ord_suffix} {dir_label.lower()}** {dim_label} by **{val_label}** is **{target_label}** at **`{target_val:,.2f}`** "
+                f"({target_share:.1f}% of chart total).\n\n"
+                f"- **Difference vs #{1} ({top_label} at `{top_val:,.2f}`):** `{gap_vs_top:+,.2f}` (**{gap_pct:+.1f}%**)\n"
+                f"- **vs Chart Average (`{mean_val:,.2f}`):** `{target_val - mean_val:+,.2f}`\n\n"
+                f"**Ranking Overview:**\n" + "\n".join(f"- {it}" for it in items)
+            )
+            working_df = sorted_ranked.head(max(5, target_k + 1))
+
         # Case 3: Above / Below Average filter questions
         elif "above average" in q_low or "greater than average" in q_low or "over average" in q_low:
             above_df = df[series > mean_val].copy()
             working_df = above_df if not above_df.empty else df
             items = [
-                f"**{r[dim_col]}** (`{float(pd.to_numeric(r[val_col], errors='coerce') or 0.0):,.2f}`)"
+                f"**{_format_row_label(r)}** (`{float(pd.to_numeric(r[val_col], errors='coerce') or 0.0):,.2f}`)"
                 for _, r in above_df.iterrows()
             ]
             answer_md = (
@@ -3676,7 +3791,7 @@ class QueryAgent:
             below_df = df[series < mean_val].copy()
             working_df = below_df if not below_df.empty else df
             items = [
-                f"**{r[dim_col]}** (`{float(pd.to_numeric(r[val_col], errors='coerce') or 0.0):,.2f}`)"
+                f"**{_format_row_label(r)}** (`{float(pd.to_numeric(r[val_col], errors='coerce') or 0.0):,.2f}`)"
                 for _, r in below_df.iterrows()
             ]
             answer_md = (
@@ -3692,7 +3807,7 @@ class QueryAgent:
             if not neg_df.empty:
                 working_df = neg_df
                 items = [
-                    f"**{r[dim_col]}**: `{float(r[target_col]):+,.2f}`"
+                    f"**{_format_row_label(r)}**: `{float(r[target_col]):+,.2f}`"
                     for _, r in neg_df.iterrows()
                 ]
                 answer_md = (
@@ -3702,54 +3817,71 @@ class QueryAgent:
             else:
                 bottom_df = df.assign(_v=series).sort_values("_v", ascending=True).head(3)
                 working_df = bottom_df.drop(columns=["_v"])
-                items = [f"**{r[dim_col]}**: `{float(r['_v']):,.2f}`" for _, r in bottom_df.iterrows()]
+                items = [f"**{_format_row_label(r)}**: `{float(r['_v']):,.2f}`" for _, r in bottom_df.iterrows()]
                 answer_md = (
                     f"No segments have negative values, but the **lowest-performing segments** for **{val_label}** are:\n\n"
                     + "\n".join(f"- {it}" for it in items)
                 )
 
         # Case 5: Lowest / Bottom / Minimum
-        elif any(k in q_low for k in ("lowest", "bottom", "minimum", "smallest", "least", "worst")):
-            sorted_asc = df.assign(_v=series).sort_values("_v", ascending=True)
+        elif any(k in q_low for k in ("lowest", "bottom", "minimum", "smallest", "least", "worst", "lowst", "lowes")):
+            sorted_asc = df.assign(_v=series).sort_values("_v", ascending=True).reset_index(drop=True)
             working_df = sorted_asc.drop(columns=["_v"]).head(5)
             bot = sorted_asc.iloc[0]
-            bot_share = (float(bot["_v"]) / total_val * 100.0) if total_val != 0 else 0.0
+            bot_label = _format_row_label(bot)
+            bot_val = float(bot["_v"])
+            bot_share = (bot_val / total_val * 100.0) if total_val != 0 else 0.0
+            gap_note = ""
+            if len(sorted_asc) >= 2:
+                sec = sorted_asc.iloc[1]
+                sec_label = _format_row_label(sec)
+                sec_val = float(sec["_v"])
+                gap = bot_val - sec_val
+                gap_note = f" (trailing `#{2}` lowest **{sec_label}** at `{sec_val:,.2f}` by `{gap:+,.2f}`)"
             items = [
-                f"`#{i+1}` **{r[dim_col]}** — `{float(r['_v']):,.2f}`"
-                for i, (_, r) in enumerate(sorted_asc.head(3).iterrows())
+                f"`#{i+1}` **{_format_row_label(r)}** — `{float(r['_v']):,.2f}`"
+                for i, (_, r) in enumerate(sorted_asc.head(5).iterrows())
             ]
             answer_md = (
-                f"The lowest **{dim_label}** by **{val_label}** is **{bot[dim_col]}** at **`{float(bot['_v']):,.2f}`** "
-                f"({bot_share:.1f}% of total `{total_val:,.2f}`).\n\n"
-                f"**Bottom 3 Segments:**\n" + "\n".join(f"- {it}" for it in items)
+                f"### 🔻 Lowest {val_label}: **{bot_label}**\n\n"
+                f"The lowest {dim_label} by **{val_label}** is **{bot_label}** at **`{bot_val:,.2f}`** "
+                f"({bot_share:.1f}% of chart total){gap_note}.\n\n"
+                f"**Bottom Segments:**\n" + "\n".join(f"- {it}" for it in items)
             )
 
-        # Case 6: Highest / Top / Maximum / Best
-        elif any(k in q_low for k in ("highest", "top", "maximum", "largest", "biggest", "most", "best", "leader")):
-            sorted_desc = df.assign(_v=series).sort_values("_v", ascending=False)
+        # Case 6: Highest / Top / Maximum / Best / Most
+        elif any(k in q_low for k in ("highest", "top", "maximum", "largest", "biggest", "most", "best", "leader", "hight", "hights")):
+            sorted_desc = df.assign(_v=series).sort_values("_v", ascending=False).reset_index(drop=True)
             working_df = sorted_desc.drop(columns=["_v"]).head(5)
             top = sorted_desc.iloc[0]
-            top_share = (float(top["_v"]) / total_val * 100.0) if total_val != 0 else 0.0
+            top_label = _format_row_label(top)
+            top_val = float(top["_v"])
+            top_share = (top_val / total_val * 100.0) if total_val != 0 else 0.0
             gap_note = ""
             if len(sorted_desc) >= 2:
                 sec = sorted_desc.iloc[1]
-                gap = float(top["_v"]) - float(sec["_v"])
-                gap_note = f", leading `#{2}` **{sec[dim_col]}** (`{float(sec['_v']):,.2f}`) by **`{gap:+,.2f}`**"
+                sec_label = _format_row_label(sec)
+                sec_val = float(sec["_v"])
+                gap = top_val - sec_val
+                gap_note = f", leading `#{2}` **{sec_label}** (`{sec_val:,.2f}`) by **`{gap:+,.2f}`**"
             items = [
-                f"`#{i+1}` **{r[dim_col]}** — `{float(r['_v']):,.2f}`"
+                f"`#{i+1}` **{_format_row_label(r)}** — `{float(r['_v']):,.2f}`"
                 for i, (_, r) in enumerate(sorted_desc.head(5).iterrows())
             ]
             answer_md = (
-                f"The highest **{dim_label}** by **{val_label}** is **{top[dim_col]}** at **`{float(top['_v']):,.2f}`** "
-                f"(**{top_share:.1f}%** of total){gap_note}.\n\n"
+                f"### 🥇 Highest {val_label}: **{top_label}**\n\n"
+                f"The highest {dim_label} by **{val_label}** is **{top_label}** at **`{top_val:,.2f}`** "
+                f"(**{top_share:.1f}%** of chart total){gap_note}.\n\n"
                 f"**Top Segments:**\n" + "\n".join(f"- {it}" for it in items)
             )
 
         # Case 7: Comprehensive Chart Summary / Takeaways / Default analytical answer
         else:
-            sorted_desc = df.assign(_v=series).sort_values("_v", ascending=False)
+            sorted_desc = df.assign(_v=series).sort_values("_v", ascending=False).reset_index(drop=True)
             top_row = sorted_desc.iloc[0]
             bot_row = sorted_desc.iloc[-1]
+            top_label = _format_row_label(top_row)
+            bot_label = _format_row_label(bot_row)
             top_val = float(top_row["_v"])
             bot_val = float(bot_row["_v"])
             top_share = (top_val / total_val * 100.0) if total_val != 0 else 0.0
@@ -3760,8 +3892,8 @@ class QueryAgent:
             answer_md = (
                 f"### 📊 Chart Analysis & Key Takeaways ({val_label} by {dim_label})\n"
                 f"- **Aggregate Total:** `{total_val:,.2f}` across `{len(df)}` segments (Mean: `{mean_val:,.2f}` · Median: `{median_val:,.2f}`)\n"
-                f"- **Top Performer:** **{top_row[dim_col]}** at **`{top_val:,.2f}`** ({top_share:.1f}% of total)\n"
-                f"- **Lowest Segment:** **{bot_row[dim_col]}** at **`{bot_val:,.2f}`** (Spread / Range: `{spread:,.2f}`)\n"
+                f"- **Top Performer:** **{top_label}** at **`{top_val:,.2f}`** ({top_share:.1f}% of total)\n"
+                f"- **Lowest Segment:** **{bot_label}** at **`{bot_val:,.2f}`** (Spread / Range: `{spread:,.2f}`)\n"
                 f"- **Concentration:** Top 3 segments account for **{top3_share:.1f}%** of total volume; **{above_count} of {len(df)}** segments perform above average."
             )
 
