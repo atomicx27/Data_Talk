@@ -185,6 +185,7 @@ class WhatIfSimulateRequest(BaseModel):
     include_regression: bool = True
     include_waterfall: bool = True
     include_confidence_cone: bool = True
+    append_to_chat: bool = False
 
 
 class GoalSeekRequest(BaseModel):

@@ -93,6 +93,32 @@ class SimulationEngine:
             s_e = math.sqrt(ss_res / (n - 2)) if n > 2 else 0.0
 
         date_labels = [str(d) for d in clean_df[date_col]]
+
+        # Compute Recent-Weighted Momentum (Holt's Linear / EWMA Trend) and Ensemble Blend
+        # Weighting recent observations higher avoids an unnatural cliff when recent years
+        # are far above or below the 20-year unweighted OLS line.
+        weights = np.exp(np.linspace(-1.6, 0.0, n))
+        weights /= np.sum(weights)
+        t_w_mean = float(np.sum(weights * t))
+        y_w_mean = float(np.sum(weights * y))
+        s_w_tt = float(np.sum(weights * ((t - t_w_mean) ** 2)))
+        if s_w_tt > 1e-12:
+            beta_1_w = float(np.sum(weights * (t - t_w_mean) * (y - y_w_mean)) / s_w_tt)
+            beta_0_w = y_w_mean - (beta_1_w * t_w_mean)
+        else:
+            beta_1_w = beta_1
+            beta_0_w = beta_0
+
+        # Recent 3-period level anchor for smooth trajectory continuity when R^2 is low
+        recent_k = min(3, n)
+        recent_level = float(np.mean(y[-recent_k:]))
+        ols_end_level = float(beta_0 + beta_1 * (n - 1))
+
+        # Blend weight: when R^2 is high, trust global OLS; when R^2 is noisy/volatile, anchor closer to recent 3-period level & weighted slope
+        ols_trust = max(0.35, min(0.85, float(r2) + 0.35))
+        eff_slope = (ols_trust * beta_1) + ((1.0 - ols_trust) * beta_1_w)
+        anchor_end = (ols_trust * ols_end_level) + ((1.0 - ols_trust) * recent_level)
+
         hist_points: list[dict[str, Any]] = []
         for i in range(n):
             hist_points.append(
@@ -101,6 +127,7 @@ class SimulationEngine:
                     "period_index": i,
                     "actual": round(float(y[i]), 2),
                     "trend": round(float(beta_0 + beta_1 * i), 2),
+                    "weighted_trend": round(float(beta_0_w + beta_1_w * i), 2),
                 }
             )
 
@@ -111,8 +138,11 @@ class SimulationEngine:
 
         for h in range(1, forecast_periods + 1):
             t_fut = n - 1 + h
-            y_hat_organic = beta_0 + (beta_1 * t_fut)
+            y_hat_ols = beta_0 + (beta_1 * t_fut)
+            y_hat_smart = anchor_end + (eff_slope * h)
+            y_hat_organic = y_hat_ols
             y_hat = y_hat_organic * mult
+            y_hat_smart_shocked = y_hat_smart * mult
 
             # Prediction interval standard error:
             # SE_pred = s_e * sqrt(1 + 1/n + (t_fut - t_mean)^2 / s_tt)
@@ -131,6 +161,7 @@ class SimulationEngine:
                     "date": forecast_labels[h - 1],
                     "period_index": t_fut,
                     "organic_projected": round(float(y_hat_organic), 2),
+                    "smart_momentum": round(float(y_hat_smart_shocked), 2),
                     "projected": round(float(p50), 2),
                     "p10": round(float(p10), 2),
                     "p50": round(float(p50), 2),
@@ -139,14 +170,35 @@ class SimulationEngine:
                 }
             )
 
+        # Backtest MAPE on last min(3, n-1) points
+        mape = 0.0
+        if n >= 4:
+            actual_tail = y[-3:]
+            pred_tail = (beta_0 + beta_1 * t[-3:])
+            non_zero = np.abs(actual_tail) > 1e-6
+            if np.any(non_zero):
+                mape = round(float(np.mean(np.abs((actual_tail[non_zero] - pred_tail[non_zero]) / actual_tail[non_zero])) * 100.0), 1)
+
+        if r2 >= 0.50 or (mape > 0 and mape <= 12.0):
+            confidence_grade = "High Predictability (Strong Linear Trend)"
+        elif r2 >= 0.18 or (mape > 0 and mape <= 22.0):
+            confidence_grade = "Moderate Predictability (Trend + Cyclical Variance)"
+        else:
+            confidence_grade = "High Historical Volatility (Use P10–P90 Range)"
+
         return {
             "success": True,
             "metric": metric_col,
             "slope": round(beta_1, 4),
+            "weighted_slope": round(beta_1_w, 4),
+            "effective_slope": round(eff_slope, 4),
             "intercept": round(beta_0, 4),
             "r2": round(r2, 4),
+            "mape_pct": mape,
+            "confidence_grade": confidence_grade,
             "residual_std_error": round(s_e, 4),
             "historical_mean": round(y_mean, 2),
+            "recent_3p_mean": round(recent_level, 2),
             "historical_points": hist_points,
             "forecast_points": forecast_points,
             "historical_count": n,
@@ -364,6 +416,7 @@ class SimulationEngine:
         levers: dict[str, float] | None = None,
         target_table_name: str | None = None,
         target_metric: str | None = None,
+        forecast_periods: int = 4,
     ) -> dict[str, Any]:
         """Execute full scenario simulation across active workspace tables.
 
@@ -622,10 +675,11 @@ class SimulationEngine:
                         df=trend_df,
                         date_col="period_date",
                         metric_col="period_val",
-                        forecast_periods=4,
+                        forecast_periods=max(1, min(24, int(forecast_periods or 4))),
                         shock_multiplier=effective_mult,
                     )
                     regression_result["period_unit"] = period_unit
+                    regression_result["executed_sql"] = trend_query
             except Exception as trend_exc:
                 _LOGGER.debug("Regression trend query skipped: %s", trend_exc)
 
@@ -645,9 +699,12 @@ class SimulationEngine:
             kpis["last_period_val"] = last_act
             kpis["next_forecast_date"] = f0["date"]
             kpis["next_forecast_p50"] = f0["projected"]
+            kpis["next_forecast_smart"] = f0.get("smart_momentum", f0["projected"])
             kpis["next_forecast_organic"] = f0.get("organic_projected", f0["projected"])
             kpis["next_forecast_p10"] = f0["p10"]
             kpis["next_forecast_p90"] = f0["p90"]
+            kpis["confidence_grade"] = regression_result.get("confidence_grade", "Moderate Predictability")
+            kpis["mape_pct"] = regression_result.get("mape_pct", 0.0)
             kpis["forecast_vs_avg_delta"] = round(f0["projected"] - hist_mean, 2)
             kpis["forecast_vs_avg_pct"] = round(((f0["projected"] - hist_mean) / hist_mean) * 100.0, 2) if hist_mean else 0.0
             kpis["cum_forecast_4p"] = round(

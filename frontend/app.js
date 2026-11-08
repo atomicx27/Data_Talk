@@ -1853,6 +1853,7 @@ function renderChatView() {
       const isSingleRow = (entry.row_count || (entry.rows || []).length) === 1;
       const chartLabels = {
         kpi: 'KPI Summary Card',
+        fan_chart: 'Future Trend Fan Chart (OLS + Momentum)',
         bar: 'Grouped Bar Chart',
         horizontal_bar: 'Horizontal Bar Chart',
         stacked_bar: 'Stacked Bar Chart',
@@ -1876,6 +1877,7 @@ function renderChatView() {
         table: 'Data Catalog Table',
       };
       const baseSupported = APP_STATE.supported_chart_types || [
+        'fan_chart',
         'waterfall',
         'bar',
         'horizontal_bar',
@@ -1992,7 +1994,7 @@ function renderChatView() {
         `
         : '';
 
-      const tablePreviewRows = (entry.rows || []).slice(0, 10);
+      const tablePreviewRows = (entry.rows || []).slice(0, 60);
       const totalRowsCount = entry.row_count || (entry.rows || []).length;
       const isTableChart = entry.chart_type === 'table' || !entry.plotly_spec || Boolean(entry.hide_chart);
       const chartBoxHtml = isTableChart
@@ -2078,12 +2080,15 @@ function renderChatView() {
                 </thead>
                 <tbody>
                   ${tablePreviewRows
-                    .map(
-                      (r) =>
-                        `<tr>${cols
-                          .map((c) => `<td class="mono">${escapeHtml(formatCellVal(r[c]))}</td>`)
-                          .join('')}</tr>`
-                    )
+                    .map((r) => {
+                      const isForecastRow = r && r.phase === 'Projected Forecast';
+                      const rowStyle = isForecastRow
+                        ? ' style="background:rgba(16, 185, 129, 0.08); font-weight:600;"'
+                        : '';
+                      return `<tr${rowStyle}>${cols
+                        .map((c) => `<td class="mono">${escapeHtml(formatCellVal(r[c]))}</td>`)
+                        .join('')}</tr>`;
+                    })
                     .join('')}
                 </tbody>
               </table>
@@ -2348,6 +2353,23 @@ function renderChatView() {
       const idx = Number(e.target.dataset.idx);
       const entry = history[idx];
       const newType = e.target.value;
+      if (newType === 'fan_chart' && entry.fan_spec) {
+        entry.chart_type = 'fan_chart';
+        entry.plotly_spec = entry.fan_spec;
+        renderChatView();
+        return;
+      }
+      if (newType === 'waterfall' && entry.waterfall_spec) {
+        entry.chart_type = 'waterfall';
+        entry.plotly_spec = entry.waterfall_spec;
+        renderChatView();
+        return;
+      }
+      if (newType === 'table') {
+        entry.chart_type = 'table';
+        renderChatView();
+        return;
+      }
       try {
         const res = await apiRequest('/api/chat/chart', {
           method: 'POST',
@@ -4147,9 +4169,90 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  let WHATIF_DEBOUNCE_TIMER = null;
+
+  async function executeWhatIfPreview(appendToChat = false) {
+    const metricSelect = document.getElementById('whatIfMetricSelect');
+    const target_metric = metricSelect?.value || null;
+    const target_table = metricSelect?.selectedOptions[0]?.getAttribute('data-table') || null;
+    const horizonSelect = document.getElementById('whatIfHorizonSelect');
+    const forecast_periods = Number(horizonSelect?.value || 4);
+
+    const revShock = Number(whatIfRevSlider?.value || 0);
+    const costShock = Number(whatIfCostSlider?.value || 0);
+
+    const runBtn = document.getElementById('whatIfRunBtn');
+    if (runBtn && appendToChat) {
+      runBtn.disabled = true;
+      runBtn.innerHTML = '<svg class="icon" style="stroke:#ffffff;"><use href="#i-refresh"/></svg> Publishing to Chat…';
+    }
+
+    try {
+      const res = await apiRequest('/api/simulation/run', {
+        method: 'POST',
+        body: JSON.stringify({
+          revenue_shock_pct: revShock,
+          cost_shock_pct: costShock,
+          target_metric: target_metric,
+          target_table: target_table,
+          forecast_periods: forecast_periods,
+          include_waterfall: true,
+          include_confidence_cone: true,
+          append_to_chat: appendToChat,
+        }),
+      });
+
+      // Auto-populate Goal Seek placeholder with smart target suggestion (+10% over baseline)
+      const k = res.kpis || {};
+      const goalInput = document.getElementById('goalSeekTargetInput');
+      if (goalInput && !goalInput.value && k.base_revenue) {
+        const suggestedTarget = Math.round(Number(k.base_revenue) * 1.10);
+        goalInput.placeholder = `e.g. ${suggestedTarget.toLocaleString()}`;
+      }
+
+      renderWhatIfResultBox(res);
+
+      if (appendToChat) {
+        if (res.state) {
+          APP_STATE = res.state;
+        }
+        const drawer = document.getElementById('whatIfDrawer');
+        if (drawer) {
+          drawer.classList.add('hidden');
+        }
+        renderChatView();
+        const stream = document.getElementById('chatMessagesStream');
+        if (stream) {
+          const lastCard = stream.querySelector('.chat-card:last-child');
+          if (lastCard) {
+            lastCard.scrollIntoView({ behavior: 'smooth', block: 'end' });
+          }
+        }
+        showToast('Future Trend & What-If table published to chat!');
+      }
+    } catch (err) {
+      if (appendToChat) {
+        showToast(`Simulation error: ${err.message}`);
+      }
+    } finally {
+      if (runBtn && appendToChat) {
+        runBtn.disabled = false;
+        runBtn.innerHTML = '<svg class="icon" style="stroke:#ffffff;"><use href="#i-sparkles"/></svg> Publish Forecast &amp; Table to Chat';
+      }
+    }
+  }
+
+  function scheduleWhatIfAutoPreview() {
+    if (WHATIF_DEBOUNCE_TIMER) clearTimeout(WHATIF_DEBOUNCE_TIMER);
+    WHATIF_DEBOUNCE_TIMER = setTimeout(() => {
+      executeWhatIfPreview(false);
+    }, 180);
+  }
+
   window.loadWhatIfOptions = async function(forceRefresh = false) {
     if (CURRENT_WHATIF_DATA && !forceRefresh) {
       updateWhatIfContextLabels();
+      scheduleWhatIfAutoPreview();
       return;
     }
     try {
@@ -4161,6 +4264,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           return `<option value="${escapeHtml(m.id)}" data-table="${escapeHtml(m.table || '')}">${escapeHtml(m.name)}</option>`;
         }).join('');
         updateWhatIfContextLabels();
+        scheduleWhatIfAutoPreview();
       }
     } catch (err) {
       console.error('Error loading what-if options:', err);
@@ -4168,7 +4272,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
 
   document.getElementById('whatIfMetricSelect')?.addEventListener('change', () => {
+    const goalInput = document.getElementById('goalSeekTargetInput');
+    if (goalInput) goalInput.value = '';
     updateWhatIfContextLabels();
+    scheduleWhatIfAutoPreview();
+  });
+
+  document.getElementById('whatIfHorizonSelect')?.addEventListener('change', () => {
+    scheduleWhatIfAutoPreview();
   });
 
   // Slider Badges Sync
@@ -4178,11 +4289,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     const v = Number(whatIfRevSlider.value || 0);
     const badge = document.getElementById('whatIfRevVal');
     if (badge) badge.textContent = `${v >= 0 ? '+' : ''}${v}%`;
+    scheduleWhatIfAutoPreview();
   });
   whatIfCostSlider?.addEventListener('input', () => {
     const v = Number(whatIfCostSlider.value || 0);
     const badge = document.getElementById('whatIfCostVal');
     if (badge) badge.textContent = `${v >= 0 ? '+' : ''}${v}%`;
+    scheduleWhatIfAutoPreview();
   });
 
   // Preset Buttons
@@ -4213,6 +4326,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (bRev) bRev.textContent = '0%';
         if (bCost) bCost.textContent = '0%';
       }
+      scheduleWhatIfAutoPreview();
     });
   });
 
@@ -4228,8 +4342,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (p.getAttribute('data-preset') === 'base') p.classList.add('active');
       else p.classList.remove('active');
     });
-    const resultBox = document.getElementById('whatIfResultBox');
-    if (resultBox) resultBox.innerHTML = '';
+    scheduleWhatIfAutoPreview();
   });
 
   // Goal Seek Solve Button
@@ -4270,56 +4383,23 @@ document.addEventListener('DOMContentLoaded', async () => {
         whatIfRevSlider.value = Math.max(-30, Math.min(50, rounded));
         const bRev = document.getElementById('whatIfRevVal');
         if (bRev) bRev.textContent = `${rounded >= 0 ? '+' : ''}${rounded}%`;
+        scheduleWhatIfAutoPreview();
       } else if (resp.success && whatIfCostSlider && lever === 'Cost Multiplier %') {
         const rounded = Math.round(resp.required_pct);
         whatIfCostSlider.value = Math.max(-30, Math.min(50, rounded));
         const bCost = document.getElementById('whatIfCostVal');
         if (bCost) bCost.textContent = `${rounded >= 0 ? '+' : ''}${rounded}%`;
+        scheduleWhatIfAutoPreview();
       }
     } catch (err) {
       if (statusEl) statusEl.textContent = `Error: ${err.message}`;
     }
   });
 
-  // What-If Form Submit
+  // What-If Form Submit -> Publishes the full Forecast Card + Data Table to Chat Stream
   document.getElementById('whatIfForm')?.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const metricSelect = document.getElementById('whatIfMetricSelect');
-    const target_metric = metricSelect?.value || null;
-    const target_table = metricSelect?.selectedOptions[0]?.getAttribute('data-table') || null;
-
-    const revShock = Number(whatIfRevSlider?.value || 0);
-    const costShock = Number(whatIfCostSlider?.value || 0);
-
-    const runBtn = document.getElementById('whatIfRunBtn');
-    if (runBtn) {
-      runBtn.disabled = true;
-      runBtn.innerHTML = '<svg class="icon"><use href="#i-refresh"/></svg> Simulating…';
-    }
-
-    try {
-      const res = await apiRequest('/api/simulation/run', {
-        method: 'POST',
-        body: JSON.stringify({
-          revenue_shock_pct: revShock,
-          cost_shock_pct: costShock,
-          target_metric: target_metric,
-          target_table: target_table,
-          include_waterfall: true,
-          include_confidence_cone: true,
-        }),
-      });
-
-      renderWhatIfResultBox(res);
-      showToast('Simulation complete! Trajectory and attribution updated.');
-    } catch (err) {
-      showToast(`Simulation error: ${err.message}`);
-    } finally {
-      if (runBtn) {
-        runBtn.disabled = false;
-        runBtn.innerHTML = '<svg class="icon"><use href="#i-sparkles"/></svg> Run Simulation';
-      }
-    }
+    await executeWhatIfPreview(true);
   });
 
   function renderWhatIfResultBox(res) {
@@ -4335,6 +4415,55 @@ document.addEventListener('DOMContentLoaded', async () => {
     const pfx = k.is_currency !== false ? '$' : '';
     const fmtVal = (v) => `${pfx}${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     const pUnit = k.period_unit || reg.period_unit || 'period';
+    const confGrade = k.confidence_grade || reg.confidence_grade || '';
+    const confColor = confGrade.includes('High Predictability')
+      ? 'var(--accent-emerald)'
+      : confGrade.includes('Moderate')
+      ? 'var(--accent-primary)'
+      : 'var(--accent-amber)';
+
+    const tRows = res.table_rows || [];
+    const drawerTableHtml = tRows.length
+      ? `
+        <details class="clean-disclosure" style="margin-top:10px;">
+          <summary style="font-size:12px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px;">
+            <svg class="icon" style="width:14px;height:14px"><use href="#i-table"/></svg>
+            <span>Inspect Historical &amp; Projected Forecast Table (${tRows.length} ${escapeHtml(pUnit)}s)</span>
+          </summary>
+          <div class="table-responsive" style="max-height:240px; border:1px solid var(--border-subtle); border-radius:6px; overflow:auto; margin-top:8px;">
+            <table class="data-table" style="font-size:11.5px;">
+              <thead>
+                <tr>
+                  <th>Period</th>
+                  <th>Phase</th>
+                  <th>Historical Actual</th>
+                  <th>OLS Trend Fit</th>
+                  <th>Projected (P50)</th>
+                  <th>Recent Momentum</th>
+                  <th>80% Range (P10 – P90)</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${tRows
+                  .map(
+                    (r) => `
+                  <tr style="${r.phase === 'Projected Forecast' ? 'background:rgba(16,185,129,0.07); font-weight:600;' : ''}">
+                    <td class="mono">${escapeHtml(String(r.period))}</td>
+                    <td>${escapeHtml(String(r.phase))}</td>
+                    <td class="mono">${r.actual !== null && r.actual !== undefined ? fmtVal(r.actual) : '—'}</td>
+                    <td class="mono">${r.ols_trend_fit !== null && r.ols_trend_fit !== undefined ? fmtVal(r.ols_trend_fit) : '—'}</td>
+                    <td class="mono" style="color:var(--accent-emerald);">${r.projected_p50 !== null && r.projected_p50 !== undefined ? fmtVal(r.projected_p50) : '—'}</td>
+                    <td class="mono" style="color:var(--accent-amber);">${r.recent_momentum !== null && r.recent_momentum !== undefined ? fmtVal(r.recent_momentum) : '—'}</td>
+                    <td class="mono">${r.p10_downside !== null && r.p10_downside !== undefined ? `${fmtVal(r.p10_downside)} – ${fmtVal(r.p90_upside)}` : '—'}</td>
+                  </tr>`
+                  )
+                  .join('')}
+              </tbody>
+            </table>
+          </div>
+        </details>
+      `
+      : '';
 
     let cardsHtml = '';
     let isPos = true;
@@ -4428,20 +4557,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         </div>
 
         <div style="background:var(--bg-surface-elevated); border-left:3px solid ${isPos ? 'var(--accent-emerald)' : 'var(--accent-amber)'}; padding:8px 12px; border-radius:4px; font-size:12.5px; margin-bottom:12px;">
-          <strong>${escapeHtml(n.headline || '')}</strong>
+          <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">
+            <strong>${escapeHtml(n.headline || '')}</strong>
+            ${confGrade ? `<span class="meta-chip" style="border-color:${confColor}; color:${confColor}; font-weight:600;">🎯 ${escapeHtml(confGrade)}</span>` : ''}
+          </div>
           <p style="margin:4px 0 0 0; color:var(--text-secondary);">${escapeHtml(n.detail || '')}</p>
-          ${n.regression_insight ? `<p style="margin:4px 0 0 0; color:var(--text-muted); font-size:11.5px;">📈 <em>${escapeHtml(n.regression_insight)}</em></p>` : ''}
+          ${n.regression_insight ? `<p style="margin:4px 0 0 0; color:var(--text-muted); font-size:11.5px;">📈 <em>${escapeHtml(n.regression_insight)}${k.next_forecast_smart ? ` · Recent Momentum (${escapeHtml(String(k.next_forecast_date || 'Next'))}): ${fmtVal(k.next_forecast_smart)}` : ''}</em></p>` : ''}
         </div>
 
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
           <span style="font-size:12px; font-weight:600; color:var(--text-secondary);">SCENARIO VISUALIZATION</span>
           <div class="segmented" role="tablist">
-            ${hasFan ? `<button type="button" class="whatif-chart-tab ${ACTIVE_WHATIF_CHART === 'fan' ? 'active' : ''}" data-chart="fan">📈 Future Fan (OLS Trend)</button>` : ''}
+            ${hasFan ? `<button type="button" class="whatif-chart-tab ${ACTIVE_WHATIF_CHART === 'fan' ? 'active' : ''}" data-chart="fan">📈 Future Fan (OLS + Momentum)</button>` : ''}
             ${hasWf ? `<button type="button" class="whatif-chart-tab ${ACTIVE_WHATIF_CHART === 'waterfall' ? 'active' : ''}" data-chart="waterfall">🪜 Waterfall Bridge</button>` : ''}
           </div>
         </div>
 
         <div id="whatIfPlotContainer" class="chart-box" style="min-height:300px;"></div>
+        ${drawerTableHtml}
       </div>
     `;
 

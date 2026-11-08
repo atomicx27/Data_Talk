@@ -737,13 +737,14 @@ class ChartRecommender:
                 )
 
             # 2. Historical OLS Linear Regression Trendline (y = beta_0 + beta_1 * t)
-            if "trend" in df.columns:
-                trend_df = df.dropna(subset=["trend"])
+            trend_col = next((c for c in ("trend", "ols_trend_fit") if c in df.columns), None)
+            if trend_col:
+                trend_df = df.dropna(subset=[trend_col])
                 if not trend_df.empty:
                     fig.add_trace(
                         go.Scatter(
                             x=[str(d) for d in trend_df[date_col]],
-                            y=trend_df["trend"],
+                            y=trend_df[trend_col],
                             mode="lines",
                             line=dict(color="#6366F1", width=1.75, dash="dot"),
                             name="OLS Linear Fit",
@@ -751,12 +752,13 @@ class ChartRecommender:
                     )
 
             # 3. Upper bound (P90)
-            if "p90" in df.columns:
-                p90_df = df.dropna(subset=["p90"])
+            p90_col = next((c for c in ("p90", "p90_upside") if c in df.columns), None)
+            if p90_col:
+                p90_df = df.dropna(subset=[p90_col])
                 fig.add_trace(
                     go.Scatter(
                         x=[str(d) for d in p90_df[date_col]],
-                        y=p90_df["p90"],
+                        y=p90_df[p90_col],
                         mode="lines",
                         line=dict(width=0),
                         showlegend=False,
@@ -765,12 +767,13 @@ class ChartRecommender:
                 )
 
             # 4. Lower bound (P10) with fill to upper
-            if "p10" in df.columns:
-                p10_df = df.dropna(subset=["p10"])
+            p10_col = next((c for c in ("p10", "p10_downside") if c in df.columns), None)
+            if p10_col:
+                p10_df = df.dropna(subset=[p10_col])
                 fig.add_trace(
                     go.Scatter(
                         x=[str(d) for d in p10_df[date_col]],
-                        y=p10_df["p10"],
+                        y=p10_df[p10_col],
                         mode="lines",
                         line=dict(width=0),
                         fill="tonexty",
@@ -780,7 +783,7 @@ class ChartRecommender:
                 )
 
             # 5. Projected median (P50 or projected)
-            proj_col = next((c for c in ("p50", "projected", "forecast", "simulated") if c in df.columns), None)
+            proj_col = next((c for c in ("p50", "projected", "projected_p50", "forecast", "simulated") if c in df.columns), None)
             if proj_col:
                 proj_df = df.dropna(subset=[proj_col])
                 fig.add_trace(
@@ -793,6 +796,22 @@ class ChartRecommender:
                         name="Projected Trend (P50)",
                     )
                 )
+
+            # 6. Recent-Weighted Smart Momentum Line (Holt's Linear / EWMA Blend)
+            sm_col = next((c for c in ("smart_momentum", "recent_momentum") if c in df.columns), None)
+            if sm_col:
+                sm_df = df.dropna(subset=[sm_col])
+                if not sm_df.empty:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[str(d) for d in sm_df[date_col]],
+                            y=sm_df[sm_col],
+                            mode="lines+markers",
+                            line=dict(color="#F59E0B", width=2.25, dash="dashdot"),
+                            marker=dict(size=6, symbol="circle"),
+                            name="Recent Momentum (Weighted)",
+                        )
+                    )
 
             fig.update_layout(
                 hovermode="x unified",

@@ -204,3 +204,34 @@ def test_fan_chart_chronological_order_and_single_metric_forecast():
     assert list(wf_trace["measure"]) == ["absolute", "relative", "relative", "total"]
     # Verify hoverlabel has explicit high-contrast font color
     assert res["fan_spec"]["layout"]["hoverlabel"]["font"]["color"] == "#f8fafc"
+
+    # Verify Recent-Weighted Momentum and Predictability Confidence Grade
+    assert "weighted_slope" in reg
+    assert "confidence_grade" in reg
+    assert kpis["next_forecast_smart"] > 0
+    assert any(t.get("name") == "Recent Momentum (Weighted)" for t in res["fan_spec"]["data"])
+
+    # Verify append_to_chat=True appends full interactive chat card + historical/projected table rows to chat stream
+    res_chat = run_simulation(
+        WhatIfSimulateRequest(
+            revenue_shock_pct=0.0,
+            cost_shock_pct=0.0,
+            target_metric="faculty.salary",
+            target_table="faculty",
+            forecast_periods=6,
+            append_to_chat=True,
+        ),
+        rt,
+        s,
+    )
+    assert "entry" in res_chat
+    assert len(s.chat_history["univercity"]) == 1
+    chat_entry = res_chat["entry"]
+    assert chat_entry["chart_type"] == "fan_chart"
+    # 19 historical years + 6 projected years = 25 rows in table
+    assert len(chat_entry["rows"]) == 25
+    assert chat_entry["rows"][-1]["period"] == "2029"
+    assert chat_entry["rows"][-1]["phase"] == "Projected Forecast"
+    assert chat_entry["rows"][-1]["projected_p50"] is not None
+    assert chat_entry["rows"][-1]["recent_momentum"] is not None
+

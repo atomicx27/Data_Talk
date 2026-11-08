@@ -304,6 +304,15 @@
                     <label class="field-label" for="whatIfMetricSelect">Target KPI to Simulate</label>
                     <select id="whatIfMetricSelect" class="input-select"></select>
                   </div>
+                  <div style="width:140px;">
+                    <label class="field-label" for="whatIfHorizonSelect">Forecast Horizon</label>
+                    <select id="whatIfHorizonSelect" class="input-select">
+                      <option value="3">Next 3 Periods</option>
+                      <option value="4" selected>Next 4 Periods</option>
+                      <option value="6">Next 6 Periods</option>
+                      <option value="10">Next 10 Periods</option>
+                    </select>
+                  </div>
                   <div>
                     <label class="field-label">Scenario Presets</label>
                     <div id="whatIfPresetGroup" class="segmented" role="tablist">
@@ -348,11 +357,14 @@
                   <span id="goalSeekStatus" style="font-size:12px; color:var(--text-muted); margin-left:auto;"></span>
                 </div>
 
-                <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:4px;">
-                  <button type="button" id="whatIfResetBtn" class="btn btn-ghost btn-sm">Reset</button>
-                  <button type="submit" id="whatIfRunBtn" class="btn btn-primary btn-sm" style="background:var(--accent-primary, #2563eb); color:#ffffff; border-color:var(--accent-primary, #2563eb);">
-                    <svg class="icon" style="stroke:#ffffff;"><use href="#i-sparkles"/></svg> Run Simulation
-                  </button>
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-top:4px; flex-wrap:wrap;">
+                  <span style="font-size:11.5px; color:var(--text-muted);">💡 Forecast updates automatically as you change KPI or sliders. Click <strong>Publish to Chat</strong> to inspect the full data table &amp; thread in chat.</span>
+                  <div style="display:flex; gap:8px;">
+                    <button type="button" id="whatIfResetBtn" class="btn btn-ghost btn-sm">Reset</button>
+                    <button type="submit" id="whatIfRunBtn" class="btn btn-primary btn-sm" style="background:var(--accent-primary, #2563eb); color:#ffffff; border-color:var(--accent-primary, #2563eb);">
+                      <svg class="icon" style="stroke:#ffffff;"><use href="#i-sparkles"/></svg> Publish Forecast &amp; Table to Chat
+                    </button>
+                  </div>
                 </div>
               </form>
               <div id="whatIfResultBox" class="rc-result-box" style="margin-top:12px;"></div>
