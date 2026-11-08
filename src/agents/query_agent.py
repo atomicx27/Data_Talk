@@ -3413,7 +3413,13 @@ class QueryAgent:
             "profit", "profits", "margin", "margins", "refund", "refunds",
             "budget", "budgets", "expenditure", "expenditures", "discount", "discounts",
         )
-        existing_cols_text = " ".join(str(c).lower() for c in df.columns)
+        existing_cols_text = (
+            " ".join(str(c).lower() for c in df.columns)
+            + " "
+            + (parent_question or "").lower()
+            + " "
+            + (parent_summary or "").lower()
+        )
         missing_metric_concepts = [
             kw for kw in KNOWN_METRIC_KEYWORDS
             if re.search(rf"\b{re.escape(kw)}\b", q_low)
@@ -3431,6 +3437,148 @@ class QueryAgent:
                 f"but does **not contain `{missing_lbl}`** data.\n"
                 f"> Below is the analysis based strictly on the available **{val_label}** in this ready table.\n\n"
             )
+
+        # Special Dedicated Handler for Future Trend & What-If Forecast Fan Chart Tables
+        is_forecast_table = (
+            ("projected_p50" in df.columns or "p50" in df.columns)
+            and ("actual" in df.columns or "ols_trend_fit" in df.columns)
+        )
+        if is_forecast_table:
+            p_col = "period" if "period" in df.columns else dim_col
+            p50_col = "projected_p50" if "projected_p50" in df.columns else "p50"
+            mom_col = "recent_momentum" if "recent_momentum" in df.columns else ("smart_momentum" if "smart_momentum" in df.columns else None)
+            p10_col = "p10_downside" if "p10_downside" in df.columns else ("p10" if "p10" in df.columns else None)
+            p90_col = "p90_upside" if "p90_upside" in df.columns else ("p90" if "p90" in df.columns else None)
+            ols_col = "ols_trend_fit" if "ols_trend_fit" in df.columns else ("trend" if "trend" in df.columns else None)
+
+            # Extract metric label from parent_question if present (e.g. "Future Trend & What-If Analysis: faculty.salary")
+            metric_display = "Target Metric"
+            if ":" in (parent_question or ""):
+                raw_m = parent_question.split(":", 1)[1].strip()
+                metric_display = raw_m.split(".")[-1].replace("_", " ").title() + f" (`{raw_m}`)"
+
+            act_series = pd.to_numeric(df["actual"], errors="coerce") if "actual" in df.columns else pd.Series(dtype=float)
+            p50_series = pd.to_numeric(df[p50_col], errors="coerce")
+            mom_series = pd.to_numeric(df[mom_col], errors="coerce") if mom_col else pd.Series(dtype=float)
+
+            hist_df = df[act_series.notna()].copy()
+            proj_df = df[p50_series.notna() & act_series.isna()].copy()
+            if proj_df.empty:
+                proj_df = df[p50_series.notna()].tail(4).copy()
+
+            hist_vals = pd.to_numeric(hist_df["actual"], errors="coerce").dropna()
+            n_hist = len(hist_vals)
+            hist_total = float(hist_vals.sum()) if n_hist else 0.0
+            hist_mean = float(hist_vals.mean()) if n_hist else 0.0
+            first_hist_p = str(hist_df.iloc[0][p_col]) if not hist_df.empty else "Start"
+            last_hist_p = str(hist_df.iloc[-1][p_col]) if not hist_df.empty else "Latest"
+            first_hist_v = float(hist_vals.iloc[0]) if n_hist else 0.0
+            last_hist_v = float(hist_vals.iloc[-1]) if n_hist else 0.0
+
+            # Peak & Trough in historical actuals only (never counting future NaN rows as 0!)
+            peak_idx = hist_vals.idxmax() if n_hist else None
+            min_hist_idx = hist_vals.idxmin() if n_hist else None
+            peak_p = str(df.loc[peak_idx, p_col]) if peak_idx is not None else last_hist_p
+            peak_v = float(hist_vals.loc[peak_idx]) if peak_idx is not None else last_hist_v
+            trough_p = str(df.loc[min_hist_idx, p_col]) if min_hist_idx is not None else first_hist_p
+            trough_v = float(hist_vals.loc[min_hist_idx]) if min_hist_idx is not None else first_hist_v
+
+            # Forecast trajectory metrics
+            n_proj = len(proj_df)
+            first_proj_p = str(proj_df.iloc[0][p_col]) if n_proj else "Next Period"
+            last_proj_p = str(proj_df.iloc[-1][p_col]) if n_proj else first_proj_p
+            first_p50 = float(pd.to_numeric(proj_df.iloc[0][p50_col], errors="coerce") or 0.0) if n_proj else 0.0
+            last_p50 = float(pd.to_numeric(proj_df.iloc[-1][p50_col], errors="coerce") or 0.0) if n_proj else 0.0
+            first_mom = float(pd.to_numeric(proj_df.iloc[0][mom_col], errors="coerce") or first_p50) if (n_proj and mom_col) else first_p50
+            last_mom = float(pd.to_numeric(proj_df.iloc[-1][mom_col], errors="coerce") or last_p50) if (n_proj and mom_col) else last_p50
+            first_p10 = float(pd.to_numeric(proj_df.iloc[0][p10_col], errors="coerce") or 0.0) if (n_proj and p10_col) else 0.0
+            first_p90 = float(pd.to_numeric(proj_df.iloc[0][p90_col], errors="coerce") or 0.0) if (n_proj and p90_col) else 0.0
+            last_p10 = float(pd.to_numeric(proj_df.iloc[-1][p10_col], errors="coerce") or 0.0) if (n_proj and p10_col) else 0.0
+            last_p90 = float(pd.to_numeric(proj_df.iloc[-1][p90_col], errors="coerce") or 0.0) if (n_proj and p90_col) else 0.0
+
+            ols_slope = ((last_p50 - first_p50) / max(1, n_proj - 1)) if n_proj > 1 else (first_p50 - hist_mean)
+            mom_slope = ((last_mom - first_mom) / max(1, n_proj - 1)) if n_proj > 1 else ols_slope
+            vs_mean_pct = ((first_p50 - hist_mean) / abs(hist_mean) * 100.0) if hist_mean != 0 else 0.0
+            vs_last_pct = ((first_p50 - last_hist_v) / abs(last_hist_v) * 100.0) if last_hist_v != 0 else 0.0
+
+            is_upward = ols_slope >= 0
+            direction_word = "increasing (upward trajectory)" if is_upward else "decreasing (downward trajectory)"
+            verdict_headline = (
+                f"**Yes — {metric_display} follows a long-term {direction_word} of `{ols_slope:+,.2f}` per period (OLS) and `{mom_slope:+,.2f}` per period (Recent Momentum).**"
+                if is_upward
+                else f"**No — {metric_display} follows a {direction_word} of `{ols_slope:+,.2f}` per period (OLS).**"
+            )
+
+            # Check if user asked why the first forecast period steps down/up from the final historical period
+            step_explanation = ""
+            if last_hist_v > first_p50 * 1.05 and is_upward:
+                step_explanation = (
+                    f"- **Why `{first_proj_p}` (`{first_p50:,.2f}`) is lower than `{last_hist_p}` (`{last_hist_v:,.2f}`) despite an upward trend:** "
+                    f"Recent historical periods (`{peak_p}` at `{peak_v:,.2f}` and `{last_hist_p}` at `{last_hist_v:,.2f}`) were above-trend spikes compared to the `{n_hist}`-period historical average (`{hist_mean:,.2f}`). "
+                    f"In `{first_proj_p}`, the regression line normalizes back toward the long-term trendline (**`{vs_mean_pct:+.1f}%` above the historical mean**, though `{vs_last_pct:+.1f}%` below `{last_hist_p}`'s spike) and then **rises steadily every year from `{first_proj_p}` (`{first_p50:,.2f}`) to `{last_proj_p}` (`{last_p50:,.2f}`)**."
+                )
+            elif last_hist_v < first_p50 * 0.95 and not is_upward:
+                step_explanation = (
+                    f"- **Transition from `{last_hist_p}` (`{last_hist_v:,.2f}`) to `{first_proj_p}` (`{first_p50:,.2f}`):** "
+                    f"`{last_hist_p}` was an unusually low dip below the `{hist_mean:,.2f}` historical average; the forecast normalizes to the trendline in `{first_proj_p}` before continuing its `{ols_slope:+,.2f}`/period trajectory."
+                )
+            else:
+                step_explanation = (
+                    f"- **Transition from `{last_hist_p}` (`{last_hist_v:,.2f}`) to `{first_proj_p}` (`{first_p50:,.2f}`):** "
+                    f"Projects `{vs_mean_pct:+.1f}%` vs. the historical period mean (`{hist_mean:,.2f}`) and `{vs_last_pct:+.1f}%` vs. `{last_hist_p}`."
+                )
+
+            forecast_bullet_rows = []
+            for _, pr in proj_df.iterrows():
+                p_lbl = str(pr[p_col])
+                p50_v = float(pd.to_numeric(pr[p50_col], errors="coerce") or 0.0)
+                mom_v = float(pd.to_numeric(pr[mom_col], errors="coerce") or p50_v) if mom_col else p50_v
+                p10_v = float(pd.to_numeric(pr[p10_col], errors="coerce") or 0.0) if p10_col else 0.0
+                p90_v = float(pd.to_numeric(pr[p90_col], errors="coerce") or 0.0) if p90_col else 0.0
+                forecast_bullet_rows.append(
+                    f"  - **`{p_lbl}`:** OLS P50 **`{p50_v:,.2f}`** · Recent Momentum **`{mom_v:,.2f}`** · 80% Band `[ {p10_v:,.2f} — {p90_v:,.2f} ]`"
+                )
+
+            answer_md = (
+                f"### 📈 Future Trend & Forecast Interpretation: {metric_display}\n\n"
+                f"{verdict_headline}\n\n"
+                f"- **Long-Term Trend (`{first_hist_p}`–`{last_hist_p}`, `{n_hist}` periods):** Historical actuals total **`{hist_total:,.2f}`** with an average of **`{hist_mean:,.2f}`/period** (ranging from a low of `{trough_v:,.2f}` in **`{trough_p}`** to a peak of `{peak_v:,.2f}` in **`{peak_p}`**).\n"
+                f"{step_explanation}\n"
+                f"- **Dual Forecast Models (`{first_proj_p}` → `{last_proj_p}`):**\n"
+                f"  1. **OLS Linear Trend (P50 Green Dashed):** Grows by **`{ols_slope:+,.2f}`/period** from **`{first_p50:,.2f}`** (`{first_proj_p}`) to **`{last_p50:,.2f}`** (`{last_proj_p}`).\n"
+                f"  2. **Recent-Weighted Momentum (Amber Dash-Dot):** Weights recent periods more heavily, growing by **`{mom_slope:+,.2f}`/period** from **`{first_mom:,.2f}`** (`{first_proj_p}`) to **`{last_mom:,.2f}`** (`{last_proj_p}`).\n"
+                f"- **80% Prediction Interval (P10 Downside – P90 Upside):** In `{first_proj_p}`, there is an 80% statistical probability the outcome lands between **`{first_p10:,.2f}`** and **`{first_p90:,.2f}`** (widening to `[ {last_p10:,.2f} — {last_p90:,.2f} ]` by `{last_proj_p}`).\n\n"
+                f"**Year-by-Year Projected Schedule:**\n" + "\n".join(forecast_bullet_rows)
+            )
+
+            if llm_router and llm_router.is_configured():
+                try:
+                    sample_records = df.to_dict(orient="records")
+                    fallback_sys = (
+                        "You are a Principal Quantitative BI Forecaster answering a user's question about a Future Trend & What-If Fan Chart. "
+                        "Use ONLY the exact numbers from the Pre-computed Forecast Analysis below. "
+                        "Directly answer the user's question in the very first sentence (e.g. clearly explaining whether the metric is increasing, why the first forecast period normalizes from the 2022-2023 spike toward the regression trendline, and how both OLS P50 and Recent Momentum grow each year after). "
+                        "Never treat null/None future actuals as zero."
+                    )
+                    fallback_usr = (
+                        f"Parent Chart Context: {parent_question}\n"
+                        f"User Thread Question: {question}\n"
+                        f"Pre-computed Forecast Analysis:\n{answer_md}\n"
+                        f"Chart Rows (JSON):\n{json.dumps(sample_records, default=str)}\n\n"
+                        "Provide a clear, direct, executive answer to the User Thread Question:"
+                    )
+                    llm_text = llm_router.complete("chart_thread_enrichment", fallback_sys, fallback_usr)
+                    if llm_text and len(llm_text.strip()) > 30:
+                        answer_md = llm_text.strip()
+                except Exception as exc:
+                    _LOGGER.debug("Forecast thread LLM enrichment skipped: %s", exc)
+
+            follow_ups = [
+                f"Why does {first_proj_p} differ from {last_hist_p}?",
+                "Compare OLS Linear Trend (P50) vs Recent Momentum",
+                f"What is the P10 downside and P90 upside range for {first_proj_p}–{last_proj_p}?",
+            ]
+            return answer_md, df, follow_ups
 
         series = pd.to_numeric(df[val_col], errors="coerce").fillna(0.0)
         total_val = float(series.sum())
@@ -3618,7 +3766,7 @@ class QueryAgent:
             )
 
         # If LLM is configured, enrich the response while preserving exact numbers
-        if llm_router and llm_router.is_configured:
+        if llm_router and llm_router.is_configured():
             try:
                 sample_records = df.head(20).to_dict(orient="records")
                 fallback_sys = (
@@ -3642,7 +3790,7 @@ class QueryAgent:
                     answer_md=answer_md,
                     sample_records_json=json.dumps(sample_records, default=str),
                 )
-                llm_text = llm_router.complete(system_prompt=sys_prompt, user_prompt=user_prompt, max_tokens=350)
+                llm_text = llm_router.complete("chart_thread_enrichment", sys_prompt, user_prompt)
                 if llm_text and len(llm_text.strip()) > 20:
                     answer_md = llm_text.strip()
             except Exception as exc:

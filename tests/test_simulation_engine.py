@@ -235,3 +235,35 @@ def test_fan_chart_chronological_order_and_single_metric_forecast():
     assert chat_entry["rows"][-1]["projected_p50"] is not None
     assert chat_entry["rows"][-1]["recent_momentum"] is not None
 
+    # Verify Chart Discussion Thread Q&A on Forecast Fan Chart table
+    import pandas as pd
+    from src.agents.query_agent import QueryAgent
+
+    forecast_df = pd.DataFrame(chat_entry["rows"])
+    parent_q = chat_entry["response"]["user_question"]
+    parent_sum = chat_entry["response"]["executive_summary"]
+
+    ans1, _, _ = QueryAgent._analyze_chart_dataframe(
+        "explain the trend to me",
+        forecast_df,
+        parent_question=parent_q,
+        parent_summary=parent_sum,
+        llm_router=None,
+    )
+    assert "Future Trend & Forecast Interpretation" in ans1
+    assert "0.00" not in ans1
+
+    ans2, _, _ = QueryAgent._analyze_chart_dataframe(
+        "so does this mean the salary is going to increase",
+        forecast_df,
+        parent_question=parent_q,
+        parent_summary=parent_sum,
+        llm_router=None,
+    )
+    assert "Table Scope Notice" not in ans2
+    assert "does not contain" not in ans2
+    assert "Yes" in ans2
+    assert "increasing" in ans2
+    assert "0.00" not in ans2
+
+

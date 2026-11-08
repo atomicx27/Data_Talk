@@ -1714,6 +1714,14 @@ let ACTIVE_SPLIT_THREAD_IDX = null;
 function getCardThreadStarterPrompts(entry) {
   const cols = entry?.columns || [];
   const rows = entry?.rows || [];
+  if (entry?.chart_type === 'fan_chart' || cols.includes('projected_p50')) {
+    return [
+      'Explain the future trend to me',
+      'So does this mean the metric is going to increase?',
+      'Why does 2024 step down from 2023 before rising?',
+      'Compare OLS Trend (P50) vs Recent Momentum and 80% bounds',
+    ];
+  }
   const dimCol = cols.find((c) => typeof rows?.[0]?.[c] === 'string') || cols[0] || 'segment';
   const seg1 = rows?.[0]?.[dimCol] ? String(rows[0][dimCol]).trim() : '';
   const seg2 = rows?.[1]?.[dimCol] ? String(rows[1][dimCol]).trim() : '';
