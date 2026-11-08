@@ -390,6 +390,17 @@ function applyPlotlyThemeLayout(baseLayout = {}) {
       ...baseLayout,
       paper_bgcolor: 'rgba(0,0,0,0)',
       plot_bgcolor: 'rgba(0,0,0,0)',
+      hoverlabel: {
+        ...(baseLayout.hoverlabel || {}),
+        bgcolor: '#0f172a',
+        bordercolor: '#334155',
+        font: {
+          ...((baseLayout.hoverlabel && baseLayout.hoverlabel.font) || {}),
+          color: '#f8fafc',
+          size: 12,
+          family: 'Inter, sans-serif',
+        },
+      },
       xaxis: {
         ...(baseLayout.xaxis || {}),
         automargin: true,
@@ -411,6 +422,17 @@ function applyPlotlyThemeLayout(baseLayout = {}) {
     font: {
       ...(baseLayout.font || {}),
       color: '#0f172a',
+    },
+    hoverlabel: {
+      ...(baseLayout.hoverlabel || {}),
+      bgcolor: '#ffffff',
+      bordercolor: '#cbd5e1',
+      font: {
+        ...((baseLayout.hoverlabel && baseLayout.hoverlabel.font) || {}),
+        color: '#0f172a',
+        size: 12,
+        family: 'Inter, sans-serif',
+      },
     },
     title: {
       ...baseTitle,
@@ -4088,8 +4110,48 @@ document.addEventListener('DOMContentLoaded', async () => {
   let CURRENT_WHATIF_DATA = null;
   let ACTIVE_WHATIF_CHART = 'fan'; // 'fan' or 'waterfall'
 
+  function updateWhatIfContextLabels() {
+    const metricSelect = document.getElementById('whatIfMetricSelect');
+    const selectedId = (metricSelect?.value || '').toLowerCase();
+    const rawCol = selectedId.includes('.') ? selectedId.split('.')[1] : selectedId;
+    const cleanCol = rawCol ? rawCol.replace(/_/g, ' ') : 'KPI';
+
+    const revLabel = document.getElementById('whatIfRevLabel');
+    const costLabel = document.getElementById('whatIfCostLabel');
+    const leverSelect = document.getElementById('goalSeekLeverSelect');
+
+    const isCost = /salary|cost|cogs|budget|expense|payroll/.test(rawCol);
+    const isRate = /marks|gpa|grade|score|rate|avg|attendance|pct/.test(rawCol);
+
+    if (isCost) {
+      if (revLabel) revLabel.textContent = `Growth / Expansion Shock (${cleanCol})`;
+      if (costLabel) costLabel.textContent = `Cost Inflation / Budget Shock (${cleanCol})`;
+      if (leverSelect && leverSelect.options.length >= 2) {
+        leverSelect.options[0].textContent = `Growth Multiplier % (${cleanCol})`;
+        leverSelect.options[1].textContent = `Cost Inflation % (${cleanCol})`;
+      }
+    } else if (isRate) {
+      if (revLabel) revLabel.textContent = `Positive Improvement Shock (${cleanCol})`;
+      if (costLabel) costLabel.textContent = `Attrition / Drag Shock (${cleanCol})`;
+      if (leverSelect && leverSelect.options.length >= 2) {
+        leverSelect.options[0].textContent = `Improvement Shift % (${cleanCol})`;
+        leverSelect.options[1].textContent = `Drag / Headwind % (${cleanCol})`;
+      }
+    } else {
+      if (revLabel) revLabel.textContent = 'Revenue / Topline Shock';
+      if (costLabel) costLabel.textContent = 'Cost / Expenditure Shock';
+      if (leverSelect && leverSelect.options.length >= 2) {
+        leverSelect.options[0].textContent = 'Revenue Multiplier %';
+        leverSelect.options[1].textContent = 'Cost Multiplier %';
+      }
+    }
+  }
+
   window.loadWhatIfOptions = async function(forceRefresh = false) {
-    if (CURRENT_WHATIF_DATA && !forceRefresh) return;
+    if (CURRENT_WHATIF_DATA && !forceRefresh) {
+      updateWhatIfContextLabels();
+      return;
+    }
     try {
       const data = await apiRequest('/api/simulation/options');
       CURRENT_WHATIF_DATA = data;
@@ -4098,11 +4160,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         metricSelect.innerHTML = data.metrics.map((m) => {
           return `<option value="${escapeHtml(m.id)}" data-table="${escapeHtml(m.table || '')}">${escapeHtml(m.name)}</option>`;
         }).join('');
+        updateWhatIfContextLabels();
       }
     } catch (err) {
       console.error('Error loading what-if options:', err);
     }
   };
+
+  document.getElementById('whatIfMetricSelect')?.addEventListener('change', () => {
+    updateWhatIfContextLabels();
+  });
 
   // Slider Badges Sync
   const whatIfRevSlider = document.getElementById('whatIfRevSlider');

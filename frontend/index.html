@@ -318,14 +318,14 @@
                 <div id="whatIfSlidersArea" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:16px; margin-top:4px;">
                   <div class="whatif-slider-group">
                     <div class="slider-header" style="display:flex; justify-content:space-between; margin-bottom:4px;">
-                      <label for="whatIfRevSlider" class="field-label" style="margin:0;">Revenue / Topline Shock</label>
+                      <label id="whatIfRevLabel" for="whatIfRevSlider" class="field-label" style="margin:0;" title="Positive % increases topline / growth; negative % models a contraction">Revenue / Topline Shock</label>
                       <span id="whatIfRevVal" class="mono-badge">0%</span>
                     </div>
                     <input id="whatIfRevSlider" type="range" min="-30" max="50" step="5" value="0" class="range-slider" />
                   </div>
                   <div class="whatif-slider-group">
                     <div class="slider-header" style="display:flex; justify-content:space-between; margin-bottom:4px;">
-                      <label for="whatIfCostSlider" class="field-label" style="margin:0;">Cost / Expenditure Shock</label>
+                      <label id="whatIfCostLabel" for="whatIfCostSlider" class="field-label" style="margin:0;" title="Simulates cost inflation (+) or cost savings (-) against expenses/discounts">Cost / Expenditure Shock</label>
                       <span id="whatIfCostVal" class="mono-badge">0%</span>
                     </div>
                     <input id="whatIfCostSlider" type="range" min="-30" max="50" step="5" value="0" class="range-slider" />
@@ -334,11 +334,11 @@
 
                 <!-- Goal-Seek Row -->
                 <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; background:var(--bg-surface-elevated); padding:8px 12px; border-radius:8px; border:1px solid var(--border-subtle);">
-                  <span style="font-weight:600; font-size:12px; display:flex; align-items:center; gap:4px;">🎯 Goal Seek:</span>
-                  <span style="font-size:12px;">Set target to</span>
-                  <input id="goalSeekTargetInput" type="number" step="any" placeholder="Target amount" class="input-text" style="width:130px; padding:3px 8px; font-size:12px;" />
+                  <span style="font-weight:600; font-size:12px; display:flex; align-items:center; gap:4px;" title="Reverse solver: enter your desired target outcome and Data_Talk finds the exact % shock needed">🎯 Goal Seek:</span>
+                  <span id="goalSeekTargetLabel" style="font-size:12px;">Set target to</span>
+                  <input id="goalSeekTargetInput" type="number" step="any" placeholder="Target amount" class="input-text" style="width:140px; padding:3px 8px; font-size:12px;" />
                   <span style="font-size:12px;">by tuning</span>
-                  <select id="goalSeekLeverSelect" class="input-select" style="width:150px; padding:3px 8px; font-size:12px;">
+                  <select id="goalSeekLeverSelect" class="input-select" style="width:175px; padding:3px 8px; font-size:12px;">
                     <option value="Revenue Multiplier %">Revenue Multiplier %</option>
                     <option value="Cost Multiplier %">Cost Multiplier %</option>
                   </select>
@@ -350,8 +350,8 @@
 
                 <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:4px;">
                   <button type="button" id="whatIfResetBtn" class="btn btn-ghost btn-sm">Reset</button>
-                  <button type="submit" id="whatIfRunBtn" class="btn btn-primary btn-sm">
-                    <svg class="icon"><use href="#i-sparkles"/></svg> Run Simulation
+                  <button type="submit" id="whatIfRunBtn" class="btn btn-primary btn-sm" style="background:var(--accent-primary, #2563eb); color:#ffffff; border-color:var(--accent-primary, #2563eb);">
+                    <svg class="icon" style="stroke:#ffffff;"><use href="#i-sparkles"/></svg> Run Simulation
                   </button>
                 </div>
               </form>

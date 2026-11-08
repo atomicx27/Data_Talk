@@ -198,3 +198,9 @@ def test_fan_chart_chronological_order_and_single_metric_forecast():
     assert cat_arr[19:] == ["2024", "2025", "2026", "2027"]
     # Verify Historical Actuals is the first trace
     assert res["fan_spec"]["data"][0]["name"] == "Historical Actuals"
+
+    # Verify Waterfall Bridge measure array grounds the first bar as 'absolute' and final bar as 'total' (preventing 2x double-stacking)
+    wf_trace = res["waterfall_spec"]["data"][0]
+    assert list(wf_trace["measure"]) == ["absolute", "relative", "relative", "total"]
+    # Verify hoverlabel has explicit high-contrast font color
+    assert res["fan_spec"]["layout"]["hoverlabel"]["font"]["color"] == "#f8fafc"

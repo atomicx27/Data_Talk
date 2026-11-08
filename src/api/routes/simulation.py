@@ -130,7 +130,11 @@ def run_simulation(
     waterfall_fig = None
     if wf_steps and req.include_waterfall:
         wf_df = pd.DataFrame([
-            {"label": s["label"], "value": s["value"]}
+            {
+                "label": s["label"],
+                "value": s["value"],
+                "type": s.get("type", "relative"),
+            }
             for s in wf_steps
         ])
         waterfall_fig = ChartRecommender.build_figure(wf_df, chart_type="waterfall", title="What-If Driver Attribution Bridge")

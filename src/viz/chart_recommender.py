@@ -680,10 +680,26 @@ class ChartRecommender:
                 wf_x = ["Total Prior"] + df[x].astype(str).tolist() + ["Total Current"]
                 wf_y = [prior_tot] + df[val_col].tolist() + [0]
                 wf_measure = ["absolute"] + (["relative"] * len(df)) + ["total"]
+            elif "type" in df.columns:
+                wf_x = df[x].astype(str).tolist()
+                wf_y = df[val_col].tolist()
+                raw_types = [str(t).lower().strip() for t in df["type"].tolist()]
+                wf_measure = []
+                for idx_t, t_val in enumerate(raw_types):
+                    if idx_t == 0 and t_val in ("total", "absolute"):
+                        wf_measure.append("absolute")
+                    elif t_val in ("total", "absolute", "relative"):
+                        wf_measure.append(t_val)
+                    else:
+                        wf_measure.append("relative")
             else:
                 wf_x = df[x].astype(str).tolist()
                 wf_y = df[val_col].tolist()
-                wf_measure = ["relative"] * len(df)
+                wf_measure = (
+                    (["absolute"] + (["relative"] * max(0, len(df) - 2)) + ["total"])
+                    if len(df) >= 3
+                    else (["relative"] * len(df))
+                )
 
             fig = go.Figure(
                 go.Waterfall(
@@ -692,10 +708,10 @@ class ChartRecommender:
                     measure=wf_measure,
                     x=wf_x,
                     y=wf_y,
-                    connector={"line": {"color": "#6B7280"}},
+                    connector={"line": {"color": "#64748B", "width": 1.5, "dash": "dot"}},
                     increasing={"marker": {"color": "#10B981"}},
                     decreasing={"marker": {"color": "#EF4444"}},
-                    totals={"marker": {"color": "#3B82F6"}},
+                    totals={"marker": {"color": "#2563EB"}},
                 )
             )
 
@@ -1055,7 +1071,11 @@ class ChartRecommender:
             font=dict(family="Inter, -apple-system, BlinkMacSystemFont, sans-serif", size=12),
             margin=dict(l=16, r=24, t=44 if title else 20, b=32),
             legend=dict(orientation="h", yanchor="bottom", y=1.04, xanchor="right", x=1),
-            hoverlabel=dict(bgcolor="#0f172a", font_size=12, font_family="Inter, sans-serif"),
+            hoverlabel=dict(
+                bgcolor="#0f172a",
+                bordercolor="#334155",
+                font=dict(size=12, family="Inter, sans-serif", color="#f8fafc"),
+            ),
             bargap=0.28,
             height=chart_height,
         )
