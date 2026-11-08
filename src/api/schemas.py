@@ -177,6 +177,34 @@ class PinWidgetRequest(BaseModel):
 class WhatIfSimulateRequest(BaseModel):
     revenue_shock_pct: float = Field(0.0, ge=-100.0, le=1000.0)
     cost_shock_pct: float = Field(0.0, ge=-100.0, le=1000.0)
+    levers: dict[str, float] = Field(default_factory=dict)
+    target_metric: str | None = None
+    target_table: str | None = None
+    date_col: str | None = None
+    forecast_periods: int = 4
+    include_regression: bool = True
+    include_waterfall: bool = True
+    include_confidence_cone: bool = True
+
+
+class GoalSeekRequest(BaseModel):
+    target_metric: str = "sim_profit"
+    target_value: float = 0.0
+    adjust_lever: str = "Revenue Multiplier %"
+    min_bound: float = -0.50
+    max_bound: float = 1.00
+    target_table: str | None = None
+
+
+class GoalSeekResponse(BaseModel):
+    success: bool
+    target_metric: str
+    target_value: float
+    adjust_lever: str
+    required_value: float
+    required_pct: float
+    message: str
+    achieved_value: float = 0.0
 
 
 class ScratchpadQueryRequest(BaseModel):

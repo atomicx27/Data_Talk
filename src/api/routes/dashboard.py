@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from src.agents.query_agent import QueryResponse
 from src.agents.root_cause_agent import RootCauseAgent
+from src.analytics.simulation_engine import SimulationEngine
 from src.api.deps import get_runtime, get_session
 from src.api.runtime import AppRuntime, SessionState
 from src.api.schemas import (
@@ -175,85 +176,26 @@ def simulate_dashboard(
     ws_id = session.active_workspace_id
     ws = runtime.get_workspace(ws_id)
     conn = runtime.get_connector(ws_id)
-    rm = 1.0 + (req.revenue_shock_pct / 100.0)
-    cm = 1.0 + (req.cost_shock_pct / 100.0)
+
+    levers = dict(req.levers)
+    if req.revenue_shock_pct != 0.0:
+        levers["Revenue Multiplier %"] = req.revenue_shock_pct
+    if req.cost_shock_pct != 0.0:
+        levers["Cost Multiplier %"] = req.cost_shock_pct
+
     session.what_if_overrides[ws_id] = {
         "Revenue Multiplier %": req.revenue_shock_pct / 100.0,
         "Cost Multiplier %": req.cost_shock_pct / 100.0,
     }
 
-    kpis: dict[str, Any] = {
-        "sim_revenue": 0.0,
-        "sim_profit": 0.0,
-        "sim_margin_pct": 0.0,
-        "base_revenue": 0.0,
-        "base_profit": 0.0,
-    }
-    target_tbl = ws.get_table("orders") or ws.get_table("fact_orders") or ws.get_table("fee_invoices")
-    if not target_tbl:
-        for t in ws.active_tables():
-            col_names = [c.name.lower() for c in t.columns]
-            if any(any(k in c for k in ("rev", "sales", "price", "amount", "fee", "tuition", "salary", "budget")) for c in col_names):
-                target_tbl = t
-                break
-
-    if target_tbl:
-        try:
-            col_map = {c.name.lower(): c.name for c in target_tbl.columns if not c.is_blocked}
-            rev_col = (
-                col_map.get("rev_net_usd")
-                or col_map.get("net_revenue_usd")
-                or col_map.get("gross_revenue_usd")
-                or col_map.get("revenue")
-                or col_map.get("sales")
-                or col_map.get("total_fee_due")
-                or col_map.get("amount_paid")
-                or col_map.get("tuition_fee")
-                or col_map.get("salary")
-                or col_map.get("annual_budget")
-            )
-            if not rev_col:
-                for cl, cname in col_map.items():
-                    if any(k in cl for k in ("rev", "sales", "fee", "amount", "salary", "budget")) and not cl.endswith("_id"):
-                        rev_col = cname
-                        break
-            cogs_col = (
-                col_map.get("cogs_usd")
-                or col_map.get("cogs")
-                or col_map.get("cost")
-                or col_map.get("unit_cost_usd")
-                or col_map.get("scholarship_discount")
-                or col_map.get("balance_due")
-            )
-            stat_col = col_map.get("ord_stat") or col_map.get("order_status") or col_map.get("status")
-            where_clause = ""
-            if stat_col:
-                where_clause = f'WHERE "{stat_col}" NOT IN (\'X\', \'Cancelled\')'
-
-            if rev_col:
-                cogs_expr = f'"{cogs_col}"' if cogs_col else "0"
-                sim_df = conn.execute_query(
-                    f"SELECT "
-                    f'ROUND(SUM("{rev_col}"), 2) AS base_rev, '
-                    f'ROUND(SUM("{rev_col}" - {cogs_expr}), 2) AS base_prof, '
-                    f'ROUND(SUM("{rev_col}" * {rm}), 2) AS sim_rev, '
-                    f'ROUND(SUM(("{rev_col}" * {rm}) - ({cogs_expr} * {cm})), 2) AS sim_prof '
-                    f'FROM "{target_tbl.name}" {where_clause}',
-                    max_rows=1,
-                )
-                if not sim_df.empty:
-                    r0 = sim_df.iloc[0]
-                    sim_rev = float(r0["sim_rev"] or 0.0)
-                    sim_prof = float(r0["sim_prof"] or 0.0)
-                    kpis = {
-                        "base_revenue": float(r0["base_rev"] or 0.0),
-                        "base_profit": float(r0["base_prof"] or 0.0),
-                        "sim_revenue": sim_rev,
-                        "sim_profit": sim_prof,
-                        "sim_margin_pct": round((sim_prof / sim_rev) * 100.0, 2) if sim_rev else 0.0,
-                    }
-        except Exception:
-            pass
+    sim_res = SimulationEngine.simulate_workspace_kpis(
+        workspace=ws,
+        connector=conn,
+        revenue_shock_pct=req.revenue_shock_pct,
+        cost_shock_pct=req.cost_shock_pct,
+        levers=levers,
+    )
+    kpis = sim_res["kpis"]
 
     rendered_widgets: list[dict[str, Any]] = []
     for pw in ws.pinned_widgets:

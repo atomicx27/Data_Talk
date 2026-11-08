@@ -376,17 +376,20 @@ class RootCauseAgent:
         t1_cond = window_spec["t1_predicate"]
         base_filter = cls._extract_table_filter(workspace, fact_name)
 
-        # Single-pass aggregated query
+        # Single-pass aggregated query using CTE for cross-dialect compatibility (PostgreSQL/MySQL/DuckDB/SQL Server)
         sql = (
-            f"SELECT {dim_expr} AS segment,\n"
-            f"       ROUND(COALESCE(SUM(CASE WHEN {t0_cond} THEN CAST({num_col} AS DOUBLE) ELSE 0.0 END), 0.0), 2) AS n0,\n"
-            f"       ROUND(COALESCE(SUM(CASE WHEN {t0_cond} THEN CAST({den_col} AS DOUBLE) ELSE 0.0 END), 0.0), 2) AS d0,\n"
-            f"       ROUND(COALESCE(SUM(CASE WHEN {t1_cond} THEN CAST({num_col} AS DOUBLE) ELSE 0.0 END), 0.0), 2) AS n1,\n"
-            f"       ROUND(COALESCE(SUM(CASE WHEN {t1_cond} THEN CAST({den_col} AS DOUBLE) ELSE 0.0 END), 0.0), 2) AS d1\n"
-            f"FROM {fact_name} {join_clause}\n"
-            f"WHERE {base_filter} AND (({t0_cond}) OR ({t1_cond}))\n"
-            f"GROUP BY {dim_expr}\n"
-            f"HAVING (d0 > 0 OR d1 > 0)\n"
+            f"WITH raw_decomp AS (\n"
+            f"    SELECT {dim_expr} AS segment,\n"
+            f"           ROUND(COALESCE(SUM(CASE WHEN {t0_cond} THEN ({num_col} * 1.0) ELSE 0.0 END), 0.0), 2) AS n0,\n"
+            f"           ROUND(COALESCE(SUM(CASE WHEN {t0_cond} THEN ({den_col} * 1.0) ELSE 0.0 END), 0.0), 2) AS d0,\n"
+            f"           ROUND(COALESCE(SUM(CASE WHEN {t1_cond} THEN ({num_col} * 1.0) ELSE 0.0 END), 0.0), 2) AS n1,\n"
+            f"           ROUND(COALESCE(SUM(CASE WHEN {t1_cond} THEN ({den_col} * 1.0) ELSE 0.0 END), 0.0), 2) AS d1\n"
+            f"    FROM {fact_name} {join_clause}\n"
+            f"    WHERE {base_filter} AND (({t0_cond}) OR ({t1_cond}))\n"
+            f"    GROUP BY {dim_expr}\n"
+            f")\n"
+            f"SELECT segment, n0, d0, n1, d1 FROM raw_decomp\n"
+            f"WHERE (d0 > 0.0 OR d1 > 0.0)\n"
             f"ORDER BY (d0 + d1) DESC"
         )
 
@@ -568,13 +571,16 @@ class RootCauseAgent:
             base_filter = cls._extract_table_filter(workspace, fact_name)
 
             sql = (
-                f"SELECT {dim_expr} AS segment,\n"
-                f"       ROUND(COALESCE(SUM(CASE WHEN {t0_cond} THEN {fact_name}.{metric_clean} ELSE 0.0 END), 0.0), 2) AS v0,\n"
-                f"       ROUND(COALESCE(SUM(CASE WHEN {t1_cond} THEN {fact_name}.{metric_clean} ELSE 0.0 END), 0.0), 2) AS v1\n"
-                f"FROM {fact_name} {join_clause}\n"
-                f"WHERE {base_filter} AND (({t0_cond}) OR ({t1_cond}))\n"
-                f"GROUP BY {dim_expr}\n"
-                f"HAVING (v0 > 0 OR v1 > 0)"
+                f"WITH raw_dim AS (\n"
+                f"    SELECT {dim_expr} AS segment,\n"
+                f"           ROUND(COALESCE(SUM(CASE WHEN {t0_cond} THEN {fact_name}.{metric_clean} ELSE 0.0 END), 0.0), 2) AS v0,\n"
+                f"           ROUND(COALESCE(SUM(CASE WHEN {t1_cond} THEN {fact_name}.{metric_clean} ELSE 0.0 END), 0.0), 2) AS v1\n"
+                f"    FROM {fact_name} {join_clause}\n"
+                f"    WHERE {base_filter} AND (({t0_cond}) OR ({t1_cond}))\n"
+                f"    GROUP BY {dim_expr}\n"
+                f")\n"
+                f"SELECT segment, v0, v1 FROM raw_dim\n"
+                f"WHERE (v0 > 0.0 OR v1 > 0.0)"
             )
             try:
                 df_dim = connector.execute_query(sql, max_rows=500)
@@ -955,6 +961,9 @@ class RootCauseAgent:
             except Exception:
                 pass
 
+        dialect = (getattr(connector, "dialect", None) or getattr(workspace, "dialect", "duckdb") or "").lower()
+        date_cast = f"TRY_CAST({date_expr} AS DATE)" if dialect in ("duckdb", "tsql") else f"CAST({date_expr} AS DATE)"
+
         if window_type == "yoy":
             curr_year = ref_date.year
             prior_year = curr_year - 1
@@ -968,8 +977,8 @@ class RootCauseAgent:
             }
         elif window_type == "custom" and t0_start and t0_end and t1_start and t1_end:
             return {
-                "t0_predicate": f"TRY_CAST({date_expr} AS DATE) BETWEEN DATE '{t0_start}' AND DATE '{t0_end}'",
-                "t1_predicate": f"TRY_CAST({date_expr} AS DATE) BETWEEN DATE '{t1_start}' AND DATE '{t1_end}'",
+                "t0_predicate": f"{date_cast} BETWEEN DATE '{t0_start}' AND DATE '{t0_end}'",
+                "t1_predicate": f"{date_cast} BETWEEN DATE '{t1_start}' AND DATE '{t1_end}'",
                 "t0_label": f"{t0_start} to {t0_end}",
                 "t1_label": f"{t1_start} to {t1_end}",
                 "date_source": date_expr,

@@ -161,17 +161,30 @@ class InterviewQuestion(BaseModel):
     source_id: str = "default"
 
 
+class ScenarioPreset(BaseModel):
+    """Named scenario preset (e.g. Bear / Base / Bull) with predefined lever multipliers."""
+
+    id: str
+    name: str
+    description: str = ""
+    lever_values: dict[str, float] = Field(default_factory=dict)
+
+
 class WhatIfParameter(BaseModel):
     """Power BI-style What-If numeric slider parameter for scenario analysis."""
 
     id: str
     name: str
     description: str = ""
+    target_column: str = ""
+    lever_type: str = "percentage"  # percentage | absolute | headcount
     min_val: float = -0.50
     max_val: float = 0.50
     step: float = 0.05
     default_val: float = 0.0
     format_as_percent: bool = True
+    elasticity_coefficient: float | None = None
+    affected_column: str | None = None
 
 
 class PinnedWidget(BaseModel):
@@ -242,6 +255,7 @@ class OKFWorkspace(BaseModel):
     business_rules: list[BusinessRule] = Field(default_factory=list)
     interview_questions: list[InterviewQuestion] = Field(default_factory=list)
     what_if_parameters: list[WhatIfParameter] = Field(default_factory=list)
+    scenario_presets: list[ScenarioPreset] = Field(default_factory=list)
     pinned_widgets: list[PinnedWidget] = Field(default_factory=list)
     verified_queries: list[VerifiedQuery] = Field(default_factory=list)
     domain_tag: str = ""

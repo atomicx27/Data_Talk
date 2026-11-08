@@ -6,9 +6,9 @@ description: Complete development context, architecture blueprint, session histo
 # Data_Talk Development Context & Agent Playbook
 
 > **Repository**: `Data_Talk`  
-> **Active Branch**: `feature/conversational-ux-business-intelligence`  
+> **Active Branch**: `feature/what-if-future-analysis-simulation`  
 > **Engine**: Python 3.11+ / FastAPI / DuckDB / LiteLLM / Plotly / Vanilla ES6 Modular Frontend  
-> **Test Suite**: 82 Automated Tests (`python -m pytest tests/ -q`) — 100% Passing
+> **Test Suite**: 108 Automated Tests (`python -m pytest tests/ -q`) — 100% Passing
 
 ---
 
@@ -138,6 +138,22 @@ A comprehensive audit was performed using four specialized AI personas:
   - Added full REST API in `src/api/routes/verified_queries.py`: List, Create, Edit, Delete, and Test execution.
   - Added dedicated **Query Memory** tab in frontend sidebar with search, test run preview, edit modal (modifying question trigger pattern, SQL, DAX, or chart type), and delete action.
 
+### Session 10: Governed What-If Scenario Simulator, Future Trend Forecasting & Goal Seek Engine
+- **Concept**: Cross-role consulted simulation engine designed with Data Analyst, Business Analyst, and Product Owner personas. Provides organic baseline trend forecasting, conversational what-if parameter extraction, and reverse goal-seeking.
+- **Mathematical Engine (`src/analytics/simulation_engine.py`)**:
+  - **OLS Linear Trend Extrapolation**: Fits $y = \beta_0 + \beta_1 t$ with $R^2$, slope, intercept, standard error, and $P_{10}/P_{50}/P_{90}$ prediction intervals.
+  - **Goal Seek / Reverse Optimization**: Pure Python/NumPy false-position/bisection root-finder (`solve_goal_seek`) requiring zero heavy external solver dependencies like SciPy.
+  - **Monte Carlo & Sensitivity**: Vectorized normal/triangular sampling and waterfall variance step calculations.
+  - **Domain Agnostic & Polarity-Aware**: Evaluates financial metrics alongside non-financial domains (Healthcare, Higher Education, Manufacturing, SaaS) with target polarity guidance (`higher_is_better` vs `lower_is_better`).
+- **Visuals & Conversational UX**:
+  - **Fan Chart & Tornado**: Added fan chart (historical line + projected median + shaded $P_{10}-P_{90}$ uncertainty ribbon) and tornado sensitivity chart to `ChartRecommender`.
+  - **Conversational Extraction**: Bidirectional regex extraction in `QueryAgent` for natural language prompts (e.g. *"What if cost increases by 15%?"*).
+  - **Collapsible Drawer UI**: Replaced Pinboard sliders with a dedicated `#whatIfDrawer` above the chat stream in `frontend/index.html` and `frontend/app.js`, matching the diagnostic workflow of "Why did it change?".
+- **REST Endpoints (`src/api/routes/simulation.py`)**:
+  - `GET /api/simulation/options`: Returns baseline metrics and customizable scenario presets.
+  - `POST /api/simulation/run`: Executes trend forecasting, shocks, and Monte Carlo runs.
+  - `POST /api/simulation/goal-seek`: Solves for required driver inputs given target outcomes.
+
 ---
 
 ## 3. Key Invariants & Rules for AI Agents Developing on This Repo
@@ -145,11 +161,11 @@ A comprehensive audit was performed using four specialized AI personas:
 When working on this repository, you **MUST** follow these core guidelines:
 
 1. **Git Branch Discipline**:
-   - Always stay on `feature/conversational-ux-business-intelligence`.
+   - Always stay on the designated feature branch (`feature/what-if-future-analysis-simulation`).
    - **NEVER touch or push directly to `main`**.
 2. **Never Break Automated Tests**:
    - Always verify changes with `python -m pytest tests/ -q`.
-   - All 82 tests must pass before committing.
+   - All 108 tests must pass before committing.
 3. **No Artificial `LIMIT` Clauses**:
    - Grouped analytical queries must never inject artificial `LIMIT` clauses (like `LIMIT 3`) unless explicitly specified in the query prompt.
 4. **Non-Additive Metric Guardrail**:
@@ -170,6 +186,8 @@ When working on this repository, you **MUST** follow these core guidelines:
 - **FastAPI Server Entrypoint**: [`server.py`](file:///c:/Users/pashi/Desktop/Data_Talk/server.py)
 - **Conversational BI Query Agent**: [`src/agents/query_agent.py`](file:///c:/Users/pashi/Desktop/Data_Talk/src/agents/query_agent.py)
 - **LiteLLM Multi-Provider Router**: [`src/agents/llm_router.py`](file:///c:/Users/pashi/Desktop/Data_Talk/src/agents/llm_router.py)
+- **Simulation & Trend Forecasting Engine**: [`src/analytics/simulation_engine.py`](file:///c:/Users/pashi/Desktop/Data_Talk/src/analytics/simulation_engine.py)
+- **Simulation REST API Routes**: [`src/api/routes/simulation.py`](file:///c:/Users/pashi/Desktop/Data_Talk/src/api/routes/simulation.py)
 - **Plotly Visual Recommender**: [`src/viz/chart_recommender.py`](file:///c:/Users/pashi/Desktop/Data_Talk/src/viz/chart_recommender.py)
 - **OKF Semantic Store & Join Engine**: [`src/knowledge/okf_store.py`](file:///c:/Users/pashi/Desktop/Data_Talk/src/knowledge/okf_store.py)
 - **Join Inference Engine**: [`src/knowledge/join_inference.py`](file:///c:/Users/pashi/Desktop/Data_Talk/src/knowledge/join_inference.py)
@@ -177,4 +195,4 @@ When working on this repository, you **MUST** follow these core guidelines:
 - **AST SQL Firewall**: [`src/security/sql_firewall.py`](file:///c:/Users/pashi/Desktop/Data_Talk/src/security/sql_firewall.py)
 - **Privacy Firewall**: [`src/security/privacy_firewall.py`](file:///c:/Users/pashi/Desktop/Data_Talk/src/security/privacy_firewall.py)
 - **Frontend SPA (Vanilla ES6)**: [`frontend/app.js`](file:///c:/Users/pashi/Desktop/Data_Talk/frontend/app.js) & [`frontend/index.html`](file:///c:/Users/pashi/Desktop/Data_Talk/frontend/index.html)
-- **Automated Test Suite**: [`tests/`](file:///c:/Users/pashi/Desktop/Data_Talk/tests/)
+- **Automated Test Suite**: [`tests/`](file:///c:/Users/pashi/Desktop/Data_Talk/tests/) & [`tests/test_simulation_engine.py`](file:///c:/Users/pashi/Desktop/Data_Talk/tests/test_simulation_engine.py)

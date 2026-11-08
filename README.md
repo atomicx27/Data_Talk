@@ -1,4 +1,4 @@
-# Data_Talk Enterprise BI (`v2.9.0`)
+# Data_Talk Enterprise BI (`v2.10.0`)
 
 **Governed Conversational Business Intelligence, Semantic Layer Studio, Multi-Database Federation, Multi-Fact Comparison Engine & Bidirectional DAX $\leftrightarrow$ SQL Compiler**
 
@@ -59,6 +59,13 @@ Unlike generic "Text-to-SQL" wrappers that hallucinate on massive or cryptic sch
   - **Sub-20ms Live Data Refresh**: When users ask the same or semantically matching questions, Data_Talk bypasses the LLM/Heuristic compiler entirely and executes the verified canonical query directly on the live database. Live data is always 100% fresh with **$0 token cost** and zero compilation latency.
   - **Fail-Safe Fallback & "Re-run with AI"**: Self-healing automatic fallback to the heuristic/LLM compiler if schema drift occurs, with a 1-click **"Re-run with AI"** option to bypass memory on demand.
   - **Dedicated Query Memory Studio Tab**: Search, filter, live test runs with millisecond benchmarking (`▶ Test`), edit question trigger patterns and SQL/DAX recipes (`✏️ Edit`), and delete queries (`🗑️ Delete`).
+- **11. Governed What-If Scenario Simulator, Future Trend Forecasting & Goal Seek Engine (`v2.10.0`)**
+  - **Conversational & Drawer-Driven What-If Analysis**: Extracted directly from natural language prompts (e.g. *"What if cost increases by 15%?"*) or adjusted via an interactive collapsible drawer directly in the Ask Data / Chat view matching the diagnostic workflow of "Why did it change?".
+  - **Organic Baseline Future Trend Extrapolation**: Fits Ordinary Least Squares (OLS) linear trend models ($y = \beta_0 + \beta_1 t$) over historical dates with statistical fit metrics ($R^2$, slope, intercept) and produces future period projections with $P_{10} / P_{50} / P_{90}$ confidence intervals.
+  - **Advanced Visualizations**: Generates dynamic **Fan Charts** (historical line + projected median + shaded $P_{10}-P_{90}$ uncertainty ribbon) and **Tornado Sensitivity Charts** across multiple scenario parameters.
+  - **Goal Seek & Reverse Optimization**: Solves for required driver inputs given target outcomes (e.g. *"What enrollment fee or discount is required to hit $2.5M revenue?"*) using a robust, pure Python/NumPy hybrid false-position root finder with zero heavy C++ dependencies.
+  - **Domain-Agnostic & Polarity-Aware**: Evaluates both financial and non-financial domains (Higher Education, Healthcare, Manufacturing, SaaS, HR) with target polarity guidance (higher-is-better vs. lower-is-better).
+  - **Multi-Source Support**: Evaluates models across SQL databases (PostgreSQL, MySQL, SQL Server), Flat Files (Excel, CSV, Parquet), and Power BI semantic models without vendor lock-in.
 
 ---
 

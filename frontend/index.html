@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Data_Talk — Conversational BI Studio</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%236366f1'><path d='M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z'/></svg>" />
   <script>
     // Apply saved theme before first paint to avoid a flash
     (function () {
@@ -238,6 +239,9 @@
                 <span class="eyebrow">Conversational BI</span>
               </div>
               <div class="header-actions">
+                <button id="toggleWhatIfBtn" type="button" class="btn btn-ghost btn-sm" title="What-if scenario simulation and future trend analysis">
+                  <svg class="icon"><use href="#i-sparkles"/></svg> What-if &amp; future analysis
+                </button>
                 <button id="toggleRootCauseBtn" type="button" class="btn btn-ghost btn-sm">
                   <svg class="icon"><use href="#i-trend-down"/></svg> Why did it change?
                 </button>
@@ -280,6 +284,78 @@
                 <button type="submit" class="btn btn-primary">Analyze</button>
               </form>
               <div id="rootCauseResultBox" class="rc-result-box"></div>
+            </div>
+
+            <!-- What-If & Future Analysis Drawer -->
+            <div id="whatIfDrawer" class="panel-card rc-drawer hidden">
+              <div class="card-header">
+                <div class="card-header-icon tone-primary"><svg class="icon"><use href="#i-sparkles"/></svg></div>
+                <div class="grow">
+                  <h3 class="card-title">What-If &amp; Future Analysis Cockpit</h3>
+                  <p class="card-subtitle">Project organic future trends via linear regression and simulate operational shocks, elasticity, or goal-seek targets.</p>
+                </div>
+                <button id="closeWhatIfBtn" type="button" class="btn btn-ghost btn-icon-only" aria-label="Close">
+                  <svg class="icon"><use href="#i-x"/></svg>
+                </button>
+              </div>
+              <form id="whatIfForm" class="rc-inline-form stack" style="gap:12px;">
+                <div style="display:flex; gap:16px; align-items:flex-end; flex-wrap:wrap;">
+                  <div style="flex:1; min-width:200px;">
+                    <label class="field-label" for="whatIfMetricSelect">Target KPI to Simulate</label>
+                    <select id="whatIfMetricSelect" class="input-select"></select>
+                  </div>
+                  <div>
+                    <label class="field-label">Scenario Presets</label>
+                    <div id="whatIfPresetGroup" class="segmented" role="tablist">
+                      <button type="button" class="whatif-preset-pill active" data-preset="base">⚖️ Trend</button>
+                      <button type="button" class="whatif-preset-pill" data-preset="bear">🐻 Bear (-10%)</button>
+                      <button type="button" class="whatif-preset-pill" data-preset="bull">🐂 Bull (+15%)</button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Sliders Grid -->
+                <div id="whatIfSlidersArea" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:16px; margin-top:4px;">
+                  <div class="whatif-slider-group">
+                    <div class="slider-header" style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                      <label for="whatIfRevSlider" class="field-label" style="margin:0;">Revenue / Topline Shock</label>
+                      <span id="whatIfRevVal" class="mono-badge">0%</span>
+                    </div>
+                    <input id="whatIfRevSlider" type="range" min="-30" max="50" step="5" value="0" class="range-slider" />
+                  </div>
+                  <div class="whatif-slider-group">
+                    <div class="slider-header" style="display:flex; justify-content:space-between; margin-bottom:4px;">
+                      <label for="whatIfCostSlider" class="field-label" style="margin:0;">Cost / Expenditure Shock</label>
+                      <span id="whatIfCostVal" class="mono-badge">0%</span>
+                    </div>
+                    <input id="whatIfCostSlider" type="range" min="-30" max="50" step="5" value="0" class="range-slider" />
+                  </div>
+                </div>
+
+                <!-- Goal-Seek Row -->
+                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; background:var(--surface-muted); padding:8px 12px; border-radius:8px; border:1px solid var(--border-subtle);">
+                  <span style="font-weight:600; font-size:12px; display:flex; align-items:center; gap:4px;">🎯 Goal Seek:</span>
+                  <span style="font-size:12px;">Set target to</span>
+                  <input id="goalSeekTargetInput" type="number" step="any" placeholder="Target amount" class="input-text" style="width:130px; padding:3px 8px; font-size:12px;" />
+                  <span style="font-size:12px;">by tuning</span>
+                  <select id="goalSeekLeverSelect" class="input-select" style="width:150px; padding:3px 8px; font-size:12px;">
+                    <option value="Revenue Multiplier %">Revenue Multiplier %</option>
+                    <option value="Cost Multiplier %">Cost Multiplier %</option>
+                  </select>
+                  <button type="button" id="goalSeekBtn" class="btn btn-secondary btn-sm" style="padding:3px 10px; font-size:12px;">
+                    <svg class="icon" style="width:12px;height:12px"><use href="#i-sparkles"/></svg> ⚡ Solve
+                  </button>
+                  <span id="goalSeekStatus" style="font-size:12px; color:var(--text-muted); margin-left:auto;"></span>
+                </div>
+
+                <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:4px;">
+                  <button type="button" id="whatIfResetBtn" class="btn btn-ghost btn-sm">Reset</button>
+                  <button type="submit" id="whatIfRunBtn" class="btn btn-primary btn-sm">
+                    <svg class="icon"><use href="#i-sparkles"/></svg> Run Simulation
+                  </button>
+                </div>
+              </form>
+              <div id="whatIfResultBox" class="rc-result-box" style="margin-top:12px;"></div>
             </div>
 
             <!-- Conversation stream (empty state rendered by JS) -->
@@ -725,7 +801,7 @@
             <div>
               <span class="eyebrow">Analyze</span>
               <h2 class="page-title">Pinboard</h2>
-              <p class="page-sub">Your pinned answers, plus a what-if simulator for revenue and cost shocks.</p>
+              <p class="page-sub">Your pinned conversational answers, executive scorecards, and key analytical charts.</p>
             </div>
             <div class="header-actions">
               <button id="refreshDashboardBtn" class="btn btn-ghost">
@@ -737,48 +813,6 @@
               <a href="/api/export/report" target="_blank" class="btn btn-primary">
                 <svg class="icon"><use href="#i-file"/></svg> Export report
               </a>
-            </div>
-          </div>
-
-          <div class="whatif-kpis">
-            <div class="kpi-card">
-              <div class="kpi-label">Net revenue <span class="kpi-tag">simulated</span></div>
-              <div id="simRevValue" class="kpi-value">$0.00</div>
-              <div id="simRevDelta" class="kpi-delta">Baseline</div>
-            </div>
-            <div class="kpi-card">
-              <div class="kpi-label">Net profit <span class="kpi-tag">simulated</span></div>
-              <div id="simProfitValue" class="kpi-value">$0.00</div>
-              <div id="simProfitDelta" class="kpi-delta">Baseline</div>
-            </div>
-            <div class="kpi-card">
-              <div class="kpi-label">Gross margin <span class="kpi-tag">simulated</span></div>
-              <div id="simMarginValue" class="kpi-value">0.0%</div>
-              <div class="kpi-delta muted">Excludes cancelled orders</div>
-            </div>
-          </div>
-
-          <div class="panel-card whatif-strip">
-            <div class="whatif-title">
-              <svg class="icon"><use href="#i-sparkles"/></svg>
-              <div>
-                <div class="card-title">What-if scenario</div>
-                <div class="card-subtitle">Drag to simulate shocks; KPIs update live.</div>
-              </div>
-            </div>
-            <div class="whatif-slider-group">
-              <div class="slider-header">
-                <label for="revShockSlider">Revenue shock</label>
-                <span id="revShockVal" class="mono-badge">0%</span>
-              </div>
-              <input id="revShockSlider" type="range" min="-30" max="50" step="5" value="0" class="range-slider" />
-            </div>
-            <div class="whatif-slider-group">
-              <div class="slider-header">
-                <label for="costShockSlider">Cost (COGS) shock</label>
-                <span id="costShockVal" class="mono-badge">0%</span>
-              </div>
-              <input id="costShockSlider" type="range" min="-30" max="50" step="5" value="0" class="range-slider" />
             </div>
           </div>
 

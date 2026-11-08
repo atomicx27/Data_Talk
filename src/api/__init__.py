@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 import src
 from src.api.deps import set_global_authenticator, set_global_runtime
-from src.api.routes import chat, connect, dashboard, export, interview, joins, measures, schema, system, verified_queries
+from src.api.routes import chat, connect, dashboard, export, interview, joins, measures, schema, simulation, system, verified_queries
 from src.api.runtime import AppRuntime
 from src.security.auth import (
     LOGIN_PAGE_HTML,
@@ -114,6 +114,7 @@ def create_app(
     app.include_router(measures.router)
     app.include_router(chat.router)
     app.include_router(dashboard.router)
+    app.include_router(simulation.router)
     app.include_router(verified_queries.router)
     app.include_router(export.router)
 
@@ -142,6 +143,14 @@ def create_app(
     # Static assets
     if FRONTEND_DIR.exists():
         app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+
+    # Favicon route (prevents 404 console errors)
+    @app.get("/favicon.ico", include_in_schema=False)
+    def favicon() -> Response:
+        favicon_file = FRONTEND_DIR / "favicon.ico"
+        if favicon_file.exists():
+            return FileResponse(str(favicon_file))
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     # Root route
     @app.get("/")

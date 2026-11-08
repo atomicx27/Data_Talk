@@ -93,6 +93,10 @@ class QueryAgent:
         )
         resolved_q = cls._normalize_prompt_text(resolved_q)
 
+        # Extract conversational what-if multipliers if not explicitly passed
+        if not what_if_overrides:
+            what_if_overrides = cls._extract_what_if_from_prompt(resolved_q)
+
         # Check if partial category value resolution occurred (e.g., "philosophy" -> "History & Philosophy")
         cat_value_matches = cls._detect_categorical_value_matches(resolved_q, workspace)
         if cat_value_matches and not follow_up_ctx:
@@ -309,6 +313,11 @@ class QueryAgent:
                 follow_ups = cls._generate_suggested_follow_ups(df, resolved_q, workspace, join_plan)
                 drill_downs = cls._generate_drill_down_options(df, workspace, join_plan.required_tables)
 
+                applied_measures = [m.name for m in matched_measures]
+                if what_if_overrides:
+                    for wk, wv in what_if_overrides.items():
+                        applied_measures.append(f"What-If ({wk}: {wv*100:+.1f}%)")
+
                 resp = QueryResponse(
                     user_question=q_clean,
                     resolved_question=resolved_q,
@@ -321,7 +330,7 @@ class QueryAgent:
                     involved_tables=join_plan.required_tables,
                     join_clauses_used=join_plan.sql_join_clauses,
                     fan_trap_mitigated=join_plan.has_fan_trap,
-                    measures_applied=[m.name for m in matched_measures],
+                    measures_applied=applied_measures,
                     business_rules_applied=applied_rules[:5],
                     clarification_suggestion=clarification_hint,
                     executive_summary=summary_text,
@@ -370,6 +379,43 @@ class QueryAgent:
     # ------------------------------------------------------------------
     # Helper Methods: Retrieval, Compilation & Self-Healing Repair
     # ------------------------------------------------------------------
+    @classmethod
+    def _extract_what_if_from_prompt(cls, question: str) -> dict[str, float]:
+        """Extract conversational What-If multipliers from user question (e.g. 'what if sales increase by 10%')."""
+        q = question.lower()
+        if not any(k in q for k in ("what if", "simulate", "what-if", "shock", "suppose", "if cost", "if sales", "if price", "if tuition", "if budget", "inflation")):
+            return {}
+
+        overrides: dict[str, float] = {}
+
+        # 1. Revenue / Topline patterns
+        m_rev = re.search(r"(?:revenue|sales|price|fee|tuition|income)([^0-9\n]{1,40}?)([+-]?\d+(?:\.\d+)?)\s*%", q)
+        if not m_rev:
+            m_rev_rev = re.search(r"([+-]?\d+(?:\.\d+)?)\s*%\s*(?:[^0-9\n]{0,20}?)(?:revenue|sales|price|fee|tuition|income)", q)
+            if m_rev_rev:
+                overrides["Revenue Multiplier %"] = float(m_rev_rev.group(1)) / 100.0
+        else:
+            val = float(m_rev.group(2))
+            mid = m_rev.group(1)
+            if any(w in mid for w in ("drop", "down", "dec", "fall", "cut", "-")):
+                val = -abs(val)
+            overrides["Revenue Multiplier %"] = val / 100.0
+
+        # 2. Cost / Expense patterns
+        m_cost = re.search(r"(?:cost|cogs|expense|expenditure|salary|budget|inflation)([^0-9\n]{1,40}?)([+-]?\d+(?:\.\d+)?)\s*%", q)
+        if not m_cost:
+            m_cost_rev = re.search(r"([+-]?\d+(?:\.\d+)?)\s*%\s*(?:[^0-9\n]{0,20}?)(?:cost|cogs|expense|expenditure|salary|budget|inflation)", q)
+            if m_cost_rev:
+                overrides["Cost Multiplier %"] = float(m_cost_rev.group(1)) / 100.0
+        else:
+            val = float(m_cost.group(2))
+            mid = m_cost.group(1)
+            if any(w in mid for w in ("drop", "down", "dec", "fall", "cut", "-")):
+                val = -abs(val)
+            overrides["Cost Multiplier %"] = val / 100.0
+
+        return overrides
+
     @staticmethod
     def _normalize_prompt_text(text: str) -> str:
         """Sanitize Unicode non-breaking hyphens, smart quotes, and noisy parentheticals."""

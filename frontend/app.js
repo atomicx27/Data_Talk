@@ -2872,45 +2872,14 @@ function openLineageModal(entry) {
 }
 
 // ============================================================================
-// 9. VIEW: PINBOARD & WHAT-IF SIMULATOR
+// 9. VIEW: PINBOARD
 // ============================================================================
 async function refreshDashboardSimulation() {
-  const revSlider = document.getElementById('revShockSlider');
-  const costSlider = document.getElementById('costShockSlider');
-  const revenue_shock_pct = Number(revSlider?.value || 0);
-  const cost_shock_pct = Number(costSlider?.value || 0);
-
-  document.getElementById('revShockVal').textContent = `${revenue_shock_pct >= 0 ? '+' : ''}${revenue_shock_pct}%`;
-  document.getElementById('costShockVal').textContent = `${cost_shock_pct >= 0 ? '+' : ''}${cost_shock_pct}%`;
-
   try {
     const sim = await apiRequest('/api/dashboard/simulate', {
       method: 'POST',
-      body: JSON.stringify({ revenue_shock_pct, cost_shock_pct }),
+      body: JSON.stringify({ revenue_shock_pct: 0, cost_shock_pct: 0 }),
     });
-
-    const kpis = sim.kpis || {};
-    document.getElementById('simRevValue').textContent = `$${Number(kpis.sim_revenue || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    document.getElementById('simProfitValue').textContent = `$${Number(kpis.sim_profit || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    document.getElementById('simMarginValue').textContent = `${Number(kpis.sim_margin_pct || 0).toFixed(1)}%`;
-
-    const revDeltaEl = document.getElementById('simRevDelta');
-    if (revDeltaEl) {
-      revDeltaEl.textContent =
-        revenue_shock_pct === 0
-          ? 'Baseline (0% shock)'
-          : `Revenue shock: ${revenue_shock_pct > 0 ? '+' : ''}${revenue_shock_pct}%`;
-      revDeltaEl.className = `kpi-delta ${revenue_shock_pct < 0 ? 'negative' : revenue_shock_pct === 0 ? 'muted' : ''}`;
-    }
-
-    const profitDeltaEl = document.getElementById('simProfitDelta');
-    if (profitDeltaEl) {
-      profitDeltaEl.textContent =
-        cost_shock_pct === 0
-          ? 'Baseline (0% shock)'
-          : `COGS shock: ${cost_shock_pct > 0 ? '+' : ''}${cost_shock_pct}%`;
-      profitDeltaEl.className = `kpi-delta ${cost_shock_pct > 0 ? 'negative' : cost_shock_pct === 0 ? 'muted' : ''}`;
-    }
 
     const grid = document.getElementById('pinnedWidgetsGrid');
     if (!grid) return;
@@ -2948,12 +2917,12 @@ async function refreshDashboardSimulation() {
       if (el && item.plotly_spec && window.Plotly) {
         try {
           const themedLayout = applyPlotlyThemeLayout(item.plotly_spec.layout);
-          window.Plotly.react(el, item.plotly_spec.data, themedLayout, {
+          window.Plotly.newPlot(el, item.plotly_spec.data, themedLayout, {
             responsive: true,
             displayModeBar: false,
           });
-        } catch (dErr) {
-          console.warn(`Plotly render failed for dashboard widget #${idx}:`, dErr);
+        } catch (plotErr) {
+          console.warn('Plotly render error on dashboard widget:', plotErr);
         }
       }
     });
@@ -2970,6 +2939,7 @@ async function refreshDashboardSimulation() {
       });
     });
   } catch (err) {
+    console.error('Error refreshing dashboard:', err);
     showToast(`Pinboard error: ${err.message}`);
   }
 }
@@ -3242,6 +3212,7 @@ function renderAllViews() {
   try { renderVerifiedQueriesView(); } catch (e) { console.error('Error rendering verified queries view:', e); }
   try { renderChatView(); } catch (e) { console.error('Error rendering chat view:', e); }
   try { if (window.loadRootCauseOptions) window.loadRootCauseOptions(true); } catch (e) {}
+  try { if (window.loadWhatIfOptions) window.loadWhatIfOptions(true); } catch (e) {}
 }
 
 async function loadDemoDataset() {
@@ -3432,11 +3403,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     const isOpening = rcDrawer?.classList.contains('hidden');
     rcDrawer?.classList.toggle('hidden');
     if (isOpening) {
+      document.getElementById('whatIfDrawer')?.classList.add('hidden');
       loadRootCauseOptions(true);
     }
   });
   document.getElementById('closeRootCauseBtn')?.addEventListener('click', () => {
     rcDrawer?.classList.add('hidden');
+  });
+
+  // Collapsible What-If & Future Analysis Drawer Toggle
+  const whatIfDrawer = document.getElementById('whatIfDrawer');
+  document.getElementById('toggleWhatIfBtn')?.addEventListener('click', () => {
+    const isOpening = whatIfDrawer?.classList.contains('hidden');
+    whatIfDrawer?.classList.toggle('hidden');
+    if (isOpening) {
+      document.getElementById('rootCauseDrawer')?.classList.add('hidden');
+      loadWhatIfOptions(true);
+    }
+  });
+  document.getElementById('closeWhatIfBtn')?.addEventListener('click', () => {
+    whatIfDrawer?.classList.add('hidden');
   });
 
   // Algorithm Selection Pills & Metric Change Listener
@@ -4088,9 +4074,260 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // What-If Sliders
-  document.getElementById('revShockSlider')?.addEventListener('input', refreshDashboardSimulation);
-  document.getElementById('costShockSlider')?.addEventListener('input', refreshDashboardSimulation);
+  // ============================================================================
+  // WHAT-IF & FUTURE SCENARIO ANALYSIS MODULE
+  // ============================================================================
+  let CURRENT_WHATIF_DATA = null;
+  let ACTIVE_WHATIF_CHART = 'fan'; // 'fan' or 'waterfall'
+
+  window.loadWhatIfOptions = async function(forceRefresh = false) {
+    if (CURRENT_WHATIF_DATA && !forceRefresh) return;
+    try {
+      const data = await apiRequest('/api/simulation/options');
+      CURRENT_WHATIF_DATA = data;
+      const metricSelect = document.getElementById('whatIfMetricSelect');
+      if (metricSelect && data.metrics) {
+        metricSelect.innerHTML = data.metrics.map((m) => {
+          return `<option value="${escapeHtml(m.id)}" data-table="${escapeHtml(m.table || '')}">${escapeHtml(m.name)}</option>`;
+        }).join('');
+      }
+    } catch (err) {
+      console.error('Error loading what-if options:', err);
+    }
+  };
+
+  // Slider Badges Sync
+  const whatIfRevSlider = document.getElementById('whatIfRevSlider');
+  const whatIfCostSlider = document.getElementById('whatIfCostSlider');
+  whatIfRevSlider?.addEventListener('input', () => {
+    const v = Number(whatIfRevSlider.value || 0);
+    const badge = document.getElementById('whatIfRevVal');
+    if (badge) badge.textContent = `${v >= 0 ? '+' : ''}${v}%`;
+  });
+  whatIfCostSlider?.addEventListener('input', () => {
+    const v = Number(whatIfCostSlider.value || 0);
+    const badge = document.getElementById('whatIfCostVal');
+    if (badge) badge.textContent = `${v >= 0 ? '+' : ''}${v}%`;
+  });
+
+  // Preset Buttons
+  document.querySelectorAll('#whatIfPresetGroup .whatif-preset-pill').forEach((pill) => {
+    pill.addEventListener('click', () => {
+      document.querySelectorAll('#whatIfPresetGroup .whatif-preset-pill').forEach((p) => p.classList.remove('active'));
+      pill.classList.add('active');
+      const preset = pill.getAttribute('data-preset');
+      if (preset === 'bear') {
+        if (whatIfRevSlider) whatIfRevSlider.value = -10;
+        if (whatIfCostSlider) whatIfCostSlider.value = 8;
+        const bRev = document.getElementById('whatIfRevVal');
+        const bCost = document.getElementById('whatIfCostVal');
+        if (bRev) bRev.textContent = '-10%';
+        if (bCost) bCost.textContent = '+8%';
+      } else if (preset === 'bull') {
+        if (whatIfRevSlider) whatIfRevSlider.value = 15;
+        if (whatIfCostSlider) whatIfCostSlider.value = 4;
+        const bRev = document.getElementById('whatIfRevVal');
+        const bCost = document.getElementById('whatIfCostVal');
+        if (bRev) bRev.textContent = '+15%';
+        if (bCost) bCost.textContent = '+4%';
+      } else {
+        if (whatIfRevSlider) whatIfRevSlider.value = 0;
+        if (whatIfCostSlider) whatIfCostSlider.value = 0;
+        const bRev = document.getElementById('whatIfRevVal');
+        const bCost = document.getElementById('whatIfCostVal');
+        if (bRev) bRev.textContent = '0%';
+        if (bCost) bCost.textContent = '0%';
+      }
+    });
+  });
+
+  // Reset Button
+  document.getElementById('whatIfResetBtn')?.addEventListener('click', () => {
+    if (whatIfRevSlider) whatIfRevSlider.value = 0;
+    if (whatIfCostSlider) whatIfCostSlider.value = 0;
+    const bRev = document.getElementById('whatIfRevVal');
+    const bCost = document.getElementById('whatIfCostVal');
+    if (bRev) bRev.textContent = '0%';
+    if (bCost) bCost.textContent = '0%';
+    document.querySelectorAll('#whatIfPresetGroup .whatif-preset-pill').forEach((p) => {
+      if (p.getAttribute('data-preset') === 'base') p.classList.add('active');
+      else p.classList.remove('active');
+    });
+    const resultBox = document.getElementById('whatIfResultBox');
+    if (resultBox) resultBox.innerHTML = '';
+  });
+
+  // Goal Seek Solve Button
+  document.getElementById('goalSeekBtn')?.addEventListener('click', async () => {
+    const targetInput = document.getElementById('goalSeekTargetInput');
+    const targetVal = parseFloat(targetInput?.value || '');
+    if (isNaN(targetVal)) {
+      showToast('Please enter a valid numeric target value for Goal Seek.');
+      return;
+    }
+    const leverSelect = document.getElementById('goalSeekLeverSelect');
+    const lever = leverSelect?.value || 'Revenue Multiplier %';
+    const metricSelect = document.getElementById('whatIfMetricSelect');
+    const target_table = metricSelect?.selectedOptions[0]?.getAttribute('data-table') || null;
+
+    const statusEl = document.getElementById('goalSeekStatus');
+    if (statusEl) statusEl.textContent = 'Solving…';
+
+    try {
+      const resp = await apiRequest('/api/simulation/goal-seek', {
+        method: 'POST',
+        body: JSON.stringify({
+          target_metric: 'sim_profit',
+          target_value: targetVal,
+          adjust_lever: lever,
+          target_table: target_table,
+        }),
+      });
+
+      if (statusEl) {
+        statusEl.textContent = resp.message;
+        statusEl.style.color = resp.success ? 'var(--tone-success)' : 'var(--tone-warning)';
+      }
+
+      if (resp.success && whatIfRevSlider && lever === 'Revenue Multiplier %') {
+        const rounded = Math.round(resp.required_pct);
+        whatIfRevSlider.value = Math.max(-30, Math.min(50, rounded));
+        const bRev = document.getElementById('whatIfRevVal');
+        if (bRev) bRev.textContent = `${rounded >= 0 ? '+' : ''}${rounded}%`;
+      } else if (resp.success && whatIfCostSlider && lever === 'Cost Multiplier %') {
+        const rounded = Math.round(resp.required_pct);
+        whatIfCostSlider.value = Math.max(-30, Math.min(50, rounded));
+        const bCost = document.getElementById('whatIfCostVal');
+        if (bCost) bCost.textContent = `${rounded >= 0 ? '+' : ''}${rounded}%`;
+      }
+    } catch (err) {
+      if (statusEl) statusEl.textContent = `Error: ${err.message}`;
+    }
+  });
+
+  // What-If Form Submit
+  document.getElementById('whatIfForm')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const metricSelect = document.getElementById('whatIfMetricSelect');
+    const target_metric = metricSelect?.value || null;
+    const target_table = metricSelect?.selectedOptions[0]?.getAttribute('data-table') || null;
+
+    const revShock = Number(whatIfRevSlider?.value || 0);
+    const costShock = Number(whatIfCostSlider?.value || 0);
+
+    const runBtn = document.getElementById('whatIfRunBtn');
+    if (runBtn) {
+      runBtn.disabled = true;
+      runBtn.innerHTML = '<svg class="icon"><use href="#i-refresh"/></svg> Simulating…';
+    }
+
+    try {
+      const res = await apiRequest('/api/simulation/run', {
+        method: 'POST',
+        body: JSON.stringify({
+          revenue_shock_pct: revShock,
+          cost_shock_pct: costShock,
+          target_metric: target_metric,
+          target_table: target_table,
+          include_waterfall: true,
+          include_confidence_cone: true,
+        }),
+      });
+
+      renderWhatIfResultBox(res);
+      showToast('Simulation complete! Trajectory and attribution updated.');
+    } catch (err) {
+      showToast(`Simulation error: ${err.message}`);
+    } finally {
+      if (runBtn) {
+        runBtn.disabled = false;
+        runBtn.innerHTML = '<svg class="icon"><use href="#i-sparkles"/></svg> Run Simulation';
+      }
+    }
+  });
+
+  function renderWhatIfResultBox(res) {
+    const box = document.getElementById('whatIfResultBox');
+    if (!box) return;
+
+    const k = res.kpis || {};
+    const n = res.narrative || {};
+    const hasFan = Boolean(res.fan_spec);
+    const hasWf = Boolean(res.waterfall_spec);
+
+    const profitDiff = Number(k.delta_profit || 0);
+    const isPos = profitDiff >= 0;
+    const bps = Number(k.delta_margin_bps || 0);
+
+    box.innerHTML = `
+      <div style="background:var(--surface-primary); border:1px solid var(--border-subtle); border-radius:10px; padding:14px; margin-top:8px;">
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:10px; margin-bottom:12px;">
+          <div class="kpi-card" style="padding:10px;">
+            <div class="kpi-label">Simulated Topline</div>
+            <div class="kpi-value" style="font-size:18px;">$${Number(k.sim_revenue || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</div>
+            <div class="kpi-delta ${k.sim_revenue >= k.base_revenue ? 'positive' : 'negative'}">
+              Baseline: $${Number(k.base_revenue || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}
+            </div>
+          </div>
+          <div class="kpi-card" style="padding:10px;">
+            <div class="kpi-label">Simulated Net Impact</div>
+            <div class="kpi-value" style="font-size:18px;">$${Number(k.sim_profit || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</div>
+            <div class="kpi-delta ${isPos ? 'positive' : 'negative'}">
+              ${isPos ? '▲ +' : '▼ -'}$${Math.abs(profitDiff).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})} (${bps >= 0 ? '+' : ''}${bps} bps)
+            </div>
+          </div>
+          <div class="kpi-card" style="padding:10px;">
+            <div class="kpi-label">Simulated Margin</div>
+            <div class="kpi-value" style="font-size:18px;">${Number(k.sim_margin_pct || 0).toFixed(1)}%</div>
+            <div class="kpi-delta muted">Baseline: ${Number(k.base_margin_pct || 0).toFixed(1)}%</div>
+          </div>
+        </div>
+
+        <div style="background:var(--surface-muted); border-left:3px solid ${isPos ? 'var(--tone-success)' : 'var(--tone-warning)'}; padding:8px 12px; border-radius:4px; font-size:12.5px; margin-bottom:12px;">
+          <strong>${escapeHtml(n.headline || '')}</strong>
+          <p style="margin:4px 0 0 0; color:var(--text-secondary);">${escapeHtml(n.detail || '')}</p>
+          ${n.regression_insight ? `<p style="margin:4px 0 0 0; color:var(--text-muted); font-size:11.5px;">📈 <em>${escapeHtml(n.regression_insight)}</em></p>` : ''}
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:6px;">
+          <span style="font-size:12px; font-weight:600; color:var(--text-secondary);">SCENARIO VISUALIZATION</span>
+          <div class="segmented" role="tablist">
+            ${hasFan ? `<button type="button" class="whatif-chart-tab ${ACTIVE_WHATIF_CHART === 'fan' ? 'active' : ''}" data-chart="fan">📈 Future Fan (OLS Trend)</button>` : ''}
+            ${hasWf ? `<button type="button" class="whatif-chart-tab ${ACTIVE_WHATIF_CHART === 'waterfall' ? 'active' : ''}" data-chart="waterfall">🪜 Waterfall Bridge</button>` : ''}
+          </div>
+        </div>
+
+        <div id="whatIfPlotContainer" class="chart-box" style="min-height:300px;"></div>
+      </div>
+    `;
+
+    box.querySelectorAll('.whatif-chart-tab').forEach((tab) => {
+      tab.addEventListener('click', () => {
+        box.querySelectorAll('.whatif-chart-tab').forEach((t) => t.classList.remove('active'));
+        tab.classList.add('active');
+        ACTIVE_WHATIF_CHART = tab.getAttribute('data-chart');
+        renderActiveWhatIfPlot(res);
+      });
+    });
+
+    renderActiveWhatIfPlot(res);
+  }
+
+  function renderActiveWhatIfPlot(res) {
+    const container = document.getElementById('whatIfPlotContainer');
+    if (!container || !window.Plotly) return;
+
+    const spec = ACTIVE_WHATIF_CHART === 'waterfall' ? res.waterfall_spec : (res.fan_spec || res.waterfall_spec);
+    if (!spec) return;
+
+    try {
+      const layout = applyPlotlyThemeLayout(spec.layout || {});
+      window.Plotly.newPlot(container, spec.data, layout, { responsive: true, displayModeBar: false });
+    } catch (err) {
+      console.warn('Error rendering what-if plot:', err);
+    }
+  }
+
   document.getElementById('refreshDashboardBtn')?.addEventListener('click', refreshDashboardSimulation);
 
   // Workspace Switcher & New Workspace

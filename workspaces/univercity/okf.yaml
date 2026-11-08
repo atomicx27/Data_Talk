@@ -2904,7 +2904,30 @@ interview_questions:
   answered: true
   source_id: uploaded_files
 what_if_parameters: []
+scenario_presets: []
 pinned_widgets: []
+verified_queries:
+- id: vq_1_1793556643
+  question_pattern: Show student count by College and Gender
+  executed_query: "SELECT \"colleges\".\"college_name\" AS college_name,\n       \"\
+    students\".\"gender\" AS gender,\n       COUNT(*) AS gender_count,\n       ROUND(100.0\
+    \ * COUNT(*) / NULLIF(SUM(COUNT(*)) OVER (PARTITION BY \"colleges\".\"college_name\"\
+    ), 0), 2) AS gender_ratio_pct\nFROM \"students\"\nLEFT JOIN \"colleges\" ON \"\
+    students\".\"college_id\" = \"colleges\".\"college_id\"\nGROUP BY \"colleges\"\
+    .\"college_name\", \"students\".\"gender\"\nORDER BY \"colleges\".\"college_name\"\
+    , gender_count DESC"
+  dax_equivalent: "DEFINE\n  MEASURE 'orders'[Recognized Net Revenue] = CALCULATE(SUM(orders[rev_net_usd]),\
+    \ orders[ord_stat] <> \"X\")\n  MEASURE 'orders'[Gross Margin %] = DIVIDE(SUM(orders[profit_usd]),\
+    \ SUM(orders[rev_net_usd]), 0)\nEVALUATE\nSUMMARIZECOLUMNS(\n  'students'[first_name],\n\
+    \  \"Row Count\", COUNTROWS('students')\n)"
+  query_dialect: duckdb
+  chart_type: bar
+  x_col: null
+  y_cols: []
+  color_col: null
+  created_at: '2026-11-01T18:10:43.522790+00:00'
+  updated_at: '2026-11-01T18:10:43.522790+00:00'
+  execution_count: 1
 domain_tag: ''
 domain_title: ''
-updated_at: '2026-10-26T15:16:04.546043+00:00'
+updated_at: '2026-11-01T18:10:43.522995+00:00'

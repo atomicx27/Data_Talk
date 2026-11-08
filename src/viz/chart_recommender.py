@@ -54,6 +54,8 @@ class ChartRecommender:
         "box",
         "funnel",
         "scatter",
+        "fan_chart",
+        "tornado",
         "table",
     ]
 
@@ -696,6 +698,109 @@ class ChartRecommender:
                     totals={"marker": {"color": "#3B82F6"}},
                 )
             )
+
+        elif chosen_type == "fan_chart":
+            # Plotly Fan Chart: Historical solid line + Projected dashed line + Shaded confidence cone
+            date_col = next((c for c in df.columns if any(k in str(c).lower() for k in ("date", "month", "period", "year"))), df.columns[0])
+            fig = go.Figure()
+
+            # Upper bound (P90)
+            if "p90" in df.columns:
+                p90_df = df.dropna(subset=["p90"])
+                fig.add_trace(
+                    go.Scatter(
+                        x=p90_df[date_col],
+                        y=p90_df["p90"],
+                        mode="lines",
+                        line=dict(width=0),
+                        showlegend=False,
+                        hoverinfo="skip",
+                    )
+                )
+
+            # Lower bound (P10) with fill to upper
+            if "p10" in df.columns:
+                p10_df = df.dropna(subset=["p10"])
+                fig.add_trace(
+                    go.Scatter(
+                        x=p10_df[date_col],
+                        y=p10_df["p10"],
+                        mode="lines",
+                        line=dict(width=0),
+                        fill="tonexty",
+                        fillcolor="rgba(59, 130, 246, 0.20)",
+                        name="80% Confidence Interval",
+                    )
+                )
+
+            # Historical actuals
+            act_col = next((c for c in ("actual", "actuals", "value", primary_y) if c in df.columns), None)
+            if act_col:
+                act_df = df.dropna(subset=[act_col])
+                fig.add_trace(
+                    go.Scatter(
+                        x=act_df[date_col],
+                        y=act_df[act_col],
+                        mode="lines+markers",
+                        line=dict(color="#3B82F6", width=2.5),
+                        marker=dict(size=6),
+                        name="Historical Actuals",
+                    )
+                )
+
+            # Projected median (P50 or projected)
+            proj_col = next((c for c in ("p50", "projected", "forecast", "simulated") if c in df.columns), None)
+            if proj_col:
+                proj_df = df.dropna(subset=[proj_col])
+                fig.add_trace(
+                    go.Scatter(
+                        x=proj_df[date_col],
+                        y=proj_df[proj_col],
+                        mode="lines+markers",
+                        line=dict(color="#10B981", width=2.5, dash="dash"),
+                        marker=dict(size=6, symbol="diamond"),
+                        name="Projected Trend (P50)",
+                    )
+                )
+
+            fig.update_layout(hovermode="x unified")
+
+        elif chosen_type == "tornado":
+            # Tornado chart: horizontal diverging bars ranking sensitivity
+            lever_col = next((c for c in ("lever", "parameter", "name", x) if c in df.columns), df.columns[0])
+            down_col = next((c for c in ("downside", "min_impact", "negative_shock") if c in df.columns), None)
+            up_col = next((c for c in ("upside", "max_impact", "positive_shock") if c in df.columns), None)
+
+            fig = go.Figure()
+            if down_col and up_col:
+                fig.add_trace(
+                    go.Bar(
+                        y=df[lever_col],
+                        x=df[down_col],
+                        name="Downside (-10%)",
+                        orientation="h",
+                        marker_color="#EF4444",
+                    )
+                )
+                fig.add_trace(
+                    go.Bar(
+                        y=df[lever_col],
+                        x=df[up_col],
+                        name="Upside (+10%)",
+                        orientation="h",
+                        marker_color="#10B981",
+                    )
+                )
+                fig.update_layout(barmode="relative")
+            else:
+                fig = px.bar(
+                    df,
+                    x=primary_y,
+                    y=lever_col,
+                    orientation="h",
+                    color=primary_y,
+                    color_continuous_scale="RdBu",
+                )
 
         elif chosen_type == "rate_mix_scatter":
             x_col = "mix_effect" if "mix_effect" in df.columns else x

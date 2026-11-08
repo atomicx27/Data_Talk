@@ -1081,6 +1081,36 @@ html[data-theme="light"] .theme-icon-light {
   border-color: rgba(245, 158, 11, 0.35);
 }
 
+#whatIfDrawer.rc-drawer {
+  border-color: rgba(59, 130, 246, 0.35);
+}
+
+.whatif-preset-pill, .whatif-chart-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: var(--radius-xs);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.whatif-preset-pill:hover, .whatif-chart-tab:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.whatif-preset-pill.active, .whatif-chart-tab.active {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
 .rc-inline-form {
   display: grid;
   grid-template-columns: 1fr 1fr 1.2fr auto;
