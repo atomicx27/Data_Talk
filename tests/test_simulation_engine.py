@@ -151,3 +151,50 @@ def test_api_simulation_endpoints():
     goal_data = goal_resp.json()
     assert goal_data["success"] is True
     assert goal_data["required_pct"] > 0
+
+
+def test_fan_chart_chronological_order_and_single_metric_forecast():
+    """Verify fan_chart places historical dates first and forecast dates on the right, and handles single-metric OLS."""
+    from pathlib import Path
+    from src.api.routes.simulation import get_simulation_options, run_simulation
+    from src.api.runtime import AppRuntime, SessionState
+    from src.api.schemas import WhatIfSimulateRequest
+
+    rt = AppRuntime(Path("."))
+    if "univercity" not in rt.list_workspaces():
+        return
+
+    s = SessionState(session_id="test_univ", active_workspace_id="univercity")
+    opts = get_simulation_options(rt, s)
+    metric_ids = [m["id"] for m in opts["metrics"]]
+    # Ensure non-numeric 'remarks' and unattached tables are never included
+    assert "enrollments_marks.remarks" not in metric_ids
+    assert "faculty.salary" in metric_ids
+
+    res = run_simulation(
+        WhatIfSimulateRequest(
+            revenue_shock_pct=0.0,
+            cost_shock_pct=0.0,
+            target_metric="faculty.salary",
+            target_table="faculty",
+        ),
+        rt,
+        s,
+    )
+    kpis = res["kpis"]
+    reg = res["regression"]
+    assert kpis["mode"] == "trend_forecast"
+    assert kpis["has_cogs"] is False
+    assert kpis["sim_margin_pct"] == 0.0
+    assert reg["historical_count"] == 19
+    assert reg["slope"] == pytest.approx(14649.2658, abs=1.0)
+    assert kpis["next_forecast_date"] == "2024"
+    assert kpis["next_forecast_p50"] == pytest.approx(2290993.61, abs=1.0)
+
+    # Verify fan chart X-axis is strictly chronological (2005..2023 followed by 2024..2027)
+    cat_arr = res["fan_spec"]["layout"]["xaxis"]["categoryarray"]
+    assert cat_arr[0] == "2005"
+    assert cat_arr[18] == "2023"
+    assert cat_arr[19:] == ["2024", "2025", "2026", "2027"]
+    # Verify Historical Actuals is the first trace
+    assert res["fan_spec"]["data"][0]["name"] == "Historical Actuals"

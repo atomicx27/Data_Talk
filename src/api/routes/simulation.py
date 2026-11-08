@@ -25,22 +25,53 @@ def get_simulation_options(
     """Return available metrics, fact tables, and candidate drivers for simulation."""
     ws_id = session.active_workspace_id
     ws = runtime.get_workspace(ws_id)
+    conn = runtime.get_connector(ws_id)
+
+    try:
+        live_tables_lower = {t.lower() for t in conn.list_tables()}
+    except Exception:
+        live_tables_lower = set()
+
+    active_tbl_map = {
+        t.name.lower(): t
+        for t in ws.active_tables()
+        if t.name.lower() != "overview" and (not live_tables_lower or t.name.lower() in live_tables_lower)
+    }
 
     metrics: list[dict[str, str]] = []
-    # Include pre-configured semantic measures
+    # Include pre-configured semantic measures whose target table is active in this workspace
     for m in ws.measures:
-        metrics.append({"id": m.name, "name": m.name, "table": m.table_name, "type": "measure"})
+        if m.table_name and m.table_name.lower() in active_tbl_map:
+            metrics.append({"id": f"{m.table_name}.{m.name}", "name": m.name, "table": m.table_name, "type": "measure"})
 
-    # Include numeric columns from active fact/dimension tables
-    for t in ws.active_tables():
+    # Sort FACT tables ahead of DIMENSION tables so primary business KPIs appear first
+    sorted_tables = sorted(
+        active_tbl_map.values(),
+        key=lambda t: (0 if getattr(t.table_role, "value", str(t.table_role)).upper() == "FACT" else 1, t.name),
+    )
+
+    numeric_type_tokens = ("int", "double", "float", "decimal", "numeric", "real", "number", "hugeint")
+    for t in sorted_tables:
         for c in t.columns:
-            if c.is_blocked:
+            if c.is_blocked or c.is_primary_key or c.is_foreign_key:
+                continue
+            dtype_low = (c.data_type or "").lower()
+            if not any(tok in dtype_low for tok in numeric_type_tokens):
                 continue
             c_low = c.name.lower()
-            if any(k in c_low for k in ("rev", "sales", "price", "amount", "cost", "cogs", "fee", "tuition", "salary", "budget", "marks", "gpa", "quantity", "volume", "seats")):
+            if c_low.endswith(("_id", "_num", "_year")) or c_low in ("year", "is_active", "duration_years"):
+                continue
+            if any(
+                k in c_low
+                for k in (
+                    "rev", "sales", "price", "amount", "cost", "cogs", "fee", "tuition",
+                    "salary", "budget", "marks", "gpa", "score", "rate", "grade_points",
+                    "quantity", "volume", "seats", "balance",
+                )
+            ):
                 metrics.append({
                     "id": f"{t.name}.{c.name}",
-                    "name": c.business_alias or f"{t.business_name or t.name}: {c.name}",
+                    "name": f"{t.name}: {c.name}" if not c.business_alias else f"{t.name}: {c.name} ({c.business_alias})",
                     "table": t.name,
                     "type": "column",
                 })
@@ -104,24 +135,26 @@ def run_simulation(
         ])
         waterfall_fig = ChartRecommender.build_figure(wf_df, chart_type="waterfall", title="What-If Driver Attribution Bridge")
 
-    # Build Plotly Fan Chart (Regression + Confidence Ribbon)
+    # Build Plotly Fan Chart (Regression + Confidence Ribbon connected smoothly to last historical point)
     fan_fig = None
     if regression and req.include_confidence_cone and regression.get("forecast_points"):
         hist_pts = regression.get("historical_points", [])
         fore_pts = regression.get("forecast_points", [])
         rows = []
-        for h in hist_pts:
+        for idx, h in enumerate(hist_pts):
+            is_last_hist = idx == (len(hist_pts) - 1)
             rows.append({
-                "date": h["date"],
+                "date": str(h["date"]),
                 "actual": h["actual"],
                 "trend": h["trend"],
-                "projected": None,
-                "p10": None,
-                "p90": None,
+                # Anchor the forecast line and confidence cone to the final historical point so there is no gap
+                "projected": h["actual"] if is_last_hist else None,
+                "p10": h["actual"] if is_last_hist else None,
+                "p90": h["actual"] if is_last_hist else None,
             })
         for f in fore_pts:
             rows.append({
-                "date": f["date"],
+                "date": str(f["date"]),
                 "actual": None,
                 "trend": None,
                 "projected": f["projected"],
@@ -129,30 +162,87 @@ def run_simulation(
                 "p90": f["p90"],
             })
         fan_df = pd.DataFrame(rows)
-        fan_fig = ChartRecommender.build_figure(fan_df, chart_type="fan_chart", title=f"Future Trend Extrapolation: {kpis.get('metric_name', 'Metric')}")
+        p_unit = regression.get("period_unit", "period")
+        fan_fig = ChartRecommender.build_figure(
+            fan_df,
+            chart_type="fan_chart",
+            title=f"Future Trend Extrapolation ({p_unit.title()}ly OLS): {kpis.get('table_name', '')}.{kpis.get('metric_name', 'Metric')}".strip("."),
+        )
 
-    # Build automated "So What?" executive synthesis
-    rev_delta = kpis["sim_revenue"] - kpis["base_revenue"]
-    prof_delta = kpis["sim_profit"] - kpis["base_profit"]
-    margin_bps = kpis.get("delta_margin_bps", 0.0)
+    # Build automated "So What?" executive synthesis tailored to mode (Trend Forecast vs Single Metric Shock vs Full P&L)
+    mode = kpis.get("mode", "pnl")
+    metric_label = kpis.get("metric_name", "Metric")
+    pfx = "$" if kpis.get("is_currency", True) else ""
+    p_unit = kpis.get("period_unit", "period")
 
-    if prof_delta >= 0:
-        verdict = f"Scenario projects a favorable +${prof_delta:,.2f} increase in net performance."
+    if mode == "trend_forecast" and regression and regression.get("success"):
+        next_dt = kpis.get("next_forecast_date", "Next Period")
+        next_p50 = float(kpis.get("next_forecast_p50", 0.0))
+        next_p10 = float(kpis.get("next_forecast_p10", 0.0))
+        next_p90 = float(kpis.get("next_forecast_p90", 0.0))
+        p_avg = float(kpis.get("period_avg", 0.0))
+        vs_avg_pct = float(kpis.get("forecast_vs_avg_pct", 0.0))
+        slope = float(regression.get("slope", 0.0))
+        slope_str = f"{'+' if slope >= 0 else '-'}{pfx}{abs(slope):,.2f}"
+        r2 = float(regression.get("r2", 0.0))
+        n_hist = int(regression.get("historical_count", 0))
+        direction = "upward" if slope >= 0 else "downward"
+
+        headline = (
+            f"OLS Linear Regression projects {next_dt} {metric_label} at {pfx}{next_p50:,.2f} "
+            f"({vs_avg_pct:+.1f}% vs {pfx}{p_avg:,.2f}/{p_unit} historical mean)."
+        )
+        detail = (
+            f"Fitted across {n_hist} historical {p_unit}s (cumulative baseline {pfx}{kpis['base_revenue']:,.2f}), "
+            f"{metric_label} follows an {direction} trajectory of {slope_str}/{p_unit}. "
+            f"The 80% prediction interval for {next_dt} spans {pfx}{next_p10:,.2f} (P10) to {pfx}{next_p90:,.2f} (P90)."
+        )
+        reg_insight = f"Organic historical trend slope: {slope_str}/{p_unit} · Intercept: {pfx}{regression['intercept']:,.2f} · R²={r2:.2f} ({n_hist} {p_unit}s)."
+    elif not kpis.get("has_cogs"):
+        rev_delta = kpis["sim_revenue"] - kpis["base_revenue"]
+        pct_delta = kpis.get("delta_pct", 0.0)
+        headline = (
+            f"Scenario ({pct_delta:+.1f}% shock) shifts {metric_label} by "
+            f"{'+' if rev_delta >= 0 else '-'}{pfx}{abs(rev_delta):,.2f} to {pfx}{kpis['sim_revenue']:,.2f}."
+        )
+        if regression and regression.get("success") and kpis.get("next_forecast_date"):
+            next_dt = kpis["next_forecast_date"]
+            slope = float(regression.get("slope", 0.0))
+            slope_str = f"{'+' if slope >= 0 else '-'}{pfx}{abs(slope):,.2f}"
+            detail = (
+                f"Baseline {metric_label} ({pfx}{kpis['base_revenue']:,.2f}) moves to {pfx}{kpis['sim_revenue']:,.2f}. "
+                f"For {next_dt}, the shocked OLS projection reaches {pfx}{kpis['next_forecast_p50']:,.2f} "
+                f"(vs {pfx}{kpis['next_forecast_organic']:,.2f} unshocked baseline trend; 80% CI: {pfx}{kpis['next_forecast_p10']:,.2f} – {pfx}{kpis['next_forecast_p90']:,.2f})."
+            )
+            reg_insight = f"Organic historical trend has slope {slope_str}/{p_unit} with R²={regression['r2']:.2f} across {regression['historical_count']} {p_unit}s."
+        else:
+            detail = f"Simulated {metric_label} moves from {pfx}{kpis['base_revenue']:,.2f} to {pfx}{kpis['sim_revenue']:,.2f} ({pct_delta:+.1f}%)."
+            reg_insight = "Insufficient time series depth for linear trend regression."
     else:
-        verdict = f"Scenario creates a -${abs(prof_delta):,.2f} performance compression."
-
-    narrative = {
-        "headline": verdict,
-        "detail": (
-            f"Simulated {kpis.get('metric_name', 'Topline')} reaches ${kpis['sim_revenue']:,.2f} "
+        rev_delta = kpis["sim_revenue"] - kpis["base_revenue"]
+        prof_delta = kpis["sim_profit"] - kpis["base_profit"]
+        margin_bps = kpis.get("delta_margin_bps", 0.0)
+        if prof_delta >= 0:
+            headline = f"Scenario projects a favorable +${prof_delta:,.2f} increase in net performance."
+        else:
+            headline = f"Scenario creates a -${abs(prof_delta):,.2f} performance compression."
+        detail = (
+            f"Simulated {metric_label} reaches ${kpis['sim_revenue']:,.2f} "
             f"({(rev_delta / kpis['base_revenue'] * 100):+.1f}%), yielding a margin shift of {margin_bps:+.0f} bps "
             f"(from {kpis.get('base_margin_pct', 0.0):.1f}% to {kpis.get('sim_margin_pct', 0.0):.1f}%)."
             if kpis["base_revenue"] > 0 else "Baseline data insufficient for margin calculation."
-        ),
-        "regression_insight": (
-            f"Organic historical trend has slope {regression['slope']:+,.2f}/period with R²={regression['r2']:.2f}."
-            if regression and regression.get("success") else "Insufficient time series depth for linear trend regression."
-        ),
+        )
+        if regression and regression.get("success"):
+            slope = float(regression.get("slope", 0.0))
+            slope_str = f"{'+' if slope >= 0 else '-'}{pfx}{abs(slope):,.2f}"
+            reg_insight = f"Organic historical trend has slope {slope_str}/{p_unit} with R²={regression['r2']:.2f} across {regression['historical_count']} {p_unit}s."
+        else:
+            reg_insight = "Insufficient time series depth for linear trend regression."
+
+    narrative = {
+        "headline": headline,
+        "detail": detail,
+        "regression_insight": reg_insight,
     }
 
     return {
@@ -185,13 +275,14 @@ def solve_simulation_goal(
             connector=conn,
             levers=test_levers,
             target_table_name=req.target_table,
+            target_metric=req.target_metric,
         )
         kpis = res["kpis"]
         if req.target_metric in ("sim_profit", "profit", "margin", "net_profit"):
             return float(kpis["sim_profit"])
         if req.target_metric in ("sim_revenue", "revenue", "sales"):
             return float(kpis["sim_revenue"])
-        return float(kpis.get(req.target_metric, kpis["sim_profit"]))
+        return float(kpis.get("sim_revenue", kpis["sim_profit"]))
 
     req_val, achieved, ok = SimulationEngine.solve_goal_seek(
         eval_fn=eval_fn,

@@ -403,6 +403,7 @@ function applyPlotlyThemeLayout(baseLayout = {}) {
     };
   }
   // In light theme, transparent canvas blends seamlessly with card surface, avoiding cut-off gray rectangles
+  const baseTitle = typeof baseLayout.title === 'string' ? { text: baseLayout.title } : (baseLayout.title || {});
   return {
     ...baseLayout,
     paper_bgcolor: 'rgba(0,0,0,0)',
@@ -410,6 +411,13 @@ function applyPlotlyThemeLayout(baseLayout = {}) {
     font: {
       ...(baseLayout.font || {}),
       color: '#0f172a',
+    },
+    title: {
+      ...baseTitle,
+      font: {
+        ...(baseTitle.font || {}),
+        color: '#334155',
+      },
     },
     xaxis: {
       ...(baseLayout.xaxis || {}),
@@ -4168,6 +4176,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const leverSelect = document.getElementById('goalSeekLeverSelect');
     const lever = leverSelect?.value || 'Revenue Multiplier %';
     const metricSelect = document.getElementById('whatIfMetricSelect');
+    const target_metric = metricSelect?.value || 'sim_profit';
     const target_table = metricSelect?.selectedOptions[0]?.getAttribute('data-table') || null;
 
     const statusEl = document.getElementById('goalSeekStatus');
@@ -4177,7 +4186,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const resp = await apiRequest('/api/simulation/goal-seek', {
         method: 'POST',
         body: JSON.stringify({
-          target_metric: 'sim_profit',
+          target_metric: target_metric,
           target_value: targetVal,
           adjust_lever: lever,
           target_table: target_table,
@@ -4186,7 +4195,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       if (statusEl) {
         statusEl.textContent = resp.message;
-        statusEl.style.color = resp.success ? 'var(--tone-success)' : 'var(--tone-warning)';
+        statusEl.style.color = resp.success ? 'var(--accent-emerald)' : 'var(--accent-amber)';
       }
 
       if (resp.success && whatIfRevSlider && lever === 'Revenue Multiplier %') {
@@ -4252,38 +4261,106 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const k = res.kpis || {};
     const n = res.narrative || {};
+    const reg = res.regression || {};
     const hasFan = Boolean(res.fan_spec);
     const hasWf = Boolean(res.waterfall_spec);
 
-    const profitDiff = Number(k.delta_profit || 0);
-    const isPos = profitDiff >= 0;
-    const bps = Number(k.delta_margin_bps || 0);
+    const pfx = k.is_currency !== false ? '$' : '';
+    const fmtVal = (v) => `${pfx}${Number(v || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const pUnit = k.period_unit || reg.period_unit || 'period';
 
-    box.innerHTML = `
-      <div style="background:var(--surface-primary); border:1px solid var(--border-subtle); border-radius:10px; padding:14px; margin-top:8px;">
-        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:10px; margin-bottom:12px;">
-          <div class="kpi-card" style="padding:10px;">
-            <div class="kpi-label">Simulated Topline</div>
-            <div class="kpi-value" style="font-size:18px;">$${Number(k.sim_revenue || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</div>
-            <div class="kpi-delta ${k.sim_revenue >= k.base_revenue ? 'positive' : 'negative'}">
-              Baseline: $${Number(k.base_revenue || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}
-            </div>
-          </div>
-          <div class="kpi-card" style="padding:10px;">
-            <div class="kpi-label">Simulated Net Impact</div>
-            <div class="kpi-value" style="font-size:18px;">$${Number(k.sim_profit || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</div>
-            <div class="kpi-delta ${isPos ? 'positive' : 'negative'}">
-              ${isPos ? '▲ +' : '▼ -'}$${Math.abs(profitDiff).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})} (${bps >= 0 ? '+' : ''}${bps} bps)
-            </div>
-          </div>
-          <div class="kpi-card" style="padding:10px;">
-            <div class="kpi-label">Simulated Margin</div>
-            <div class="kpi-value" style="font-size:18px;">${Number(k.sim_margin_pct || 0).toFixed(1)}%</div>
-            <div class="kpi-delta muted">Baseline: ${Number(k.base_margin_pct || 0).toFixed(1)}%</div>
+    let cardsHtml = '';
+    let isPos = true;
+
+    if (k.mode === 'trend_forecast' && reg.success) {
+      const vsAvgDelta = Number(k.forecast_vs_avg_delta || 0);
+      const vsAvgPct = Number(k.forecast_vs_avg_pct || 0);
+      isPos = vsAvgDelta >= 0;
+      cardsHtml = `
+        <div class="kpi-card" style="padding:10px;">
+          <div class="kpi-label">Historical Baseline (${k.is_rate ? 'Mean' : 'Total'})</div>
+          <div class="kpi-value" style="font-size:18px;">${fmtVal(k.base_revenue)}</div>
+          <div class="kpi-delta muted">
+            Mean / ${escapeHtml(pUnit)}: ${fmtVal(k.period_avg)} (${Number(k.historical_count || 0)} ${escapeHtml(pUnit)}s)
           </div>
         </div>
+        <div class="kpi-card" style="padding:10px;">
+          <div class="kpi-label">Projected ${escapeHtml(String(k.next_forecast_date || 'Next'))} (OLS P50)</div>
+          <div class="kpi-value" style="font-size:18px;">${fmtVal(k.next_forecast_p50)}</div>
+          <div class="kpi-delta ${isPos ? 'positive' : 'negative'}">
+            ${isPos ? '▲ +' : '▼ -'}${fmtVal(Math.abs(vsAvgDelta))} (${vsAvgPct >= 0 ? '+' : ''}${vsAvgPct.toFixed(1)}% vs ${escapeHtml(pUnit)} avg)
+          </div>
+        </div>
+        <div class="kpi-card" style="padding:10px;">
+          <div class="kpi-label">80% Prediction Interval (${escapeHtml(String(k.next_forecast_date || 'Next'))})</div>
+          <div class="kpi-value" style="font-size:16px;">${fmtVal(k.next_forecast_p10)} – ${fmtVal(k.next_forecast_p90)}</div>
+          <div class="kpi-delta muted">
+            OLS Slope: ${reg.slope >= 0 ? '+' : '-'}${fmtVal(Math.abs(reg.slope))}/${escapeHtml(pUnit)} · R²=${Number(reg.r2 || 0).toFixed(2)}
+          </div>
+        </div>
+      `;
+    } else if (!k.has_cogs) {
+      const diff = Number((k.sim_revenue || 0) - (k.base_revenue || 0));
+      const pct = Number(k.delta_pct || 0);
+      isPos = diff >= 0;
+      const metricTitle = escapeHtml(String(k.metric_name || 'Metric').replace(/_/g, ' '));
+      cardsHtml = `
+        <div class="kpi-card" style="padding:10px;">
+          <div class="kpi-label">Simulated ${metricTitle}</div>
+          <div class="kpi-value" style="font-size:18px;">${fmtVal(k.sim_revenue)}</div>
+          <div class="kpi-delta ${isPos ? 'positive' : 'negative'}">
+            Baseline: ${fmtVal(k.base_revenue)}
+          </div>
+        </div>
+        <div class="kpi-card" style="padding:10px;">
+          <div class="kpi-label">Scenario Net Impact</div>
+          <div class="kpi-value" style="font-size:18px;">${isPos ? '+' : '-'}${fmtVal(Math.abs(diff))}</div>
+          <div class="kpi-delta ${isPos ? 'positive' : 'negative'}">
+            ${isPos ? '▲ +' : '▼ '}${pct.toFixed(1)}% scenario shift
+          </div>
+        </div>
+        <div class="kpi-card" style="padding:10px;">
+          <div class="kpi-label">${k.next_forecast_date ? `Shocked ${escapeHtml(String(k.next_forecast_date))} Forecast (P50)` : 'Effective Multiplier'}</div>
+          <div class="kpi-value" style="font-size:18px;">${k.next_forecast_date ? fmtVal(k.next_forecast_p50) : `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`}</div>
+          <div class="kpi-delta muted">
+            ${k.next_forecast_date ? `Unshocked OLS: ${fmtVal(k.next_forecast_organic)}` : `Table: ${escapeHtml(k.table_name || '')}`}
+          </div>
+        </div>
+      `;
+    } else {
+      const profitDiff = Number(k.delta_profit || 0);
+      isPos = profitDiff >= 0;
+      const bps = Number(k.delta_margin_bps || 0);
+      cardsHtml = `
+        <div class="kpi-card" style="padding:10px;">
+          <div class="kpi-label">Simulated Topline</div>
+          <div class="kpi-value" style="font-size:18px;">${fmtVal(k.sim_revenue)}</div>
+          <div class="kpi-delta ${k.sim_revenue >= k.base_revenue ? 'positive' : 'negative'}">
+            Baseline: ${fmtVal(k.base_revenue)}
+          </div>
+        </div>
+        <div class="kpi-card" style="padding:10px;">
+          <div class="kpi-label">Simulated Net Impact</div>
+          <div class="kpi-value" style="font-size:18px;">${fmtVal(k.sim_profit)}</div>
+          <div class="kpi-delta ${isPos ? 'positive' : 'negative'}">
+            ${isPos ? '▲ +' : '▼ -'}${fmtVal(Math.abs(profitDiff))} (${bps >= 0 ? '+' : ''}${bps} bps)
+          </div>
+        </div>
+        <div class="kpi-card" style="padding:10px;">
+          <div class="kpi-label">Simulated Margin</div>
+          <div class="kpi-value" style="font-size:18px;">${Number(k.sim_margin_pct || 0).toFixed(1)}%</div>
+          <div class="kpi-delta muted">Baseline: ${Number(k.base_margin_pct || 0).toFixed(1)}%</div>
+        </div>
+      `;
+    }
 
-        <div style="background:var(--surface-muted); border-left:3px solid ${isPos ? 'var(--tone-success)' : 'var(--tone-warning)'}; padding:8px 12px; border-radius:4px; font-size:12.5px; margin-bottom:12px;">
+    box.innerHTML = `
+      <div style="background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:10px; padding:14px; margin-top:8px;">
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:10px; margin-bottom:12px;">
+          ${cardsHtml}
+        </div>
+
+        <div style="background:var(--bg-surface-elevated); border-left:3px solid ${isPos ? 'var(--accent-emerald)' : 'var(--accent-amber)'}; padding:8px 12px; border-radius:4px; font-size:12.5px; margin-bottom:12px;">
           <strong>${escapeHtml(n.headline || '')}</strong>
           <p style="margin:4px 0 0 0; color:var(--text-secondary);">${escapeHtml(n.detail || '')}</p>
           ${n.regression_insight ? `<p style="margin:4px 0 0 0; color:var(--text-muted); font-size:11.5px;">📈 <em>${escapeHtml(n.regression_insight)}</em></p>` : ''}

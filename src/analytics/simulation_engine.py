@@ -34,6 +34,7 @@ class SimulationEngine:
         date_col: str,
         metric_col: str,
         forecast_periods: int = 4,
+        shock_multiplier: float = 1.0,
     ) -> dict[str, Any]:
         """Fit OLS linear regression y = beta_0 + beta_1 * t over historical time series.
 
@@ -106,15 +107,17 @@ class SimulationEngine:
         # Generate forward forecast period labels
         forecast_labels = cls._generate_future_period_labels(date_labels, forecast_periods)
         forecast_points: list[dict[str, Any]] = []
+        mult = max(0.0, float(shock_multiplier))
 
         for h in range(1, forecast_periods + 1):
             t_fut = n - 1 + h
-            y_hat = beta_0 + (beta_1 * t_fut)
+            y_hat_organic = beta_0 + (beta_1 * t_fut)
+            y_hat = y_hat_organic * mult
 
             # Prediction interval standard error:
             # SE_pred = s_e * sqrt(1 + 1/n + (t_fut - t_mean)^2 / s_tt)
             se_pred = (
-                s_e * math.sqrt(1.0 + (1.0 / n) + ((t_fut - t_mean) ** 2 / s_tt))
+                s_e * math.sqrt(1.0 + (1.0 / n) + ((t_fut - t_mean) ** 2 / s_tt)) * mult
                 if s_tt > 0 and s_e > 0
                 else 0.0
             )
@@ -127,6 +130,7 @@ class SimulationEngine:
                 {
                     "date": forecast_labels[h - 1],
                     "period_index": t_fut,
+                    "organic_projected": round(float(y_hat_organic), 2),
                     "projected": round(float(p50), 2),
                     "p10": round(float(p10), 2),
                     "p50": round(float(p50), 2),
@@ -142,19 +146,27 @@ class SimulationEngine:
             "intercept": round(beta_0, 4),
             "r2": round(r2, 4),
             "residual_std_error": round(s_e, 4),
+            "historical_mean": round(y_mean, 2),
             "historical_points": hist_points,
             "forecast_points": forecast_points,
             "historical_count": n,
             "forecast_count": forecast_periods,
+            "shock_multiplier": round(mult, 4),
         }
 
     @staticmethod
     def _generate_future_period_labels(date_labels: list[str], count: int) -> list[str]:
-        """Extrapolate dates or period strings (e.g. '2025-Q4', '2025-12', 'Semester 2')."""
+        """Extrapolate dates or period strings (e.g. '2025', '2025-Q4', '2025-12', '2025-12-01')."""
         if not date_labels:
             return [f"Period +{i+1}" for i in range(count)]
 
         last = date_labels[-1].strip()
+
+        # Match Year format: 'YYYY'
+        y_match = re.match(r"^(\d{4})$", last)
+        if y_match:
+            year = int(y_match.group(1))
+            return [str(year + i + 1) for i in range(count)]
 
         # Match Year-Month format: 'YYYY-MM'
         ym_match = re.match(r"^(\d{4})-(\d{1,2})$", last)
@@ -170,6 +182,15 @@ class SimulationEngine:
                 out.append(f"{year}-{month:02d}")
             return out
 
+        # Match Full ISO Date format: 'YYYY-MM-DD'
+        ymd_match = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})", last)
+        if ymd_match:
+            try:
+                base_ts = pd.Timestamp(last[:10])
+                return [(base_ts + pd.DateOffset(months=i + 1)).strftime("%Y-%m-%d") for i in range(count)]
+            except Exception:
+                pass
+
         # Match Year-Quarter format: 'YYYY-Q1' or '2025 Q3'
         yq_match = re.match(r"^(\d{4})[- /]?Q([1-4])$", last, re.IGNORECASE)
         if yq_match:
@@ -184,11 +205,21 @@ class SimulationEngine:
                 out.append(f"{year}-Q{qtr}")
             return out
 
-        # Match Year format: 'YYYY'
-        y_match = re.match(r"^(\d{4})$", last)
-        if y_match:
-            year = int(y_match.group(1))
-            return [str(year + i + 1) for i in range(count)]
+        # Match Academic Term format: '2025-FALL' / '2025-SPRING' / '2025-SUMMER'
+        term_match = re.match(r"^(\d{4})[- _/](SPRING|SUMMER|FALL|WINTER)$", last, re.IGNORECASE)
+        if term_match:
+            year = int(term_match.group(1))
+            seasons = ["SPRING", "SUMMER", "FALL"]
+            cur_s = term_match.group(2).upper()
+            idx = seasons.index(cur_s) if cur_s in seasons else 2
+            out = []
+            for _ in range(count):
+                idx += 1
+                if idx >= len(seasons):
+                    idx = 0
+                    year += 1
+                out.append(f"{year}-{seasons[idx]}")
+            return out
 
         return [f"{last} +{i+1}" for i in range(count)]
 
@@ -336,26 +367,54 @@ class SimulationEngine:
     ) -> dict[str, Any]:
         """Execute full scenario simulation across active workspace tables.
 
-        Enforces non-additive metric recalculation and respects domain semantics.
+        Enforces non-additive metric recalculation, smart temporal bucketing,
+        and respects domain semantics.
         """
         all_levers = dict(levers or {})
-        rm = 1.0 + (all_levers.get("Revenue Multiplier %", revenue_shock_pct) / 100.0)
-        cm = 1.0 + (all_levers.get("Cost Multiplier %", cost_shock_pct) / 100.0)
+        rev_shock = float(all_levers.get("Revenue Multiplier %", revenue_shock_pct))
+        cost_shock = float(all_levers.get("Cost Multiplier %", cost_shock_pct))
+        rm = 1.0 + (rev_shock / 100.0)
+        cm = 1.0 + (cost_shock / 100.0)
+
+        # Parse table.column if target_metric is formatted as "table.column"
+        explicit_tbl_name = target_table_name
+        explicit_col_name: str | None = None
+        if target_metric:
+            if "." in target_metric:
+                parts = target_metric.split(".", 1)
+                if not explicit_tbl_name:
+                    explicit_tbl_name = parts[0]
+                explicit_col_name = parts[1]
+            else:
+                explicit_col_name = target_metric
+
+        # Discover physical tables available in the live connector
+        try:
+            live_tables_lower = {t.lower() for t in connector.list_tables()}
+        except Exception:
+            live_tables_lower = set()
+
+        def _is_table_live(t_name: str) -> bool:
+            return not live_tables_lower or t_name.lower() in live_tables_lower
 
         # 1. Resolve Target Table
         target_tbl: TableSchema | None = None
-        if target_table_name:
-            target_tbl = workspace.get_table(target_table_name)
+        if explicit_tbl_name:
+            cand = workspace.get_table(explicit_tbl_name)
+            if cand and _is_table_live(cand.name):
+                target_tbl = cand
 
         if not target_tbl:
-            for priority_name in ("orders", "fact_orders", "fee_invoices", "enrollments_marks", "admissions", "subscriptions"):
+            for priority_name in ("orders", "fact_orders", "fee_invoices", "enrollments_marks", "faculty", "admissions", "subscriptions"):
                 t = workspace.get_table(priority_name)
-                if t:
+                if t and _is_table_live(t.name):
                     target_tbl = t
                     break
 
         if not target_tbl:
             for t in workspace.active_tables():
+                if not _is_table_live(t.name) or t.name.lower() == "overview":
+                    continue
                 col_names = [c.name.lower() for c in t.columns]
                 if any(any(k in c for k in ("rev", "sales", "price", "amount", "fee", "tuition", "salary", "marks", "gpa", "budget")) for c in col_names):
                     target_tbl = t
@@ -371,62 +430,111 @@ class SimulationEngine:
             "delta_profit": 0.0,
             "delta_margin_bps": 0.0,
             "table_name": target_tbl.name if target_tbl else "",
-            "metric_name": target_metric or "Revenue / Margin",
+            "metric_name": explicit_col_name or target_metric or "Revenue / Margin",
+            "has_cogs": False,
+            "is_currency": True,
+            "is_rate": False,
+            "is_cost_metric": False,
+            "is_shocked": bool(abs(rev_shock) > 1e-6 or abs(cost_shock) > 1e-6),
+            "mode": "pnl",
         }
 
         if not target_tbl:
             return {"kpis": kpis, "waterfall_steps": [], "regression": None}
 
+        rev_col: str | None = None
+        cogs_col: str | None = None
+        where_clause = ""
+        is_rate = False
+        is_cost_metric = False
+        is_currency = True
+        effective_mult = rm
+
         try:
             col_map = {c.name.lower(): c.name for c in target_tbl.columns if not c.is_blocked}
 
-            # Identify Primary Revenue / Inflow Column
-            rev_col = (
-                col_map.get("rev_net_usd")
-                or col_map.get("net_revenue_usd")
-                or col_map.get("gross_revenue_usd")
-                or col_map.get("revenue")
-                or col_map.get("sales")
-                or col_map.get("total_fee_due")
-                or col_map.get("amount_paid")
-                or col_map.get("total_marks")
-                or col_map.get("marks_obtained")
-                or col_map.get("tuition_fee")
-                or col_map.get("salary")
-                or col_map.get("annual_budget")
-            )
+            # Honor explicit column selection first
+            if explicit_col_name and explicit_col_name.lower() in col_map:
+                rev_col = col_map[explicit_col_name.lower()]
+
+            # Otherwise fall back to priority revenue/metric column
+            if not rev_col:
+                rev_col = (
+                    col_map.get("rev_net_usd")
+                    or col_map.get("net_revenue_usd")
+                    or col_map.get("gross_revenue_usd")
+                    or col_map.get("revenue")
+                    or col_map.get("sales")
+                    or col_map.get("total_fee_due")
+                    or col_map.get("amount_paid")
+                    or col_map.get("tuition_amount")
+                    or col_map.get("total_marks")
+                    or col_map.get("marks_obtained")
+                    or col_map.get("tuition_fee")
+                    or col_map.get("salary")
+                    or col_map.get("budget_allocated")
+                    or col_map.get("annual_budget")
+                )
             if not rev_col:
                 for cl, cname in col_map.items():
-                    if any(k in cl for k in ("rev", "sales", "fee", "amount", "salary", "budget", "marks")) and not cl.endswith("_id"):
+                    if any(k in cl for k in ("rev", "sales", "fee", "amount", "salary", "budget", "marks", "seats", "cost")) and not cl.endswith("_id") and cl != "remarks":
                         rev_col = cname
                         break
 
-            # Identify Cost / Deduction Column
-            cogs_col = (
-                col_map.get("cogs_usd")
-                or col_map.get("cogs")
-                or col_map.get("cost")
-                or col_map.get("unit_cost_usd")
-                or col_map.get("scholarship_discount")
-                or col_map.get("balance_due")
-            )
+            if rev_col:
+                rc_low = rev_col.lower()
+                is_rate = any(k in rc_low for k in ("avg", "rate", "gpa", "grade_point", "marks", "score", "pct", "percent", "margin", "attendance"))
+                is_cost_metric = any(k in rc_low for k in ("salary", "cost", "cogs", "budget", "expense", "payroll"))
+                is_currency = not is_rate and not any(k in rc_low for k in ("seats", "count", "quantity", "volume", "co2"))
+
+                # Only pair with a COGS/deduction column when simulating a primary revenue/inflow metric
+                if not is_rate and not is_cost_metric and (not explicit_col_name or rc_low in ("rev_net_usd", "net_revenue_usd", "gross_revenue_usd", "revenue", "sales", "total_fee_due")):
+                    cand_cogs = (
+                        col_map.get("cogs_usd")
+                        or col_map.get("cogs")
+                        or col_map.get("cost")
+                        or col_map.get("unit_cost_usd")
+                        or col_map.get("scholarship_discount")
+                    )
+                    if cand_cogs and cand_cogs != rev_col:
+                        cogs_col = cand_cogs
+
+                # Determine effective multiplier for single-metric tables
+                if cogs_col:
+                    effective_mult = rm
+                else:
+                    if abs(rev_shock) > 1e-6:
+                        effective_mult = rm
+                    elif abs(cost_shock) > 1e-6:
+                        effective_mult = cm if is_cost_metric else (1.0 - (cost_shock / 100.0))
+                    else:
+                        effective_mult = 1.0
 
             # Filter out cancelled transactions if status column exists
             stat_col = col_map.get("ord_stat") or col_map.get("order_status") or col_map.get("status")
-            where_clause = ""
             if stat_col:
                 where_clause = f'WHERE "{stat_col}" NOT IN (\'X\', \'Cancelled\')'
 
             if rev_col:
-                cogs_expr = f'"{cogs_col}"' if cogs_col else "0"
-                query = (
-                    f"SELECT "
-                    f'ROUND(SUM("{rev_col}"), 2) AS base_rev, '
-                    f'ROUND(SUM("{rev_col}" - {cogs_expr}), 2) AS base_prof, '
-                    f'ROUND(SUM("{rev_col}" * {rm}), 2) AS sim_rev, '
-                    f'ROUND(SUM(("{rev_col}" * {rm}) - ({cogs_expr} * {cm})), 2) AS sim_prof '
-                    f'FROM "{target_tbl.name}" {where_clause}'
-                )
+                agg_fn = "AVG" if is_rate else "SUM"
+                if cogs_col:
+                    query = (
+                        f"SELECT "
+                        f'ROUND({agg_fn}("{rev_col}"), 2) AS base_rev, '
+                        f'ROUND({agg_fn}("{rev_col}" - "{cogs_col}"), 2) AS base_prof, '
+                        f'ROUND({agg_fn}("{rev_col}" * {rm}), 2) AS sim_rev, '
+                        f'ROUND({agg_fn}(("{rev_col}" * {rm}) - ("{cogs_col}" * {cm})), 2) AS sim_prof '
+                        f'FROM "{target_tbl.name}" {where_clause}'
+                    )
+                else:
+                    query = (
+                        f"SELECT "
+                        f'ROUND({agg_fn}("{rev_col}"), 2) AS base_rev, '
+                        f'ROUND({agg_fn}("{rev_col}"), 2) AS base_prof, '
+                        f'ROUND({agg_fn}("{rev_col}" * {effective_mult}), 2) AS sim_rev, '
+                        f'ROUND({agg_fn}("{rev_col}" * {effective_mult}), 2) AS sim_prof '
+                        f'FROM "{target_tbl.name}" {where_clause}'
+                    )
                 sim_df = connector.execute_query(query, max_rows=1)
                 if not sim_df.empty:
                     r0 = sim_df.iloc[0]
@@ -435,12 +543,17 @@ class SimulationEngine:
                     sim_rev = float(r0["sim_rev"] or 0.0)
                     sim_prof = float(r0["sim_prof"] or 0.0)
 
-                    # Non-additive margin invariant: recompute from sums
-                    base_margin = round((base_prof / base_rev) * 100.0, 2) if base_rev else 0.0
-                    sim_margin = round((sim_prof / sim_rev) * 100.0, 2) if sim_rev else 0.0
-                    bps = round((sim_margin - base_margin) * 100.0, 0)
+                    # Non-additive margin invariant: recompute from sums only when cogs_col exists
+                    if cogs_col:
+                        base_margin = round((base_prof / base_rev) * 100.0, 2) if base_rev else 0.0
+                        sim_margin = round((sim_prof / sim_rev) * 100.0, 2) if sim_rev else 0.0
+                        bps = round((sim_margin - base_margin) * 100.0, 0)
+                    else:
+                        base_margin = 0.0
+                        sim_margin = 0.0
+                        bps = round(((sim_rev - base_rev) / base_rev) * 10000.0, 0) if base_rev else 0.0
 
-                    kpis = {
+                    kpis.update({
                         "base_revenue": base_rev,
                         "base_profit": base_prof,
                         "sim_revenue": sim_rev,
@@ -448,47 +561,135 @@ class SimulationEngine:
                         "base_margin_pct": base_margin,
                         "sim_margin_pct": sim_margin,
                         "delta_profit": round(sim_prof - base_prof, 2),
+                        "delta_pct": round(((sim_prof - base_prof) / base_prof) * 100.0, 2) if base_prof else 0.0,
                         "delta_margin_bps": bps,
                         "table_name": target_tbl.name,
                         "metric_name": rev_col,
-                    }
+                        "has_cogs": bool(cogs_col),
+                        "is_currency": is_currency,
+                        "is_rate": is_rate,
+                        "is_cost_metric": is_cost_metric,
+                        "effective_shock_pct": round((effective_mult - 1.0) * 100.0, 2),
+                    })
         except Exception as exc:
             _LOGGER.warning("Simulation KPI query failed: %s", exc)
 
-        # 2. Compute Waterfall Steps
-        price_effect = round(kpis["sim_revenue"] - kpis["base_revenue"], 2)
-        cost_effect = round((kpis["sim_revenue"] - kpis["sim_profit"]) - (kpis["base_revenue"] - kpis["base_profit"]), 2)
-        # Cost inflation reduces profit, so negate for display
-        waterfall_steps = cls.compute_waterfall_steps(
-            base_profit=kpis["base_profit"],
-            sim_profit=kpis["sim_profit"],
-            price_effect=price_effect,
-            cost_effect=-cost_effect,
-        )
-
-        # 3. Check for Date Trend Column for Regression Extrapolation
+        # 2. Check for Date Trend Column & Smart Temporal Bucketing for Regression Extrapolation
         regression_result: dict[str, Any] | None = None
         date_col = next(
             (c.name for c in target_tbl.columns if any(k in c.name.lower() for k in ("date", "month", "year", "quarter", "term", "semester")) and not c.name.lower().endswith(("_birth", "_dob"))),
             None,
         )
+        period_unit = "period"
         if date_col and rev_col:
             try:
-                trend_query = (
-                    f'SELECT "{date_col}" AS period_date, SUM("{rev_col}") AS period_val '
-                    f'FROM "{target_tbl.name}" {where_clause} '
-                    f'GROUP BY "{date_col}" ORDER BY "{date_col}" ASC'
+                base_filters = [f'"{rev_col}" IS NOT NULL', f'"{date_col}" IS NOT NULL']
+                if where_clause:
+                    base_filters.append(where_clause.replace("WHERE ", ""))
+                full_where = "WHERE " + " AND ".join(base_filters)
+
+                # Probe distinct years and year-months to choose optimal temporal granularity
+                probe_q = (
+                    f"SELECT "
+                    f'COUNT(DISTINCT SUBSTR(CAST("{date_col}" AS VARCHAR), 1, 4)) AS n_yr, '
+                    f'COUNT(DISTINCT SUBSTR(CAST("{date_col}" AS VARCHAR), 1, 7)) AS n_ym, '
+                    f'COUNT(DISTINCT "{date_col}") AS n_raw '
+                    f'FROM "{target_tbl.name}" {full_where}'
                 )
-                trend_df = connector.execute_query(trend_query, max_rows=100)
+                probe_df = connector.execute_query(probe_q, max_rows=1)
+                n_yr = int(probe_df.iloc[0]["n_yr"] or 0) if not probe_df.empty else 0
+                n_ym = int(probe_df.iloc[0]["n_ym"] or 0) if not probe_df.empty else 0
+
+                if n_yr >= 4:
+                    date_expr = f'SUBSTR(CAST("{date_col}" AS VARCHAR), 1, 4)'
+                    period_unit = "year"
+                elif n_ym >= 3 and "term" not in date_col.lower():
+                    date_expr = f'SUBSTR(CAST("{date_col}" AS VARCHAR), 1, 7)'
+                    period_unit = "month"
+                else:
+                    date_expr = f'CAST("{date_col}" AS VARCHAR)'
+                    period_unit = "term" if "term" in date_col.lower() else "period"
+
+                agg_fn = "AVG" if is_rate else "SUM"
+                trend_query = (
+                    f"SELECT {date_expr} AS period_date, ROUND({agg_fn}(\"{rev_col}\"), 2) AS period_val "
+                    f'FROM "{target_tbl.name}" {full_where} '
+                    f"GROUP BY 1 ORDER BY 1 ASC"
+                )
+                trend_df = connector.execute_query(trend_query, max_rows=500)
                 if len(trend_df) >= 2:
                     regression_result = cls.fit_linear_trend_regression(
                         df=trend_df,
                         date_col="period_date",
                         metric_col="period_val",
                         forecast_periods=4,
+                        shock_multiplier=effective_mult,
                     )
+                    regression_result["period_unit"] = period_unit
             except Exception as trend_exc:
                 _LOGGER.debug("Regression trend query skipped: %s", trend_exc)
+
+        # 3. Enrich KPIs with Regression Forecast Data & Build Waterfall Steps
+        if regression_result and regression_result.get("success") and regression_result.get("forecast_points"):
+            f_pts = regression_result["forecast_points"]
+            h_pts = regression_result["historical_points"]
+            f0 = f_pts[0]
+            hist_mean = float(regression_result.get("historical_mean", 0.0))
+            last_act = float(h_pts[-1]["actual"]) if h_pts else hist_mean
+            last_trend = float(h_pts[-1]["trend"]) if h_pts else hist_mean
+
+            kpis["period_unit"] = period_unit
+            kpis["historical_count"] = regression_result["historical_count"]
+            kpis["period_avg"] = hist_mean
+            kpis["last_period_date"] = h_pts[-1]["date"] if h_pts else ""
+            kpis["last_period_val"] = last_act
+            kpis["next_forecast_date"] = f0["date"]
+            kpis["next_forecast_p50"] = f0["projected"]
+            kpis["next_forecast_organic"] = f0.get("organic_projected", f0["projected"])
+            kpis["next_forecast_p10"] = f0["p10"]
+            kpis["next_forecast_p90"] = f0["p90"]
+            kpis["forecast_vs_avg_delta"] = round(f0["projected"] - hist_mean, 2)
+            kpis["forecast_vs_avg_pct"] = round(((f0["projected"] - hist_mean) / hist_mean) * 100.0, 2) if hist_mean else 0.0
+            kpis["cum_forecast_4p"] = round(
+                float(np.mean([p["projected"] for p in f_pts]) if is_rate else np.sum([p["projected"] for p in f_pts])),
+                2,
+            )
+
+            if not cogs_col and not kpis["is_shocked"]:
+                # In pure Trend mode on a single metric, build a trajectory waterfall from Period Avg -> Next Period Forecast
+                kpis["mode"] = "trend_forecast"
+                drift_effect = round(last_trend - hist_mean, 2)
+                slope_step = round(float(regression_result["slope"]), 2)
+                waterfall_steps = [
+                    {"label": f"Historical Avg / {period_unit.title()}", "value": round(hist_mean, 2), "type": "total"},
+                    {"label": "Historical Trend Drift", "value": drift_effect, "type": "relative"},
+                    {"label": f"Next {period_unit.title()} OLS Slope", "value": slope_step, "type": "relative"},
+                    {"label": f"Projected {f0['date']} (P50)", "value": round(f0["projected"], 2), "type": "total"},
+                ]
+                return {
+                    "kpis": kpis,
+                    "waterfall_steps": waterfall_steps,
+                    "regression": regression_result,
+                }
+
+        if not cogs_col:
+            kpis["mode"] = "single_metric_shock" if kpis["is_shocked"] else "single_metric_base"
+            shock_delta = round(kpis["sim_revenue"] - kpis["base_revenue"], 2)
+            waterfall_steps = [
+                {"label": f"Baseline {kpis['metric_name']}", "value": round(kpis["base_revenue"], 2), "type": "total"},
+                {"label": f"Scenario Shock ({kpis.get('effective_shock_pct', 0.0):+.1f}%)", "value": shock_delta, "type": "relative"},
+                {"label": f"Simulated {kpis['metric_name']}", "value": round(kpis["sim_revenue"], 2), "type": "total"},
+            ]
+        else:
+            kpis["mode"] = "pnl"
+            price_effect = round(kpis["sim_revenue"] - kpis["base_revenue"], 2)
+            cost_effect = round((kpis["sim_revenue"] - kpis["sim_profit"]) - (kpis["base_revenue"] - kpis["base_profit"]), 2)
+            waterfall_steps = cls.compute_waterfall_steps(
+                base_profit=kpis["base_profit"],
+                sim_profit=kpis["sim_profit"],
+                price_effect=price_effect,
+                cost_effect=-cost_effect,
+            )
 
         return {
             "kpis": kpis,

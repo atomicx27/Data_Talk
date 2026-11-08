@@ -700,46 +700,18 @@ class ChartRecommender:
             )
 
         elif chosen_type == "fan_chart":
-            # Plotly Fan Chart: Historical solid line + Projected dashed line + Shaded confidence cone
+            # Plotly Fan Chart: Historical solid line + OLS best-fit line + Projected dashed line + Shaded confidence cone
             date_col = next((c for c in df.columns if any(k in str(c).lower() for k in ("date", "month", "period", "year"))), df.columns[0])
+            ordered_dates = [str(d) for d in df[date_col].tolist()]
             fig = go.Figure()
 
-            # Upper bound (P90)
-            if "p90" in df.columns:
-                p90_df = df.dropna(subset=["p90"])
-                fig.add_trace(
-                    go.Scatter(
-                        x=p90_df[date_col],
-                        y=p90_df["p90"],
-                        mode="lines",
-                        line=dict(width=0),
-                        showlegend=False,
-                        hoverinfo="skip",
-                    )
-                )
-
-            # Lower bound (P10) with fill to upper
-            if "p10" in df.columns:
-                p10_df = df.dropna(subset=["p10"])
-                fig.add_trace(
-                    go.Scatter(
-                        x=p10_df[date_col],
-                        y=p10_df["p10"],
-                        mode="lines",
-                        line=dict(width=0),
-                        fill="tonexty",
-                        fillcolor="rgba(59, 130, 246, 0.20)",
-                        name="80% Confidence Interval",
-                    )
-                )
-
-            # Historical actuals
+            # 1. Historical actuals (added FIRST so categorical X-axis starts with historical periods)
             act_col = next((c for c in ("actual", "actuals", "value", primary_y) if c in df.columns), None)
             if act_col:
                 act_df = df.dropna(subset=[act_col])
                 fig.add_trace(
                     go.Scatter(
-                        x=act_df[date_col],
+                        x=[str(d) for d in act_df[date_col]],
                         y=act_df[act_col],
                         mode="lines+markers",
                         line=dict(color="#3B82F6", width=2.5),
@@ -748,22 +720,72 @@ class ChartRecommender:
                     )
                 )
 
-            # Projected median (P50 or projected)
+            # 2. Historical OLS Linear Regression Trendline (y = beta_0 + beta_1 * t)
+            if "trend" in df.columns:
+                trend_df = df.dropna(subset=["trend"])
+                if not trend_df.empty:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=[str(d) for d in trend_df[date_col]],
+                            y=trend_df["trend"],
+                            mode="lines",
+                            line=dict(color="#6366F1", width=1.75, dash="dot"),
+                            name="OLS Linear Fit",
+                        )
+                    )
+
+            # 3. Upper bound (P90)
+            if "p90" in df.columns:
+                p90_df = df.dropna(subset=["p90"])
+                fig.add_trace(
+                    go.Scatter(
+                        x=[str(d) for d in p90_df[date_col]],
+                        y=p90_df["p90"],
+                        mode="lines",
+                        line=dict(width=0),
+                        showlegend=False,
+                        hoverinfo="skip",
+                    )
+                )
+
+            # 4. Lower bound (P10) with fill to upper
+            if "p10" in df.columns:
+                p10_df = df.dropna(subset=["p10"])
+                fig.add_trace(
+                    go.Scatter(
+                        x=[str(d) for d in p10_df[date_col]],
+                        y=p10_df["p10"],
+                        mode="lines",
+                        line=dict(width=0),
+                        fill="tonexty",
+                        fillcolor="rgba(16, 185, 129, 0.18)",
+                        name="80% Confidence Interval",
+                    )
+                )
+
+            # 5. Projected median (P50 or projected)
             proj_col = next((c for c in ("p50", "projected", "forecast", "simulated") if c in df.columns), None)
             if proj_col:
                 proj_df = df.dropna(subset=[proj_col])
                 fig.add_trace(
                     go.Scatter(
-                        x=proj_df[date_col],
+                        x=[str(d) for d in proj_df[date_col]],
                         y=proj_df[proj_col],
                         mode="lines+markers",
-                        line=dict(color="#10B981", width=2.5, dash="dash"),
-                        marker=dict(size=6, symbol="diamond"),
+                        line=dict(color="#10B981", width=2.75, dash="dash"),
+                        marker=dict(size=7, symbol="diamond"),
                         name="Projected Trend (P50)",
                     )
                 )
 
-            fig.update_layout(hovermode="x unified")
+            fig.update_layout(
+                hovermode="x unified",
+                xaxis=dict(
+                    type="category",
+                    categoryorder="array",
+                    categoryarray=ordered_dates,
+                ),
+            )
 
         elif chosen_type == "tornado":
             # Tornado chart: horizontal diverging bars ranking sensitivity

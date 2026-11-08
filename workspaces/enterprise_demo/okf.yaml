@@ -17,7 +17,7 @@ data_sources:
   - orders
   - products
   - returns
-  created_at: '2026-11-01T17:31:12.824239+00:00'
+  created_at: '2026-11-08T12:48:37.014226+00:00'
 tables:
 - name: customers
   business_name: Customer Accounts & Demographics
@@ -479,29 +479,17 @@ tables:
     min_value: null
     max_value: null
     sample_values:
-    - Edge-Pro-112
-    - AI-Pro-134
-    - Data-Pro-103
-    - AI-Pro-106
-    - Edge-Pro-116
-    - AI-Pro-118
-    - Data-Pro-123
-    - Cloud-Pro-133
-    - AI-Pro-122
-    - Edge-Pro-128
-    - Cloud-Pro-137
-    - AI-Pro-114
-    - Data-Pro-119
-    - Cloud-Pro-125
     - Cloud-Pro-101
     - Data-Pro-107
     - Data-Pro-111
     - Edge-Pro-120
     - Cloud-Pro-121
     - AI-Pro-130
-    - AI-Pro-126
-    - Data-Pro-139
-    - Edge-Pro-140
+    - Edge-Pro-112
+    - AI-Pro-134
+    - AI-Pro-122
+    - Edge-Pro-128
+    - Cloud-Pro-137
     - AI-Pro-102
     - Edge-Pro-104
     - Edge-Pro-108
@@ -513,6 +501,18 @@ tables:
     - Edge-Pro-132
     - Data-Pro-135
     - AI-Pro-138
+    - Data-Pro-103
+    - AI-Pro-106
+    - Edge-Pro-116
+    - AI-Pro-118
+    - Data-Pro-123
+    - Cloud-Pro-133
+    - AI-Pro-126
+    - Data-Pro-139
+    - Edge-Pro-140
+    - AI-Pro-114
+    - Data-Pro-119
+    - Cloud-Pro-125
     - Cloud-Pro-105
     - AI-Pro-110
     - Cloud-Pro-113
@@ -534,10 +534,10 @@ tables:
     min_value: null
     max_value: null
     sample_values:
-    - AI Analytics
-    - Edge Hardware
     - Data Security
     - Cloud Suite
+    - AI Analytics
+    - Edge Hardware
     value_meanings: {}
   - name: unit_cost_usd
     data_type: DOUBLE
@@ -553,39 +553,28 @@ tables:
     min_value: '134.55'
     max_value: '850.92'
     sample_values:
-    - '153.23'
-    - '253.38'
-    - '660.07'
-    - '462.2'
     - '383.98'
     - '306.38'
     - '199.37'
+    - '362.51'
+    - '156.16'
+    - '655.98'
+    - '417.51'
+    - '444.46'
     - '191.73'
     - '293.46'
     - '233.86'
     - '134.55'
-    - '247.98'
-    - '430.82'
-    - '415.9'
-    - '259.12'
+    - '153.23'
+    - '253.38'
+    - '660.07'
+    - '462.2'
     - '810.96'
     - '529.19'
     - '294.71'
     - '222.89'
     - '688.08'
     - '254.5'
-    - '511.64'
-    - '343.17'
-    - '796.0'
-    - '260.75'
-    - '412.74'
-    - '408.02'
-    - '625.7'
-    - '362.51'
-    - '156.16'
-    - '655.98'
-    - '417.51'
-    - '444.46'
     - '316.14'
     - '208.67'
     - '325.11'
@@ -593,6 +582,17 @@ tables:
     - '332.21'
     - '299.97'
     - '214.84'
+    - '247.98'
+    - '430.82'
+    - '415.9'
+    - '259.12'
+    - '511.64'
+    - '343.17'
+    - '796.0'
+    - '260.75'
+    - '412.74'
+    - '408.02'
+    - '625.7'
     value_meanings: {}
   - name: list_price_usd
     data_type: DOUBLE
@@ -608,26 +608,14 @@ tables:
     min_value: '367.99'
     max_value: '1650.63'
     sample_values:
+    - '626.86'
+    - '596.1'
     - '788.93'
     - '1069.9'
     - '1119.4'
     - '1223.07'
     - '414.53'
     - '1650.63'
-    - '576.24'
-    - '828.34'
-    - '1330.53'
-    - '565.56'
-    - '440.71'
-    - '799.16'
-    - '506.03'
-    - '783.7'
-    - '1589.51'
-    - '626.86'
-    - '596.1'
-    - '1583.13'
-    - '1210.58'
-    - '553.76'
     - '460.63'
     - '736.77'
     - '752.58'
@@ -648,6 +636,18 @@ tables:
     - '658.89'
     - '603.59'
     - '1070.56'
+    - '1330.53'
+    - '565.56'
+    - '440.71'
+    - '799.16'
+    - '506.03'
+    - '783.7'
+    - '1589.51'
+    - '576.24'
+    - '828.34'
+    - '1583.13'
+    - '1210.58'
+    - '553.76'
     value_meanings: {}
   quality_alerts: []
   source_id: enterprise_demo
@@ -1107,4 +1107,4 @@ pinned_widgets: []
 verified_queries: []
 domain_tag: ecommerce
 domain_title: Retail & E-Commerce
-updated_at: '2026-11-01T17:31:13.026797+00:00'
+updated_at: '2026-11-08T12:48:37.057040+00:00'

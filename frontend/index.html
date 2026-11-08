@@ -19,7 +19,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" defer></script>
-  <link rel="stylesheet" href="/static/styles.css?v=2.0.3" />
+  <link rel="stylesheet" href="/static/styles.css?v=2.10.0" />
 </head>
 <body>
   <!-- ==================== ICON SPRITE (Lucide-style, 24px stroke icons) ==================== -->
@@ -298,7 +298,7 @@
                   <svg class="icon"><use href="#i-x"/></svg>
                 </button>
               </div>
-              <form id="whatIfForm" class="rc-inline-form stack" style="gap:12px;">
+              <form id="whatIfForm" class="stack" style="display:flex; flex-direction:column; gap:12px;">
                 <div style="display:flex; gap:16px; align-items:flex-end; flex-wrap:wrap;">
                   <div style="flex:1; min-width:200px;">
                     <label class="field-label" for="whatIfMetricSelect">Target KPI to Simulate</label>
@@ -333,7 +333,7 @@
                 </div>
 
                 <!-- Goal-Seek Row -->
-                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; background:var(--surface-muted); padding:8px 12px; border-radius:8px; border:1px solid var(--border-subtle);">
+                <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; background:var(--bg-surface-elevated); padding:8px 12px; border-radius:8px; border:1px solid var(--border-subtle);">
                   <span style="font-weight:600; font-size:12px; display:flex; align-items:center; gap:4px;">🎯 Goal Seek:</span>
                   <span style="font-size:12px;">Set target to</span>
                   <input id="goalSeekTargetInput" type="number" step="any" placeholder="Target amount" class="input-text" style="width:130px; padding:3px 8px; font-size:12px;" />
@@ -1332,6 +1332,6 @@ ORDER BY net_revenue DESC;</textarea>
     </div>
   </div>
 
-  <script src="/static/app.js?v=2.0.3" defer></script>
+  <script src="/static/app.js?v=2.10.0" defer></script>
 </body>
 </html>
