@@ -22,3 +22,6 @@ node_modules/
 **/node_modules/
 *.log
 scratch*
+
+docs/demo/.tts_cache/
+

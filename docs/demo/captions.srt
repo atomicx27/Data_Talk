@@ -1,0 +1,63 @@
+1
+00:00:00,000 --> 00:00:10,250
+Part one: Governed semantic modeling. Connect data sources, mask PII, and verify joins, business rules, and KPIs.
+
+2
+00:00:10,250 --> 00:00:18,417
+Connect files, SQL warehouses, or Power BI models into Data_Talk's unified DuckDB workspace.
+
+3
+00:00:18,417 --> 00:00:25,083
+Every table is profiled for keys and nulls while sensitive PII columns are masked automatically.
+
+4
+00:00:25,083 --> 00:00:32,833
+Inspect the inferred entity relationship diagram and approve verified join paths across fact and dimension tables.
+
+5
+00:00:32,833 --> 00:00:40,583
+Teach the AI company terminology and cryptic status codes once so every answer applies consistent business rules.
+
+6
+00:00:40,583 --> 00:00:48,000
+Author reusable measures in Power BI DAX or SQL and verify their values directly against live data.
+
+7
+00:00:48,000 --> 00:00:58,083
+Part two: Conversational analytics. Ask natural language questions, audit generated SQL and DAX, and cache Golden Queries.
+
+8
+00:00:58,083 --> 00:01:04,500
+Type a business question into Ask Data and submit to compile a verified analytical query.
+
+9
+00:01:04,500 --> 00:01:13,333
+Data_Talk delivers an executive summary, concentration alerts, and an interactive Plotly bar chart across categories.
+
+10
+00:01:13,333 --> 00:01:20,417
+Open Explain to inspect the read-only SQL, Power BI DAX equivalent, and approved join path.
+
+11
+00:01:20,417 --> 00:01:28,667
+Save trusted answers to Query Memory so recurring questions execute instantly on live data without LLM latency.
+
+12
+00:01:28,667 --> 00:01:36,167
+Part three: What-if forecasting, reverse goal seek, outbound privacy auditing, and executive pinboards.
+
+13
+00:01:36,167 --> 00:01:44,000
+Apply What-If scenario presets to simulate net margin shifts and project future monthly OLS trend bands.
+
+14
+00:01:44,000 --> 00:01:50,583
+Enter a target KPI in Goal Seek and solve for the exact percentage shock needed to reach it.
+
+15
+00:01:50,583 --> 00:01:58,583
+Verify all six security pillars and inspect the live outbound LLM payload log to ensure zero row leakage.
+
+16
+00:01:58,583 --> 00:02:05,167
+Review pinned charts on the executive Pinboard and export your governed model or analytical report.
