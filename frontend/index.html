@@ -68,6 +68,9 @@
     <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2M9 2v2M15 20v2M9 20v2M2 15h2M2 9h2M20 15h2M20 9h2"/></symbol>
     <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></symbol>
     <symbol id="i-edit" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></symbol>
+    <symbol id="i-pie" viewBox="0 0 24 24"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></symbol>
+    <symbol id="i-schema" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="8.5" y="14" width="7" height="7" rx="1"/><path d="M6.5 10v2.5h11V10M12 12.5V14"/></symbol>
+    <symbol id="i-alert-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></symbol>
   </svg>
 
   <div class="app-shell">
@@ -228,6 +231,7 @@
       </header>
 
       <div id="toastContainer" class="toast-container" aria-live="polite"></div>
+      <div id="globalDiagnosticMount" class="dt-global-diag-mount hidden" aria-live="assertive"></div>
 
       <main class="workspace-canvas">
 
@@ -403,6 +407,10 @@
                   <button type="button" class="mode-pill" data-mode="text_only" title="Return text insight without generating a chart">💬 Text Only</button>
                   <button type="button" class="mode-pill" data-mode="with_chart" title="Always generate an interactive visual chart">📊 With Chart</button>
                 </div>
+                <div class="response-mode-group" id="langgraphOptionGroup" aria-label="LangGraph execution options">
+                  <button type="button" id="toggleHitlInterruptBtn" class="mode-pill active" title="Pause cleanly with a clarification dialog when query intent is ambiguous">⏸️ HITL Clarify</button>
+                  <button type="button" id="toggleSupervisorBtn" class="mode-pill" title="Auto-route complex diagnostic or What-If prompts through Supervisor Graph">🧭 Supervisor</button>
+                </div>
                 <input type="hidden" id="mainChatResponseMode" value="auto" />
                 <span><kbd class="kbd">Enter</kbd> to send · <kbd class="kbd">Shift</kbd>+<kbd class="kbd">Enter</kbd> new line</span>
                 <span class="hide-sm">Answers are compiled to verified, read-only SQL</span>
@@ -569,6 +577,11 @@
               <div class="er-filter-group">
                 <span class="field-label inline">Focus</span>
                 <div id="erFocalChips" class="chip-group"></div>
+              </div>
+              <div id="erModeSwitcher" class="er-mode-switcher" role="group" aria-label="ER graph view mode">
+                <button type="button" class="er-mode-btn" data-er-mode="2d">2D Blueprint</button>
+                <button type="button" class="er-mode-btn active" data-er-mode="iso">2.5D Isometric Stack</button>
+                <button type="button" class="er-mode-btn" data-er-mode="orbit3d">3D Orbit Constellation</button>
               </div>
               <div class="er-legend">
                 <span class="legend-item"><span class="dot dot-fact"></span> Fact</span>
@@ -872,6 +885,17 @@
     </div>
     <div class="modal-body">
       <div id="lineageBadgesRow" class="lineage-badges-row"></div>
+      <div id="lineage3dPipeline" class="dt-lineage3d-box"></div>
+      <div class="dt-topo-toolbar">
+        <button type="button" id="btnToggleTopology" class="btn btn-secondary btn-xs">
+          <svg class="icon" style="width:13px;height:13px"><use href="#i-schema"/></svg> Inspect Live Graph Topology
+        </button>
+        <select id="topologyGraphTypeSelect" class="input-select input-sm" style="max-width:190px;" aria-label="Graph topology type">
+          <option value="query">QueryAgent Graph</option>
+          <option value="supervisor">Supervisor Graph</option>
+        </select>
+      </div>
+      <div id="lineageTopologyPanel" class="dt-topo-panel hidden"></div>
       <div class="code-comparison-grid">
         <div>
           <div class="code-header">SQL <span class="muted">· verified read-only</span></div>
@@ -985,6 +1009,8 @@ ORDER BY net_revenue DESC;</textarea>
           <button type="submit" class="btn btn-primary"><svg class="icon"><use href="#i-play"/></svg> Run query</button>
         </div>
       </form>
+      <div id="scratchpadResultBox" class="rc-result-box" style="margin-top:12px;"></div>
+    </div>
   </dialog>
 
   <!-- ==================== MODAL: DOMAIN EDIT ==================== -->
@@ -1285,6 +1311,39 @@ ORDER BY net_revenue DESC;</textarea>
       </div>
     </form>
   </dialog>
+
+  <!-- ==================== MODAL: LANGGRAPH HITL CLARIFICATION INTERRUPT ==================== -->
+  <dialog id="clarificationInterruptDialog" closedby="any" aria-labelledby="hitlDialogTitle" class="modal-dialog">
+    <div class="modal-header">
+      <div>
+        <h2 id="hitlDialogTitle" class="modal-title">Clarification Required to Continue</h2>
+        <p class="modal-subtitle">LangGraph paused safely before SQL compilation so you can disambiguate your question.</p>
+      </div>
+      <form method="dialog">
+        <button type="submit" class="btn btn-ghost btn-icon-only" aria-label="Close"><svg class="icon"><use href="#i-x"/></svg></button>
+      </form>
+    </div>
+    <form id="clarificationInterruptForm" class="modal-body">
+      <input type="hidden" id="hitlThreadIdInput" value="" />
+      <input type="hidden" id="hitlQuestionIdInput" value="" />
+      <div id="hitlQuestionContext" class="dt-hitl-context"></div>
+      <div id="hitlClarificationPrompt" class="dt-hitl-prompt"></div>
+      <div id="hitlOptionsContainer" class="dt-hitl-options"></div>
+      <div style="margin-bottom:10px;">
+        <label class="field-label" for="hitlAnswerInput">Your clarification or preferred selection</label>
+        <input id="hitlAnswerInput" type="text" class="input-text" placeholder="Enter clarification or pick an option above..." required />
+      </div>
+      <label style="display:flex; align-items:center; gap:8px; font-size:13px; margin-bottom:14px; cursor:pointer;">
+        <input id="hitlSaveRuleCheckbox" type="checkbox" checked />
+        <span>Save clarification as a permanent Business Rule for this workspace</span>
+      </label>
+      <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:8px;">
+        <button type="button" id="hitlCancelBtn" class="btn btn-ghost">Cancel</button>
+        <button type="submit" id="hitlResumeSubmitBtn" class="btn btn-primary">Resume Execution</button>
+      </div>
+    </form>
+  </dialog>
+
   <div id="ingestionLoadingOverlay" class="ingestion-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="ingestionTitle">
     <div class="ingestion-card">
       <div class="ingestion-header">
@@ -1344,6 +1403,7 @@ ORDER BY net_revenue DESC;</textarea>
     </div>
   </div>
 
-  <script src="/static/app.js?v=2.10.0" defer></script>
+  <script type="module" src="/static/modules/dt3d_boot.js?v=2.11.0"></script>
+  <script src="/static/app.js?v=2.11.0" defer></script>
 </body>
 </html>

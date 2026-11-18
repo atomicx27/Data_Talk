@@ -1049,6 +1049,29 @@ function renderERDiagram() {
     return;
   }
 
+  if (window.DT3D?.er3d?.render) {
+    const handled = window.DT3D.er3d.render(viewport, {
+      tables: allTables,
+      relationships: rels,
+      focalTable: FOCAL_TABLE_FILTER,
+      theme: getActiveTheme(),
+      onSelectFocal: (tableName) => {
+        FOCAL_TABLE_FILTER = FOCAL_TABLE_FILTER === tableName ? null : tableName;
+        renderJoinsView();
+      },
+      onFallbackIso: () => {
+        document.querySelectorAll('#erModeSwitcher .er-mode-btn').forEach((btn) => {
+          btn.classList.toggle('active', btn.getAttribute('data-er-mode') === 'iso');
+        });
+        renderERDiagram();
+      },
+      onDiagnostic: (diag) => {
+        window.DT3D?.errorBoundary?.showGlobalDiagnostic(diag);
+      },
+    });
+    if (handled) return;
+  }
+
   const isLight = getActiveTheme() === 'light';
   const nodeBg = isLight ? '#ffffff' : '#111622';
   const nodeStroke = isLight ? '#cbd5e1' : 'rgba(255,255,255,0.15)';
@@ -1882,6 +1905,8 @@ function renderChatView() {
         box: 'Box & Whisker Distribution',
         funnel: 'Funnel Stage Pipeline',
         scatter: 'Correlation Scatter Plot',
+        scatter3d: '3D Interactive Scatter',
+        surface3d: '3D Response Surface',
         table: 'Data Catalog Table',
       };
       const baseSupported = APP_STATE.supported_chart_types || [
@@ -1908,7 +1933,14 @@ function renderChatView() {
         'scatter',
         'table',
       ];
+      const cap3d = window.DT3D?.plotly3d?.supportsChat3D ? window.DT3D.plotly3d.supportsChat3D(entry) : { scatter3d: false, surface3d: false };
       const chartTypes = isSingleRow ? ['kpi', 'table'] : [...baseSupported];
+      if (!isSingleRow && cap3d.scatter3d && !chartTypes.includes('scatter3d')) {
+        chartTypes.push('scatter3d');
+      }
+      if (!isSingleRow && cap3d.surface3d && !chartTypes.includes('surface3d')) {
+        chartTypes.push('surface3d');
+      }
       if (entry.chart_type && !chartTypes.includes(entry.chart_type)) {
         chartTypes.unshift(entry.chart_type);
       }
@@ -1945,6 +1977,20 @@ function renderChatView() {
       const followUpBadge = resp.is_follow_up
         ? `<span class="meta-chip meta-chip-accent" title="${escapeHtml(resp.follow_up_context || 'Refined from prior context')}"><svg class="icon" style="width:11px;height:11px"><use href="#i-arrow-right"/></svg> Refined Follow-Up</span>`
         : '';
+
+      const telemetryBadge = window.DT3D?.langgraph?.renderTelemetrySummaryBadge
+        ? window.DT3D.langgraph.renderTelemetrySummaryBadge(resp)
+        : '';
+      const inlineHintHtml = window.DT3D?.langgraph?.renderNonBlockingHintBanner
+        ? window.DT3D.langgraph.renderNonBlockingHintBanner(resp)
+        : '';
+      const diagErrorHtml =
+        (!resp.success || resp.error_diagnostic) && window.DT3D?.errorBoundary?.renderDiagnosticCard
+          ? window.DT3D.errorBoundary.renderDiagnosticCard(resp.error_diagnostic || resp.error_message || 'Query execution error', {
+              idx,
+              question: resp.user_question || '',
+            })
+          : '';
 
       const resolvedContextBanner =
         resp.follow_up_context || (resp.resolved_question && resp.resolved_question !== resp.user_question)
@@ -2004,7 +2050,8 @@ function renderChatView() {
 
       const tablePreviewRows = (entry.rows || []).slice(0, 60);
       const totalRowsCount = entry.row_count || (entry.rows || []).length;
-      const isTableChart = entry.chart_type === 'table' || !entry.plotly_spec || Boolean(entry.hide_chart);
+      const isClient3DChart = entry.chart_type === 'scatter3d' || entry.chart_type === 'surface3d';
+      const isTableChart = entry.chart_type === 'table' || (!isClient3DChart && !entry.plotly_spec) || Boolean(entry.hide_chart);
       const chartBoxHtml = isTableChart
         ? `<div id="plotly_chat_${idx}" class="chart-box" style="display:none;"></div>`
         : `<div id="plotly_chat_${idx}" class="chart-box"></div>`;
@@ -2202,6 +2249,7 @@ function renderChatView() {
               ${simpsonsBadge}
               ${fanTrapBadge}
               ${followUpBadge}
+              ${telemetryBadge}
               ${drillDownBtn}
               <button type="button" class="btn btn-secondary btn-xs btn-thread-toggle ${threadList.length ? 'has-messages' : ''}" data-idx="${idx}" title="Ask questions about this chart inside a scoped thread">
                 💬 ${threadList.length ? `Thread (${threadList.length})` : 'Ask Chart'}
@@ -2237,6 +2285,8 @@ function renderChatView() {
           ${kpiRibbonHtml}
 
           <div class="chat-summary-text">${formatMarkdownBold(resp.executive_summary || '')}</div>
+          ${inlineHintHtml}
+          ${diagErrorHtml}
 
           <div class="chat-toolbar">
             <div class="chat-toolbar-left" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
@@ -2264,12 +2314,29 @@ function renderChatView() {
     })
     .join('');
 
-  // Render Plotly charts with theme-aware layout
+  // Render Plotly charts with theme-aware layout & 3D cleanup
   history.forEach((entry, idx) => {
     renderThreadSubCharts(entry.thread || [], idx, 'inline');
     const plotEl = document.getElementById(`plotly_chat_${idx}`);
+    if (plotEl && window.Plotly) {
+      try { window.Plotly.purge(plotEl); } catch (_) {}
+    }
     if (plotEl && entry.hide_chart) {
       plotEl.style.display = 'none';
+    } else if (
+      plotEl &&
+      (entry.chart_type === 'scatter3d' || entry.chart_type === 'surface3d') &&
+      window.DT3D?.plotly3d?.renderChatPlotly3D
+    ) {
+      plotEl.style.display = 'block';
+      const ok3d = window.DT3D.plotly3d.renderChatPlotly3D(plotEl, entry, entry.chart_type, {
+        getActiveTheme,
+        applyPlotlyThemeLayout,
+        onDiagnostic: (diag) => window.DT3D?.errorBoundary?.showGlobalDiagnostic(diag),
+      });
+      if (!ok3d) {
+        plotEl.innerHTML = `<div style="padding:12px; color:var(--text-muted); font-size:12px;">Insufficient numeric/categorical columns for ${escapeHtml(entry.chart_type)}.</div>`;
+      }
     } else if (plotEl && entry.plotly_spec && window.Plotly) {
       try {
         const themedLayout = applyPlotlyThemeLayout(entry.plotly_spec.layout);
@@ -2356,11 +2423,26 @@ function renderChatView() {
     }
   });
 
+  if (window.DT3D?.errorBoundary?.bindDiagnosticActions) {
+    window.DT3D.errorBoundary.bindDiagnosticActions(stream, {
+      onAction: window.DT3D.dispatchDiagnosticRecoveryAction,
+    });
+  }
+  if (window.DT3D?.tilt?.refreshTiltCards) {
+    window.DT3D.tilt.refreshTiltCards(stream);
+  }
+
   stream.querySelectorAll('.chart-type-switcher').forEach((sel) => {
     sel.addEventListener('change', async (e) => {
       const idx = Number(e.target.dataset.idx);
       const entry = history[idx];
       const newType = e.target.value;
+      if (newType === 'scatter3d' || newType === 'surface3d') {
+        entry.chart_type = newType;
+        entry.hide_chart = false;
+        renderChatView();
+        return;
+      }
       if (newType === 'fan_chart' && entry.fan_spec) {
         entry.chart_type = 'fan_chart';
         entry.plotly_spec = entry.fan_spec;
@@ -2927,6 +3009,33 @@ function openLineageModal(entry) {
     `;
   }
 
+  const pipelineEl = document.getElementById('lineage3dPipeline');
+  if (pipelineEl && window.DT3D?.langgraph?.renderLineage3DPipeline) {
+    window.DT3D.langgraph.renderLineage3DPipeline(pipelineEl, resp);
+  }
+  const topoPanel = document.getElementById('lineageTopologyPanel');
+  const topoBtn = document.getElementById('btnToggleTopology');
+  const topoSelect = document.getElementById('topologyGraphTypeSelect');
+  if (topoPanel) {
+    topoPanel.classList.add('hidden');
+  }
+  if (topoBtn && topoPanel) {
+    topoBtn.onclick = async () => {
+      const willOpen = topoPanel.classList.contains('hidden');
+      topoPanel.classList.toggle('hidden', !willOpen);
+      if (willOpen && window.DT3D?.langgraph?.loadAndRenderTopology) {
+        await window.DT3D.langgraph.loadAndRenderTopology(topoPanel, topoSelect?.value || 'query');
+      }
+    };
+  }
+  if (topoSelect && topoPanel) {
+    topoSelect.onchange = async () => {
+      if (!topoPanel.classList.contains('hidden') && window.DT3D?.langgraph?.loadAndRenderTopology) {
+        await window.DT3D.langgraph.loadAndRenderTopology(topoPanel, topoSelect.value || 'query');
+      }
+    };
+  }
+
   const dialog = document.getElementById('lineageDialog');
   if (dialog) dialog.showModal();
 }
@@ -3263,7 +3372,27 @@ function formatMarkdownBold(text) {
   return html;
 }
 
+const _DT_DISMISSED_INTERRUPTS = new Set();
+
+async function handleResumeInterruptSubmit(payload) {
+  const res = await apiRequest('/api/chat/query/resume', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  if (payload?.thread_id) {
+    _DT_DISMISSED_INTERRUPTS.add(payload.thread_id);
+  }
+  APP_STATE = res.state;
+  renderAllViews();
+  const stream = document.getElementById('chatMessagesStream');
+  const lastCard = stream?.querySelector('.chat-card:last-child');
+  if (lastCard) lastCard.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  showToast('Clarification applied and query resumed!');
+}
+
 function renderAllViews() {
+  window.APP_STATE = APP_STATE;
+
   try { renderGlobalTelemetry(); } catch (e) { console.error('Error rendering telemetry:', e); }
   try { renderConnectView(); } catch (e) { console.error('Error rendering connect view:', e); }
   try { renderJoinsView(); } catch (e) { console.error('Error rendering joins view:', e); }
@@ -3273,7 +3402,25 @@ function renderAllViews() {
   try { renderChatView(); } catch (e) { console.error('Error rendering chat view:', e); }
   try { if (window.loadRootCauseOptions) window.loadRootCauseOptions(true); } catch (e) {}
   try { if (window.loadWhatIfOptions) window.loadWhatIfOptions(true); } catch (e) {}
+  try { if (window.DT3D?.tilt?.refreshTiltCards) window.DT3D.tilt.refreshTiltCards(document); } catch (e) {}
+
+  // Rehydrate paused blocking_modal LangGraph interrupt after browser reload
+  const pendingInt = APP_STATE?.pending_interrupt;
+  if (
+    pendingInt &&
+    pendingInt.thread_id &&
+    !_DT_DISMISSED_INTERRUPTS.has(pendingInt.thread_id) &&
+    window.DT3D?.langgraph?.openInterruptModal
+  ) {
+    window.DT3D.langgraph.openInterruptModal(pendingInt, handleResumeInterruptSubmit);
+  }
 }
+
+window.APP_STATE = APP_STATE;
+window.renderApp = renderAllViews;
+window.renderChatView = renderChatView;
+window.submitChatQuestion = submitChatQuestion;
+window.switchView = switchView;
 
 async function loadDemoDataset() {
   showIngestionLoading(
@@ -3323,13 +3470,25 @@ async function submitChatQuestion(questionText, options = {}) {
   const trimmed = (questionText || '').trim();
   if (!trimmed) return;
   const forceRecompile = Boolean(options.force_recompile);
+  const forceHeuristic = Boolean(options.force_heuristic);
+  const hitlToggleBtn = document.getElementById('toggleHitlInterruptBtn');
+  const supToggleBtn = document.getElementById('toggleSupervisorBtn');
+  const allowInterrupts =
+    options.allow_interrupts !== undefined
+      ? Boolean(options.allow_interrupts)
+      : (hitlToggleBtn ? hitlToggleBtn.classList.contains('active') : true);
+  const useSupervisor =
+    options.use_supervisor !== undefined
+      ? Boolean(options.use_supervisor)
+      : (supToggleBtn ? supToggleBtn.classList.contains('active') : false);
 
   const stream = document.getElementById('chatMessagesStream');
   const sendBtn = document.getElementById('chatSendBtn');
   if (sendBtn) sendBtn.disabled = true;
 
-  // Insert an immediate loading skeleton card for responsive UX
+  // Insert an immediate loading + live LangGraph SSE status card
   if (stream) {
+    document.getElementById('activeChatSkeleton')?.remove();
     const skel = document.createElement('div');
     skel.id = 'activeChatSkeleton';
     skel.className = 'chat-card chat-skeleton-card';
@@ -3339,8 +3498,15 @@ async function submitChatQuestion(questionText, options = {}) {
           <span class="chat-q-avatar"><svg class="icon" style="width:14px;height:14px"><use href="#i-sparkles"/></svg></span>
           <h3 class="chat-question-title">${escapeHtml(trimmed)}</h3>
         </div>
-        <span class="meta-chip meta-chip-accent">${forceRecompile ? 'Re-compiling via AI Model…' : 'Compiling SQL &amp; DAX…'}</span>
+        <span class="meta-chip meta-chip-accent">${
+          forceHeuristic
+            ? 'Safe Heuristic Mode…'
+            : forceRecompile
+            ? 'Re-compiling via AI Model…'
+            : 'LangGraph Orchestrating…'
+        }</span>
       </div>
+      <div id="activeSseTelemetryBox"></div>
       <div class="skeleton-line" style="width:78%"></div>
       <div class="skeleton-line" style="width:52%"></div>
       <div class="skeleton-chart"></div>
@@ -3349,25 +3515,93 @@ async function submitChatQuestion(questionText, options = {}) {
     skel.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }
 
-  const revSlider = document.getElementById('revShockSlider');
-  const costSlider = document.getElementById('costShockSlider');
+  const revSlider = document.getElementById('revShockSlider') || document.getElementById('whatIfRevSlider');
+  const costSlider = document.getElementById('costShockSlider') || document.getElementById('whatIfCostSlider');
   const mainMode = document.getElementById('mainChatResponseMode')?.value || 'auto';
+  const reqBody = {
+    question: trimmed,
+    revenue_shock_pct: Number(revSlider?.value || 0),
+    cost_shock_pct: Number(costSlider?.value || 0),
+    response_mode: mainMode,
+    force_recompile: forceRecompile,
+    force_heuristic: forceHeuristic,
+    allow_interrupts: allowInterrupts,
+    use_supervisor: useSupervisor,
+  };
+
   try {
+    const sseBox = document.getElementById('activeSseTelemetryBox');
+    const sseState = {
+      stageLabel: forceRecompile ? 'Re-compiling SQL & DAX via LangGraph…' : 'Starting LangGraph state graph…',
+      nodes: [],
+      hint: null,
+    };
+
+    if (!options.disable_stream && window.DT3D?.langgraph?.streamQuestion) {
+      let interrupted = false;
+      const outcome = await window.DT3D.langgraph.streamQuestion(reqBody, {
+        onStage: (evt) => {
+          sseState.stageLabel = evt?.label || evt?.stage || sseState.stageLabel;
+          window.DT3D.langgraph.renderLiveStreamStatus(sseBox, sseState);
+        },
+        onNodeUpdate: (rec) => {
+          if (rec && rec.node) {
+            sseState.nodes.push(rec);
+            window.DT3D.langgraph.renderLiveStreamStatus(sseBox, sseState);
+          }
+        },
+        onClarificationHint: (hint) => {
+          sseState.hint = hint;
+          window.DT3D.langgraph.renderLiveStreamStatus(sseBox, sseState);
+        },
+        onInterrupt: (intData) => {
+          interrupted = true;
+          if (intData?.state) APP_STATE = intData.state;
+          window.APP_STATE = APP_STATE;
+          document.getElementById('activeChatSkeleton')?.remove();
+          window.DT3D.langgraph.openInterruptModal(intData, handleResumeInterruptSubmit);
+        },
+        onError: (diag) => {
+          window.DT3D?.errorBoundary?.showGlobalDiagnostic(diag, {
+            fallbackContext: { question: trimmed, failed_node: diag?.failed_node || 'stream_query_graph' },
+            onAction: window.DT3D?.dispatchDiagnosticRecoveryAction,
+          });
+        },
+        onComplete: (comp) => {
+          if (comp?.state) APP_STATE = comp.state;
+        },
+      });
+      document.getElementById('activeChatSkeleton')?.remove();
+      if (!interrupted && outcome?.completed) {
+        renderAllViews();
+      }
+      return;
+    }
+
     const res = await apiRequest('/api/chat/query', {
       method: 'POST',
-      body: JSON.stringify({
-        question: trimmed,
-        revenue_shock_pct: Number(revSlider?.value || 0),
-        cost_shock_pct: Number(costSlider?.value || 0),
-        response_mode: mainMode,
-        force_recompile: forceRecompile,
-      }),
+      body: JSON.stringify(reqBody),
     });
     APP_STATE = res.state;
     document.getElementById('activeChatSkeleton')?.remove();
+    if (res.entry?.interrupted && window.DT3D?.langgraph?.openInterruptModal) {
+      window.DT3D.langgraph.openInterruptModal(
+        {
+          thread_id: res.entry.thread_id,
+          question: trimmed,
+          interrupt_payload: res.entry.interrupt_payload,
+        },
+        handleResumeInterruptSubmit
+      );
+      return;
+    }
     renderAllViews();
   } catch (err) {
     document.getElementById('activeChatSkeleton')?.remove();
+    window.DT3D?.errorBoundary?.showGlobalDiagnostic(err, {
+      fallbackContext: { question: trimmed, failed_node: 'chat_submit' },
+      onAction: window.DT3D?.dispatchDiagnosticRecoveryAction,
+    });
     showToast(`Query error: ${err.message}`);
   } finally {
     if (sendBtn) sendBtn.disabled = false;
@@ -3376,6 +3610,43 @@ async function submitChatQuestion(questionText, options = {}) {
 
 document.addEventListener('DOMContentLoaded', async () => {
   initModalDialogs();
+
+  document.getElementById('toggleHitlInterruptBtn')?.addEventListener('click', (e) => {
+    e.currentTarget.classList.toggle('active');
+  });
+  document.getElementById('toggleSupervisorBtn')?.addEventListener('click', (e) => {
+    e.currentTarget.classList.toggle('active');
+  });
+
+  document.getElementById('hitlCancelBtn')?.addEventListener('click', () => {
+    const tid = document.getElementById('hitlThreadIdInput')?.value;
+    if (tid) _DT_DISMISSED_INTERRUPTS.add(tid);
+    const dlg = document.getElementById('clarificationInterruptDialog');
+    if (dlg) closeTopLayer(dlg);
+  });
+
+  document.querySelectorAll('#erModeSwitcher .er-mode-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const mode = btn.getAttribute('data-er-mode') || 'iso';
+      document.querySelectorAll('#erModeSwitcher .er-mode-btn').forEach((b) => {
+        b.classList.toggle('active', b === btn);
+      });
+      if (window.DT3D?.er3d?.setERViewMode) {
+        window.DT3D.er3d.setERViewMode(mode);
+      }
+      renderERDiagram();
+    });
+  });
+
+  window.addEventListener('dt3d:ready', () => {
+    window.APP_STATE = APP_STATE;
+    window.renderApp = renderAllViews;
+    window.renderChatView = renderChatView;
+    window.submitChatQuestion = submitChatQuestion;
+    window.switchView = switchView;
+    if (APP_STATE && ACTIVE_VIEW === 'joins') renderERDiagram();
+    if (APP_STATE && window.DT3D?.tilt?.refreshTiltCards) window.DT3D.tilt.refreshTiltCards(document);
+  });
 
   // Main Chat Response Mode Selector (Auto / Text Only / With Chart)
   document.querySelectorAll('#mainChatModeGroup .mode-pill').forEach((pill) => {
@@ -4578,6 +4849,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           <div class="segmented" role="tablist">
             ${hasFan ? `<button type="button" class="whatif-chart-tab ${ACTIVE_WHATIF_CHART === 'fan' ? 'active' : ''}" data-chart="fan">📈 Future Fan (OLS + Momentum)</button>` : ''}
             ${hasWf ? `<button type="button" class="whatif-chart-tab ${ACTIVE_WHATIF_CHART === 'waterfall' ? 'active' : ''}" data-chart="waterfall">🪜 Waterfall Bridge</button>` : ''}
+            <button type="button" class="whatif-chart-tab ${ACTIVE_WHATIF_CHART === 'surface3d' ? 'active' : ''}" data-chart="surface3d">🌐 3D Sensitivity Surface</button>
           </div>
         </div>
 
@@ -4601,6 +4873,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   function renderActiveWhatIfPlot(res) {
     const container = document.getElementById('whatIfPlotContainer');
     if (!container || !window.Plotly) return;
+
+    try { window.Plotly.purge(container); } catch (_) {}
+
+    if (ACTIVE_WHATIF_CHART === 'surface3d' && window.DT3D?.plotly3d?.renderWhatIfSurface3D) {
+      const ok3d = window.DT3D.plotly3d.renderWhatIfSurface3D(container, res, {
+        revShock: Number(document.getElementById('whatIfRevSlider')?.value || 0),
+        costShock: Number(document.getElementById('whatIfCostSlider')?.value || 0),
+        getActiveTheme,
+        applyPlotlyThemeLayout,
+        onDiagnostic: (diag) => window.DT3D?.errorBoundary?.showGlobalDiagnostic(diag),
+      });
+      if (ok3d) return;
+    }
 
     const spec = ACTIVE_WHATIF_CHART === 'waterfall' ? res.waterfall_spec : (res.fan_spec || res.waterfall_spec);
     if (!spec) return;

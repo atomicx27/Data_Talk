@@ -99,6 +99,11 @@ class RAGStore:
         with self._lock:
             conn = self._connect()
             try:
+                try:
+                    conn.execute("PRAGMA journal_mode=WAL;")
+                    conn.execute("PRAGMA synchronous=NORMAL;")
+                except sqlite3.OperationalError:
+                    pass
                 conn.execute(
                     """
                     CREATE TABLE IF NOT EXISTS rag_documents (
@@ -146,10 +151,19 @@ class RAGStore:
         """Insert or update a document in the specified RAG collection."""
         if collection not in self.COLLECTIONS:
             raise ValueError(f"Unknown RAG collection: {collection}")
-        emb = _hash_embed(content)
-        now = datetime.now(timezone.utc).isoformat()
-        meta_str = json.dumps(metadata or {}, ensure_ascii=False)
+        meta_obj = metadata or {}
+        meta_str = json.dumps(meta_obj, ensure_ascii=False)
         with self._lock:
+            cached_idx = self._cache.get(collection)
+            if cached_idx is not None:
+                try:
+                    pos = cached_idx.doc_ids.index(doc_id)
+                    if cached_idx.contents[pos] == content and cached_idx.metadata[pos] == meta_obj:
+                        return
+                except ValueError:
+                    pass
+            emb = _hash_embed(content)
+            now = datetime.now(timezone.utc).isoformat()
             conn = self._connect()
             try:
                 conn.execute(

@@ -6,9 +6,9 @@ description: Complete development context, architecture blueprint, session histo
 # Data_Talk Development Context & Agent Playbook
 
 > **Repository**: `Data_Talk`  
-> **Active Branch**: `feature/what-if-future-analysis-simulation`  
-> **Engine**: Python 3.11+ / FastAPI / DuckDB / LiteLLM / Plotly / Vanilla ES6 Modular Frontend  
-> **Test Suite**: 108 Automated Tests (`python -m pytest tests/ -q`) — 100% Passing
+> **Active Branch**: `feature/langgraph-state-engine`  
+> **Engine**: Python 3.11+ / FastAPI / LangGraph StateGraph + SupervisorGraph / DuckDB / LiteLLM / Plotly / Vanilla ES6 + 2026 3D Modules  
+> **Test Suite**: Automated Test Suite (`python -m pytest tests/ -q`) — LangGraph State Engine, Security, Simulation & Frontend Contracts
 
 ---
 
@@ -154,6 +154,22 @@ A comprehensive audit was performed using four specialized AI personas:
   - `POST /api/simulation/run`: Executes trend forecasting, shocks, and Monte Carlo runs.
   - `POST /api/simulation/goal-seek`: Solves for required driver inputs given target outcomes.
 
+### Session 11: LangGraph Multi-Agent State Engine (`v2.11.0`) & 2026 Interactive 3D Frontend Overhaul
+- **Backend LangGraph State Architecture (`src/agents/graph/`, `src/agents/compilers/`)**:
+  - Migrated `QueryAgent`, `RootCauseAgent`, and `SimulationEngine` orchestration onto a compiled 11-node LangGraph `StateGraph` (`build_query_graph`) and top-level `SupervisorGraph` (`build_supervisor_graph`), keeping `QueryAgent` as a clean backwards-compatible facade.
+  - Enforced strict Pydantic v2 serialization boundaries (`StrictStateModel` with `arbitrary_types_allowed=False, extra="forbid"`), keeping non-serializable connections/DataFrames out of `InMemorySaver` checkpointed state inside `QueryGraphContext`.
+  - Split query compilation helpers into `src/agents/compilers/` (`text_matching.py`, `deterministic_compiler.py`, `summary_and_followups.py`, `thread_analyzer.py`, `semantic_helpers.py`).
+  - Added dual clarification handling (`blocking_modal` via `langgraph.types.interrupt()` + `POST /api/chat/query/resume` with `Command(resume=...)`, and `non_blocking_inline` ambiguity hints), up to 3x `sqlglot` AST self-healing critic retries, per-node `node_telemetry` & `total_latency_ms`, and structured `ErrorDiagnostic` payloads.
+  - Exposed live SSE streaming (`POST /api/chat/query/stream`) and graph topology inspection (`GET /api/chat/graph-topology`).
+  - Enabled SQLite WAL mode (`PRAGMA journal_mode=WAL`) + noop-upsert skipping in `RAGStore` for sub-20ms Verified Memory refreshes.
+- **2026 Interactive 3D Frontend & Diagnostic UI (`frontend/modules/`)**:
+  - `spatial_tilt.js`: Delegated `requestAnimationFrame` 3D tilt + specular glare on compact bento/starter cards (respects `prefers-reduced-motion`).
+  - `error_boundary.js`: Global uncaught error / promise / WebGL context-loss boundary + structured `ErrorDiagnostic` cards with failing node badges, collapsible stack traces, and 1-click recovery actions (`retry-recompile`, `force-heuristic`, `open-joins`, `open-llm`, `open-scratchpad`).
+  - `er3d_engine.js`: `2D Blueprint`, default zero-dep CSS-3D `2.5D Isometric Stack` (drag-orbit, zoom, FACT/DIM Z-layering, animated join pulses), and lazy-loaded `3D Orbit Constellation` (`3d-force-graph@1.73.3` loaded only on click, with offline fallback).
+  - `langgraph_3d_trace.js`: Fetch `ReadableStream` SSE client, live pulsing telemetry pills, `#clarificationInterruptDialog` resume modal + reload rehydration, `#lineage3dPipeline` 3D stage plates, and live topology inspector.
+  - `plotly_3d_surfaces.js`: What-If `🌐 3D Sensitivity Surface` (`surface` + `scatter3d` scenario pin) and Chat card `scatter3d` / `surface3d` views with `Plotly.purge()` WebGL cleanup.
+  - Resolved UI defects: added missing `#i-pie`, `#i-schema`, `#i-alert-circle` SVG symbols, added `#scratchpadResultBox` inside `#scratchpadDialog`, and exposed `window.APP_STATE`, `window.renderApp`, and `window.renderChatView`.
+
 ---
 
 ## 3. Key Invariants & Rules for AI Agents Developing on This Repo
@@ -161,11 +177,11 @@ A comprehensive audit was performed using four specialized AI personas:
 When working on this repository, you **MUST** follow these core guidelines:
 
 1. **Git Branch Discipline**:
-   - Always stay on the designated feature branch (`feature/what-if-future-analysis-simulation`).
+   - Always stay on the designated feature branch (`feature/langgraph-state-engine`).
    - **NEVER touch or push directly to `main`**.
 2. **Never Break Automated Tests**:
    - Always verify changes with `python -m pytest tests/ -q`.
-   - All 108 tests must pass before committing.
+   - All tests (backend, LangGraph state/supervisor, API routes, and frontend contracts) must pass before committing.
 3. **No Artificial `LIMIT` Clauses**:
    - Grouped analytical queries must never inject artificial `LIMIT` clauses (like `LIMIT 3`) unless explicitly specified in the query prompt.
 4. **Non-Additive Metric Guardrail**:
@@ -184,7 +200,9 @@ When working on this repository, you **MUST** follow these core guidelines:
 ## 4. Key Directory & File References
 
 - **FastAPI Server Entrypoint**: [`server.py`](file:///c:/Users/pashi/Desktop/Data_Talk/server.py)
-- **Conversational BI Query Agent**: [`src/agents/query_agent.py`](file:///c:/Users/pashi/Desktop/Data_Talk/src/agents/query_agent.py)
+- **Conversational BI Query Agent Facade**: [`src/agents/query_agent.py`](file:///c:/Users/pashi/Desktop/Data_Talk/src/agents/query_agent.py)
+- **LangGraph StateGraph, Supervisor & Nodes**: [`src/agents/graph/query_graph.py`](file:///c:/Users/pashi/Desktop/Data_Talk/src/agents/graph/query_graph.py), [`src/agents/graph/supervisor_graph.py`](file:///c:/Users/pashi/Desktop/Data_Talk/src/agents/graph/supervisor_graph.py), [`src/agents/graph/state.py`](file:///c:/Users/pashi/Desktop/Data_Talk/src/agents/graph/state.py)
+- **Modular Query Compilers & Helpers**: [`src/agents/compilers/`](file:///c:/Users/pashi/Desktop/Data_Talk/src/agents/compilers/)
 - **LiteLLM Multi-Provider Router**: [`src/agents/llm_router.py`](file:///c:/Users/pashi/Desktop/Data_Talk/src/agents/llm_router.py)
 - **Simulation & Trend Forecasting Engine**: [`src/analytics/simulation_engine.py`](file:///c:/Users/pashi/Desktop/Data_Talk/src/analytics/simulation_engine.py)
 - **Simulation REST API Routes**: [`src/api/routes/simulation.py`](file:///c:/Users/pashi/Desktop/Data_Talk/src/api/routes/simulation.py)
@@ -194,5 +212,5 @@ When working on this repository, you **MUST** follow these core guidelines:
 - **Hybrid Vector + BM25 RAG Store**: [`src/knowledge/rag_store.py`](file:///c:/Users/pashi/Desktop/Data_Talk/src/knowledge/rag_store.py)
 - **AST SQL Firewall**: [`src/security/sql_firewall.py`](file:///c:/Users/pashi/Desktop/Data_Talk/src/security/sql_firewall.py)
 - **Privacy Firewall**: [`src/security/privacy_firewall.py`](file:///c:/Users/pashi/Desktop/Data_Talk/src/security/privacy_firewall.py)
-- **Frontend SPA (Vanilla ES6)**: [`frontend/app.js`](file:///c:/Users/pashi/Desktop/Data_Talk/frontend/app.js) & [`frontend/index.html`](file:///c:/Users/pashi/Desktop/Data_Talk/frontend/index.html)
-- **Automated Test Suite**: [`tests/`](file:///c:/Users/pashi/Desktop/Data_Talk/tests/) & [`tests/test_simulation_engine.py`](file:///c:/Users/pashi/Desktop/Data_Talk/tests/test_simulation_engine.py)
+- **Frontend SPA & 2026 3D Modules**: [`frontend/app.js`](file:///c:/Users/pashi/Desktop/Data_Talk/frontend/app.js), [`frontend/index.html`](file:///c:/Users/pashi/Desktop/Data_Talk/frontend/index.html), & [`frontend/modules/`](file:///c:/Users/pashi/Desktop/Data_Talk/frontend/modules/)
+- **Automated Test Suite**: [`tests/`](file:///c:/Users/pashi/Desktop/Data_Talk/tests/), [`tests/test_langgraph_engine.py`](file:///c:/Users/pashi/Desktop/Data_Talk/tests/test_langgraph_engine.py), & [`tests/test_frontend_e2e.py`](file:///c:/Users/pashi/Desktop/Data_Talk/tests/test_frontend_e2e.py)

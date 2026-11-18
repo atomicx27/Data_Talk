@@ -90,7 +90,11 @@ def get_simulation_options(
         "domain_title": ws.domain_title or "General Business",
         "metrics": metrics,
         "presets": presets,
-        "active_levers": session.what_if_overrides.get(ws_id, {}),
+        "active_levers": {
+            k: round(float(v) * 100.0, 4)
+            for k, v in session.what_if_overrides.get(ws_id, {}).items()
+            if abs(float(v)) > 1e-9
+        },
     }
 
 
@@ -105,14 +109,19 @@ def run_simulation(
     ws = runtime.get_workspace(ws_id)
     conn = runtime.get_connector(ws_id)
 
-    # Merge request levers
+    # Merge request levers (stored in session.what_if_overrides strictly as non-zero decimal ratios)
     levers = dict(req.levers)
     if req.revenue_shock_pct != 0.0:
         levers["Revenue Multiplier %"] = req.revenue_shock_pct
     if req.cost_shock_pct != 0.0:
         levers["Cost Multiplier %"] = req.cost_shock_pct
 
-    session.what_if_overrides[ws_id] = levers
+    normalized_decimal_levers = {
+        k: float(v) / 100.0
+        for k, v in levers.items()
+        if abs(float(v)) > 1e-9
+    }
+    session.what_if_overrides[ws_id] = normalized_decimal_levers
 
     sim_res = SimulationEngine.simulate_workspace_kpis(
         workspace=ws,

@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import threading
 import time
+import uuid
 from collections import OrderedDict
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -20,6 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from src.agents.graph.query_graph import build_default_checkpointer
 from src.agents.interviewer_agent import InterviewerAgent
 from src.agents.knowledge_enricher import BusinessKnowledgeEnricher
 from src.agents.llm_router import LLMRouter
@@ -52,6 +54,8 @@ class SessionState:
     active_workspace_id: str = DEFAULT_WORKSPACE_ID
     chat_history: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     what_if_overrides: dict[str, dict[str, float]] = field(default_factory=dict)
+    langgraph_threads: dict[str, str] = field(default_factory=dict)
+    pending_interrupts: dict[str, dict[str, Any]] = field(default_factory=dict)
     llm_router: LLMRouter = field(default_factory=_new_llm_router)
     last_seen: float = field(default_factory=time.monotonic)
 
@@ -76,9 +80,28 @@ class AppRuntime:
         self.default_workspace_id = default_workspace_id
         self.connectors: dict[str, BaseConnector] = {}
         self.rag_stores: dict[str, RAGStore] = {}
+        self.checkpointer = build_default_checkpointer()
         self._sessions: OrderedDict[str, SessionState] = OrderedDict()
         self._state_lock = threading.RLock()
         self._ws_locks: dict[str, threading.RLock] = {}
+
+    def allocate_thread_id(
+        self,
+        session: SessionState,
+        ws_id: str,
+        scope: str = "chat",
+        explicit_thread_id: str | None = None,
+    ) -> str:
+        """Allocate a collision-free namespaced LangGraph thread_id per session/workspace/scope."""
+        if explicit_thread_id and explicit_thread_id.strip():
+            return explicit_thread_id.strip()
+        pending = session.pending_interrupts.get(ws_id)
+        if pending and pending.get("thread_id"):
+            return str(pending["thread_id"])
+        run_id = uuid.uuid4().hex[:12]
+        tid = f"{session.session_id}:{ws_id}:{scope}:{run_id}"
+        session.langgraph_threads[f"{ws_id}:{scope}"] = tid
+        return tid
 
     # ------------------------------------------------------------------ sessions
     def get_session(self, session_id: str) -> SessionState:
@@ -195,11 +218,13 @@ class AppRuntime:
                     sess.active_workspace_id = fallback_ws
                     sess.chat_history.pop(ws_id, None)
                     sess.what_if_overrides.pop(ws_id, None)
+                    sess.pending_interrupts.pop(ws_id, None)
 
             if session and session.active_workspace_id == ws_id:
                 session.active_workspace_id = fallback_ws
                 session.chat_history.pop(ws_id, None)
                 session.what_if_overrides.pop(ws_id, None)
+                session.pending_interrupts.pop(ws_id, None)
 
             # Ensure the fallback workspace exists in OKF
             self.get_workspace(fallback_ws)
@@ -265,4 +290,7 @@ class AppRuntime:
             "chat_history": session.chat_history.get(ws_id, []),
             "what_if_overrides": session.what_if_overrides.get(ws_id, dict(DEFAULT_WHAT_IF)),
             "audit_log": router.firewall.audit_log[-25:],
+            "langgraph_enabled": True,
+            "checkpointer_mode": "in_memory",
+            "pending_interrupt": session.pending_interrupts.get(ws_id),
         }

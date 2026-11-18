@@ -184,8 +184,12 @@ def simulate_dashboard(
         levers["Cost Multiplier %"] = req.cost_shock_pct
 
     session.what_if_overrides[ws_id] = {
-        "Revenue Multiplier %": req.revenue_shock_pct / 100.0,
-        "Cost Multiplier %": req.cost_shock_pct / 100.0,
+        k: v
+        for k, v in {
+            "Revenue Multiplier %": req.revenue_shock_pct / 100.0,
+            "Cost Multiplier %": req.cost_shock_pct / 100.0,
+        }.items()
+        if abs(v) > 1e-9
     }
 
     sim_res = SimulationEngine.simulate_workspace_kpis(

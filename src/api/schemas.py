@@ -123,6 +123,17 @@ class ChatQueryRequest(BaseModel):
     cost_shock_pct: float = 0.0
     response_mode: str = "auto"  # auto | text_only | with_chart
     force_recompile: bool = False
+    allow_interrupts: bool = False
+    thread_id: str | None = None
+    use_supervisor: bool = False
+    force_heuristic: bool = False
+
+
+class ChatQueryResumeRequest(BaseModel):
+    thread_id: str = Field(..., min_length=1, max_length=256)
+    answer: str = Field(..., min_length=1, max_length=2000)
+    save_rule: bool = True
+    question_id: str | None = None
 
 
 class ChartThreadQueryRequest(BaseModel):

@@ -1,6 +1,6 @@
-# Data_Talk Enterprise BI (`v2.10.0`)
+# Data_Talk Enterprise BI (`v2.11.0`)
 
-**Governed Conversational Business Intelligence, Semantic Layer Studio, Multi-Database Federation, Multi-Fact Comparison Engine & Bidirectional DAX $\leftrightarrow$ SQL Compiler**
+**Governed Conversational Business Intelligence, LangGraph Multi-Agent State Engine, 2026 Interactive 3D Semantic & Analytics UI, Multi-Database Federation, and Bidirectional DAX $\leftrightarrow$ SQL Compiler**
 
 Data_Talk is a production-ready, zero-login enterprise conversational BI platform that connects to **multiple simultaneous SQL databases** (`PostgreSQL`, `MySQL`, `SQLite`, `DuckDB`, `SQL Server`), **CSV / Excel / Parquet files**, and **Power BI Semantic Models** (`.pbix` schemas, Power BI Desktop Localhost XMLA, and Power BI Cloud XMLA).
 
@@ -66,6 +66,11 @@ Unlike generic "Text-to-SQL" wrappers that hallucinate on massive or cryptic sch
   - **Goal Seek & Reverse Optimization**: Solves for required driver inputs given target outcomes (e.g. *"What enrollment fee or discount is required to hit $2.5M revenue?"*) using a robust, pure Python/NumPy hybrid false-position root finder with zero heavy C++ dependencies.
   - **Domain-Agnostic & Polarity-Aware**: Evaluates both financial and non-financial domains (Higher Education, Healthcare, Manufacturing, SaaS, HR) with target polarity guidance (higher-is-better vs. lower-is-better).
   - **Multi-Source Support**: Evaluates models across SQL databases (PostgreSQL, MySQL, SQL Server), Flat Files (Excel, CSV, Parquet), and Power BI semantic models without vendor lock-in.
+- **12. LangGraph Multi-Agent State Engine & 2026 Interactive 3D Frontend (`v2.11.0`)**
+  - **11-Node Query StateGraph & Supervisor Router**: Stateful Pydantic v2 orchestration (`src/agents/graph/`) with deterministic compilation, `sqlglot` AST self-healing critic loop (up to 3 retries), SQLite WAL Verified Query fast-path, and intent routing across BI Queries, Root-Cause Decomposition, and Simulation.
+  - **Live SSE Streaming & Dual HITL Clarifications**: Real-time node telemetry pills via `POST /api/chat/query/stream`, non-blocking inline ambiguity banners, and resumable `blocking_modal` LangGraph interrupts (`POST /api/chat/query/resume` via `Command(resume=...)`) with browser-reload rehydration.
+  - **2026 Interactive 3D Visuals & ER Constellation**: Zero-dependency CSS-3D **2.5D Isometric Stack** ER viewer (drag-orbit, zoom, FACT/DIM depth strata, animated join paths), lazy-loaded WebGL **3D Orbit Constellation**, Plotly **3D Sensitivity Surface** in What-If Drawer, and **3D Scatter / 3D Surface** chat charts with `Plotly.purge()` WebGL cleanup.
+  - **End-to-End Structured Error Diagnostics**: Global error/WebGL boundary paired with actionable diagnostic cards displaying error codes, failing LangGraph node badges, collapsible stack traces, and 1-click recovery actions.
 
 ---
 
@@ -147,7 +152,10 @@ All security settings can be customized via `.env` or container environment vari
 | `POST` | `/api/interview/add-rule` | Adds custom business definitions and SQL filter hints |
 | `POST` | `/api/measures/create` | Compiles, verifies, and persists bidirectional DAX $\leftrightarrow$ SQL measures |
 | `POST` | `/api/measures/calculated-column` | Compiles and validates calculated column expressions |
-| `POST` | `/api/chat/query` | Executes governed conversational BI query with self-healing retry loop |
+| `POST` | `/api/chat/query` | Executes governed conversational BI query through the LangGraph StateGraph / Supervisor |
+| `POST` | `/api/chat/query/stream` | Streams real-time LangGraph SSE stage/node telemetry, hints, interrupts & completion |
+| `POST` | `/api/chat/query/resume` | Resumes a paused `blocking_modal` HITL clarification interrupt via `Command(resume=...)` |
+| `GET` | `/api/chat/graph-topology` | Returns live compiled LangGraph nodes, conditional edges, Checkpointer mode & Mermaid spec |
 | `POST` | `/api/chat/chart` | Generates Plotly visualization for arbitrary tabular rows |
 | `POST` | `/api/chat/teach` | Learns human corrective feedback into the business rule RAG store |
 | `POST` | `/api/chat/clear` | Clears chat history for the current session workspace |
@@ -170,7 +178,7 @@ All security settings can be customized via `.env` or container environment vari
 
 ## 🧪 Automated Testing & CI
 
-Run the complete 101-test automated test suite:
+Run the complete automated test suite:
 
 ```bash
 # Run all tests
