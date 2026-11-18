@@ -1049,8 +1049,9 @@ function renderERDiagram() {
     return;
   }
 
-  if (window.DT3D?.er3d?.render) {
-    const handled = window.DT3D.er3d.render(viewport, {
+  const erRenderFn = window.DT3D?.er3d?.render || window.DT3D?.er3d?.renderER;
+  if (erRenderFn) {
+    const handled = erRenderFn(viewport, {
       tables: allTables,
       relationships: rels,
       focalTable: FOCAL_TABLE_FILTER,
@@ -1163,13 +1164,15 @@ function renderERDiagram() {
         .join('');
 
       const srcTag = table.source_name || (table.source_id && table.source_id !== 'default' ? table.source_id : '');
-      const tableLabel = srcTag ? `${table.name} [${srcTag}]` : table.name;
+      const shortSrc = srcTag.length > 12 ? `${srcTag.slice(0, 11)}…` : srcTag;
+      const shortRole = table.table_role === 'DIMENSION' ? 'DIM' : table.table_role;
+      const tableLabel = shortSrc ? `${table.name} [${shortSrc}]` : table.name;
 
       return `
         <g class="er-node" data-table="${escapeHtml(table.name)}" style="cursor:pointer;">
           <rect x="${x}" y="${y}" width="${cardW}" height="${cardH}" rx="10" fill="${nodeBg}" stroke="${nodeStroke}" stroke-width="1.2" />
           <rect x="${x}" y="${y}" width="${cardW}" height="28" rx="10" fill="${headerColor}" />
-          <text x="${x + 12}" y="${y + 18}" fill="#ffffff" font-family="Inter" font-size="11.5" font-weight="700">${escapeHtml(tableLabel)} · ${escapeHtml(table.table_role)}</text>
+          <text x="${x + 12}" y="${y + 18}" fill="#ffffff" font-family="Inter" font-size="11.5" font-weight="700">${escapeHtml(tableLabel)} · ${escapeHtml(shortRole)}</text>
           <text x="${x + cardW - 10}" y="${y + 18}" text-anchor="end" fill="rgba(255,255,255,0.85)" font-family="JetBrains Mono" font-size="9.5">${Number(table.row_count || 0).toLocaleString()}r</text>
           ${colLines}
         </g>

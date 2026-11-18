@@ -87,7 +87,7 @@ class RAGStore:
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = self.workspace_dir / "rag_memory.sqlite"
         self._lock = threading.RLock()
-        self._cache: dict[str, _CollectionIndex] = {}
+        self._cache: dict[str, _CollectionIndex | None] = {}
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
@@ -203,9 +203,8 @@ class RAGStore:
 
     def _get_index(self, collection: str) -> _CollectionIndex | None:
         with self._lock:
-            cached = self._cache.get(collection)
-            if cached is not None:
-                return cached
+            if collection in self._cache:
+                return self._cache[collection]
             conn = self._connect()
             try:
                 rows = conn.execute(
@@ -216,6 +215,7 @@ class RAGStore:
             finally:
                 conn.close()
             if not rows:
+                self._cache[collection] = None
                 return None
 
             vectors = []

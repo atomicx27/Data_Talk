@@ -215,6 +215,7 @@ export function renderWhatIfSurface3D(container, res, options = {}) {
   purgeContainer(container);
   attachWebGLHandler(container, options.onDiagnostic);
 
+  const isAtBaseline = revShock === 0 && costShock === 0;
   const traces = [
     {
       type: 'surface',
@@ -229,13 +230,13 @@ export function renderWhatIfSurface3D(container, res, options = {}) {
     },
     {
       type: 'scatter3d',
-      mode: 'markers+text',
+      mode: isAtBaseline ? 'markers' : 'markers+text',
       name: 'Baseline (0%, 0%)',
       x: [0],
       y: [0],
       z: [baseZ],
-      text: ['Baseline'],
-      textposition: 'top center',
+      text: isAtBaseline ? undefined : ['Baseline'],
+      textposition: 'bottom center',
       marker: { size: 6, color: '#94a3b8' },
     },
     {
@@ -245,7 +246,11 @@ export function renderWhatIfSurface3D(container, res, options = {}) {
       x: [revShock],
       y: [costShock],
       z: [activeSimZ],
-      text: [`Selected (${revShock >= 0 ? '+' : ''}${revShock}%, ${costShock >= 0 ? '+' : ''}${costShock}%)`],
+      text: [
+        isAtBaseline
+          ? 'Baseline (0%, 0%)'
+          : `Selected (${revShock >= 0 ? '+' : ''}${revShock}%, ${costShock >= 0 ? '+' : ''}${costShock}%)`,
+      ],
       textposition: 'top center',
       marker: { size: 9, color: '#10b981', line: { width: 2, color: '#ffffff' } },
     },
@@ -256,16 +261,18 @@ export function renderWhatIfSurface3D(container, res, options = {}) {
       text: `3D Sensitivity Manifold (${res?.target_metric || 'Projected Outcome'})`,
       font: { size: 13 },
     },
-    margin: { t: 38, r: 10, b: 10, l: 10 },
-    height: 300,
+    margin: { t: 40, r: 24, b: 28, l: 24 },
+    height: 360,
     uirevision: 'whatif-surface3d',
     showlegend: false,
     scene: {
       bgcolor: 'rgba(0,0,0,0)',
-      xaxis: { title: 'Rev Shock %', color: axisColor, gridcolor: gridColor },
-      yaxis: { title: 'Cost Shock %', color: axisColor, gridcolor: gridColor },
-      zaxis: { title: hasCostTerm ? 'Projected Net' : 'Projected Value', color: axisColor, gridcolor: gridColor },
-      camera: { eye: { x: 1.55, y: 1.45, z: 1.15 } },
+      aspectmode: 'manual',
+      aspectratio: { x: 1, y: 1, z: 0.78 },
+      xaxis: { title: 'Rev Δ%', color: axisColor, gridcolor: gridColor },
+      yaxis: { title: 'Cost Δ%', color: axisColor, gridcolor: gridColor },
+      zaxis: { title: hasCostTerm ? 'Projected Net' : 'Outcome', color: axisColor, gridcolor: gridColor },
+      camera: { eye: { x: 2.1, y: 1.75, z: 1.38 } },
     },
   });
 

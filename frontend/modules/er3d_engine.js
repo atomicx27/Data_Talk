@@ -411,3 +411,5 @@ export function renderER(viewport, ctx) {
   renderIsoStack(viewport, ctx);
   return true;
 }
+
+export { renderER as render };

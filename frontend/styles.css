@@ -4228,3 +4228,53 @@ dialog.modal-dialog.modal-split-thread,
     transform: none !important;
   }
 }
+
+
+/* ============================================================================
+   LAYOUT & TOPBAR / COMPOSER POLISH (E2E REGRESSION FIXES)
+   ============================================================================ */
+.topbar-left {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.breadcrumb {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.topbar-meta {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.topbar-right {
+  flex-shrink: 0;
+}
+
+.composer-hint {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.response-mode-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+
+.mode-pill {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+@media (max-width: 1360px) {
+  #headerDomainBadge {
+    display: none !important;
+  }
+}

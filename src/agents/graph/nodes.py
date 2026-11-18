@@ -589,7 +589,6 @@ def retrieve_okf_and_rag(state: QueryGraphState, config: RunnableConfig) -> dict
                 if not is_conflicted:
                     target_tables.append(t_inh)
 
-    raw_join_plan = ctx.okf_store.get_join_plan(ctx.workspace, target_tables)
     matched_measures = match_measures(state.resolved_question, ctx.workspace)
     for m in matched_measures:
         for mt in m.involved_tables:
@@ -597,8 +596,7 @@ def retrieve_okf_and_rag(state: QueryGraphState, config: RunnableConfig) -> dict
                 target_tables.append(mt)
 
     out_of_domain = bool(not target_tables and not matched_measures and ctx.workspace.active_tables())
-    if not out_of_domain and len(target_tables) > len(raw_join_plan.required_tables):
-        raw_join_plan = ctx.okf_store.get_join_plan(ctx.workspace, target_tables)
+    raw_join_plan = ctx.okf_store.get_join_plan(ctx.workspace, target_tables)
 
     applied_rules = [
         f"{r.term}: {r.definition}" + (f" [Filter: {r.sql_filter_hint}]" if r.sql_filter_hint else "")

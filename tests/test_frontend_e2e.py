@@ -78,6 +78,10 @@ def test_frontend_app_js_contracts() -> None:
     assert ".dt-diag-card" in styles_css
     assert ".er3d-iso-plane" in styles_css
 
+    er3d_js = (modules_dir / "er3d_engine.js").read_text(encoding="utf-8")
+    assert "export function renderER" in er3d_js
+    assert "export { renderER as render }" in er3d_js
+
     import shutil
     import subprocess
 
