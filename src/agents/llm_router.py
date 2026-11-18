@@ -177,8 +177,8 @@ class LLMRouter:
         system_prompt: str,
         user_prompt: str,
         temperature: float = 0.0,
-    ) -> dict[str, Any]:
-        """Request a JSON object from LiteLLM and parse it reliably."""
+    ) -> dict[str, Any] | list[Any]:
+        """Request a JSON object or array from LiteLLM and parse it reliably."""
         raw_text = self.complete(
             purpose=purpose,
             system_prompt=system_prompt + "\nReturn ONLY valid JSON with no markdown prose.",
@@ -187,8 +187,13 @@ class LLMRouter:
         )
         cleaned = re.sub(r"^```(?:json)?\s*", "", raw_text.strip(), flags=re.IGNORECASE)
         cleaned = re.sub(r"\s*```$", "", cleaned.strip())
-        start = cleaned.find("{")
-        end = cleaned.rfind("}")
-        if start != -1 and end != -1 and end > start:
-            cleaned = cleaned[start : end + 1]
+        obj_start, arr_start = cleaned.find("{"), cleaned.find("[")
+        if arr_start != -1 and (obj_start == -1 or arr_start < obj_start):
+            end = cleaned.rfind("]")
+            if end != -1 and end > arr_start:
+                cleaned = cleaned[arr_start : end + 1]
+        elif obj_start != -1:
+            end = cleaned.rfind("}")
+            if end != -1 and end > obj_start:
+                cleaned = cleaned[obj_start : end + 1]
         return json.loads(cleaned)

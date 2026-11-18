@@ -126,12 +126,9 @@ class PromptManager:
         if not template:
             return ""
 
-        # Replace known {var_name} patterns while ignoring raw json like {"sql_query": "..."}
-        result = template
-        for k, v in kwargs.items():
-            pattern = re.compile(rf"\{{{re.escape(k)}\}}")
-            result = pattern.sub(lambda _: str(v), result)
-        return result
+        # Single-pass regex substitution so values containing {braces} are never re-interpolated.
+        pattern = re.compile(r"\{([a-zA-Z0-9_]+)\}")
+        return pattern.sub(lambda m: str(kwargs[m.group(1)]) if m.group(1) in kwargs else m.group(0), template)
 
     @classmethod
     def render(

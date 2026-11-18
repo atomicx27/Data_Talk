@@ -253,7 +253,8 @@
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
     }
 
     function formatMarkdownBold(text) {
@@ -301,7 +302,7 @@
 
       // 2. Fallback to API
       try {
-        const res = await fetch('/api/system/state', { credentials: 'include' });
+        const res = await fetch('/api/state', { credentials: 'include' });
         if (res.ok) {
           const state = await res.json();
           const hist = state.chat_history || [];
